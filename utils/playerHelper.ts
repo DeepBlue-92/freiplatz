@@ -1,5 +1,5 @@
-import { User, Person, DynamicLeague, LeaguePlayer } from '../types';
-import { LeaguePointConfig, applyDecay } from '../services/leagueEngine';
+import type { User, Person, DynamicLeague, LeaguePlayer } from '../types.ts';
+import { type LeaguePointConfig, applyDecay } from '../services/leagueEngine.ts';
 
 /**
  * Checks if a string looks like a raw, cryptic UID or internal hash
@@ -43,16 +43,16 @@ export function resolvePlayerDisplayName(
   fallbackEmailOrId?: string
 ): string {
   if (user) {
-    // 1. displayName or klarname
-    const explicitDisplay = ((user as any).displayName || user.klarname || '').trim();
-    if (explicitDisplay && !isRawUid(explicitDisplay) && explicitDisplay !== user.id) {
-      return explicitDisplay;
-    }
-
-    // 2. firstName + lastName
+    // 1. firstName + lastName (real name from profile)
     const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
     if (fullName) {
       return fullName;
+    }
+
+    // 2. displayName or klarname
+    const explicitDisplay = ((user as any).displayName || user.klarname || '').trim();
+    if (explicitDisplay && !isRawUid(explicitDisplay) && explicitDisplay !== user.id) {
+      return explicitDisplay;
     }
 
     // 3. Check user.name (if not a raw UID)

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Role } from "../types";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   onClose: () => void;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreated }: Props) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     username: "",
     firstName: "",
@@ -21,6 +23,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
     phone: "",
     gender: "m",
     birthDate: "",
+    language: "de" as "de" | "en",
     showContactInfo: true,
     clubAssignments: {} as Record<string, Role>,
     mustChangePassword: true,
@@ -96,6 +99,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
         lastName: lastName,
         gender: form.gender,
         birthDate: form.birthDate || null,
+        language: form.language || "de",
         showContactInfo: form.showContactInfo,
         role: backendRole,
         tenantId: primaryTenant,
@@ -153,15 +157,15 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
       >
         <div className="flex justify-between items-center mb-6 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#1b4332] font-bold text-lg shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#e47726] font-bold text-lg shrink-0">
               <i className="fa-solid fa-user-plus"></i>
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-black text-slate-800 uppercase tracking-tight">
-                Neuen Benutzer anlegen
+                {t("superadmin.modalCreateUserTitle")}
               </h2>
               <p className="text-xs text-slate-500 font-medium">
-                Erstelle ein neues Benutzerkonto und weise Vereine zu.
+                {t("superadmin.modalCreateUserSubtitle")}
               </p>
             </div>
           </div>
@@ -169,7 +173,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
             type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-700 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
-            title="Schließen"
+            title={t("common.close")}
           >
             <i className="fa-solid fa-xmark text-xl"></i>
           </button>
@@ -186,51 +190,51 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
           {/* 1. PERSÖNLICHE DATEN */}
           <div className="space-y-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-              1. Persönliche Daten
+              {t("superadmin.sectionPersonalData")}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Vorname <span className="text-red-500">*</span>
+                  {t("superadmin.firstName")} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={form.firstName}
                   onChange={(e) => setForm({ ...form, firstName: e.target.value })}
                   className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
-                  placeholder="Vorname"
+                  placeholder={t("superadmin.firstName")}
                 />
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Nachname <span className="text-red-500">*</span>
+                  {t("superadmin.lastName")} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={form.lastName}
                   onChange={(e) => setForm({ ...form, lastName: e.target.value })}
                   className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
-                  placeholder="Nachname"
+                  placeholder={t("superadmin.lastName")}
                 />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Geschlecht
+                  {t("superadmin.gender")}
                 </label>
                 <select
                   value={form.gender}
                   onChange={(e) => setForm({ ...form, gender: e.target.value })}
                   className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none appearance-none cursor-pointer font-sans font-medium"
                 >
-                  <option value="m">männlich</option>
-                  <option value="w">weiblich</option>
+                  <option value="m">{t("superadmin.genderMale")}</option>
+                  <option value="w">{t("superadmin.genderFemale")}</option>
                 </select>
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Geburtsdatum
+                  {t("superadmin.birthDate")}
                 </label>
                 <input
                   type="date"
@@ -246,18 +250,31 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                   className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none font-sans font-medium"
                 />
               </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
+                  {t("common.language")}
+                </label>
+                <select
+                  value={form.language}
+                  onChange={(e) => setForm({ ...form, language: e.target.value as "de" | "en" })}
+                  className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none font-sans font-medium cursor-pointer"
+                >
+                  <option value="de">Deutsch (DE)</option>
+                  <option value="en">English (EN)</option>
+                </select>
+              </div>
             </div>
           </div>
 
           {/* 2. KONTAKTINFORMATIONEN */}
           <div className="space-y-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-              2. Kontaktinformationen
+              {t("superadmin.sectionContactInfo")}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  E-Mail-Adresse <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                  {t("common.email")} <span className="text-slate-400 font-normal normal-case">({t("superadmin.phoneOptional").includes("optional") ? "optional" : "optional"})</span>
                 </label>
                 <input
                   type="email"
@@ -269,7 +286,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Telefonnummer <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                  {t("superadmin.phoneOptional")}
                 </label>
                 <input
                   type="tel"
@@ -285,11 +302,11 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
           {/* 3. ZUGANGSDATEN & PASSWORT */}
           <div className="space-y-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-              3. Zugangsdaten & Passwort
+              {t("superadmin.sectionCredentials")}
             </h3>
             <div>
               <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                Benutzername <span className="text-red-500">*</span>
+                {t("superadmin.username")} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -303,7 +320,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Passwort <span className="text-red-500">*</span>
+                  {t("superadmin.password")} <span className="text-red-500">*</span>
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -311,7 +328,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value, mustChangePassword: false })}
                     className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none font-mono placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
-                    placeholder="Passwort..."
+                    placeholder={`${t("superadmin.password")}...`}
                     required
                   />
                   <button
@@ -325,7 +342,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                       setForm({ ...form, password: pwd, passwordConfirm: pwd, mustChangePassword: true });
                     }}
                     className="px-4 py-2.5 bg-[var(--color-primary)]/10 text-[var(--color-primary)] rounded-xl hover:bg-[var(--color-primary)]/20 transition-colors font-bold text-xs shrink-0 flex items-center justify-center cursor-pointer"
-                    title="Passwort generieren"
+                    title={t("superadmin.generatePasswordTooltip")}
                   >
                     <i className="fa-solid fa-key"></i>
                   </button>
@@ -333,14 +350,14 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5">
-                  Passwort bestätigen <span className="text-red-500">*</span>
+                  {t("superadmin.passwordConfirm")} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={form.passwordConfirm}
                   onChange={(e) => setForm({ ...form, passwordConfirm: e.target.value })}
                   className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-slate-50 focus:border-[var(--color-primary)] focus:bg-white transition-all text-sm outline-none font-mono placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
-                  placeholder="Passwort wiederholen..."
+                  placeholder={`${t("superadmin.passwordConfirm")}...`}
                   required
                 />
               </div>
@@ -350,7 +367,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
           {/* 4. PRIVATSPHÄRE & APP-ANZEIGE */}
           <div className="space-y-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-              4. Privatsphäre & App-Anzeige
+              {t("superadmin.sectionPrivacy")}
             </h3>
             <div className="space-y-3">
               <label className="flex items-center gap-3 cursor-pointer group">
@@ -358,10 +375,10 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                   type="checkbox"
                   checked={form.showContactInfo}
                   onChange={(e) => setForm({ ...form, showContactInfo: e.target.checked })}
-                  className="w-4 h-4 rounded text-[#1b4332] focus:ring-[#1b4332] accent-[#1b4332] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-4 h-4 rounded text-[#e47726] focus:ring-[#e47726] accent-[#e47726] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <span className="text-sm font-bold text-slate-700 group-hover:text-slate-900">
-                  Kontaktdaten freigeben (E-Mail / Telefon in Börse anzeigen)
+                  {t("superadmin.shareContactInfoLabel")}
                 </span>
               </label>
             </div>
@@ -370,7 +387,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
           {/* 5. VEREINS- & ROLLENZUORDNUNG */}
           <div className="space-y-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-              5. Vereine & Rollen <span className="text-red-500">*</span>
+              {t("superadmin.sectionClubsRoles")} <span className="text-red-500">*</span>
             </h3>
             <div className="grid grid-cols-1 gap-3 max-h-60 overflow-y-auto p-1">
               {clubs.map((c) => {
@@ -380,7 +397,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                     key={c.vereinsId}
                     className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border-2 transition-all ${
                       isSelected
-                        ? "border-[#1b4332] bg-[#1b4332]/5 shadow-2xs"
+                        ? "border-[#e47726] bg-[#e47726]/5 shadow-2xs"
                         : "border-slate-200 bg-slate-50/50 hover:border-slate-300"
                     }`}
                   >
@@ -389,7 +406,7 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => toggleClub(c.vereinsId)}
-                        className="w-4 h-4 accent-[#1b4332] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                        className="w-4 h-4 accent-[#e47726] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                       />
                       <span className="text-sm font-bold text-slate-700 truncate">
                         {c.vereinsName || c.name || c.vereinsId}
@@ -407,10 +424,10 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
                               [c.vereinsId]: e.target.value as Role
                             }
                           })}
-                          className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#1b4332] focus:ring-1 focus:ring-[#1b4332] font-sans font-medium"
+                          className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#e47726] focus:ring-1 focus:ring-[#e47726] font-sans font-medium"
                         >
-                          <option value={Role.MITGLIED}>Spieler (Standard)</option>
-                          <option value={Role.ADMIN}>Vereinsadmin</option>
+                          <option value={Role.MITGLIED}>{t("superadmin.roleMemberPlayer")}</option>
+                          <option value={Role.ADMIN}>{t("superadmin.roleClubAdmin")}</option>
                         </select>
                       </div>
                     )}
@@ -427,19 +444,19 @@ export default function SuperAdminCreateUserModal({ onClose, clubs, onUserCreate
               onClick={onClose}
               className="px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
             >
-              Abbrechen
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider text-white bg-[#1b4332] hover:bg-emerald-900 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              className="px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider text-white bg-[#e47726] hover:bg-[#c8631b] shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
             >
               {loading ? (
                 <i className="fa-solid fa-spinner fa-spin"></i>
               ) : (
                 <i className="fa-solid fa-check"></i>
               )}
-              Benutzer erstellen
+              {t("superadmin.createUserBtn")}
             </button>
           </div>
         </form>

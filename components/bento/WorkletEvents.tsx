@@ -28,12 +28,23 @@ export const WorkletEvents: React.FC<WorkletEventsProps> = ({
     return tournaments
       .filter((t) => !t.date || t.date >= todayStr)
       .sort((a, b) => {
-        if (!a.date && !b.date) return 0;
+        if (!a.date && !b.date) {
+          return (a.title || "").localeCompare(b.title || "", "de", { sensitivity: "base" });
+        }
         if (!a.date) return 1;
         if (!b.date) return -1;
+
         const c = a.date.localeCompare(b.date);
         if (c !== 0) return c;
-        return (a.startTime || "").localeCompare(b.startTime || "");
+
+        if (a.startTime && !b.startTime) return -1;
+        if (!a.startTime && b.startTime) return 1;
+        if (a.startTime && b.startTime) {
+          const timeCmp = a.startTime.localeCompare(b.startTime);
+          if (timeCmp !== 0) return timeCmp;
+        }
+
+        return (a.title || "").localeCompare(b.title || "", "de", { sensitivity: "base" });
       })
       .slice(0, 4);
   }, [tournaments, todayStr]);

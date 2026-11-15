@@ -1,4 +1,5 @@
 import React, { useState, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   GripVertical,
   Plus,
@@ -31,6 +32,7 @@ import {
   validateFeeSettings,
   describeAction,
 } from '../../utils/guestFeeCalculator';
+import { EuroAmountInput } from './EuroAmountInput';
 
 interface GuestFeeSettingsEditorProps {
   feeSettings: ClubFeeSettings;
@@ -43,11 +45,13 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
   onChange,
   onValidationChange,
 }) => {
+  const { t } = useTranslation();
   const [showModeSwitchModal, setShowModeSwitchModal] = useState(false);
   const [draggedRuleIndex, setDraggedRuleIndex] = useState<number | null>(null);
 
   // Mini simulation state
-  const [simGuests, setSimGuests] = useState(1);
+  const [simAdultGuests, setSimAdultGuests] = useState(1);
+  const [simYouthGuests, setSimYouthGuests] = useState(0);
   const [simMembers, setSimMembers] = useState(1);
   const [simDuration, setSimDuration] = useState(60);
 
@@ -90,15 +94,22 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
     amount_cents: 250,
   };
 
-  const handleSimpleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(',', '.');
-    const parsed = parseFloat(raw);
-    const amount_cents = isNaN(parsed) ? 0 : Math.round(parsed * 100);
+  const handleSimpleAmountCentsChange = (amount_cents: number | null) => {
     onChange({
       ...feeSettings,
       simple_config: {
         ...simpleConfig,
-        amount_cents,
+        amount_cents: amount_cents ?? 0,
+      },
+    });
+  };
+
+  const handleSimpleYouthAmountCentsChange = (youth_amount_cents: number | null) => {
+    onChange({
+      ...feeSettings,
+      simple_config: {
+        ...simpleConfig,
+        youth_amount_cents,
       },
     });
   };
@@ -110,6 +121,22 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
         ...simpleConfig,
         rate_type: rate_type as any,
       },
+    });
+  };
+
+  const handleYouthAgeThresholdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.trim();
+    if (raw === '') {
+      onChange({
+        ...feeSettings,
+        youth_age_threshold: undefined,
+      });
+      return;
+    }
+    const parsed = parseInt(raw, 10);
+    onChange({
+      ...feeSettings,
+      youth_age_threshold: isNaN(parsed) ? 18 : Math.max(1, Math.min(99, parsed)),
     });
   };
 
@@ -278,10 +305,15 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
   };
 
   // Simulation run
+  const simGuestsTotal = simAdultGuests + simYouthGuests;
   const simContext: BookingFeeContext = {
-    anzahl_gaeste: simGuests,
+    anzahl_gaeste: simGuestsTotal,
+    anzahl_erwachsene_gaeste: simAdultGuests,
+    anzahl_jugendliche_gaeste: simYouthGuests,
     anzahl_mitglieder: simMembers,
-    anzahl_gesamt: simGuests + simMembers,
+    anzahl_jugendliche_mitglieder: 0,
+    anzahl_jugendliche_gesamt: simYouthGuests,
+    anzahl_gesamt: simGuestsTotal + simMembers,
     dauer_minuten: simDuration,
   };
   const simResult = calculateBookingFee(simContext, feeSettings);
@@ -298,10 +330,10 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
               </span>
               <div>
                 <h4 className="font-bold text-slate-800 text-sm">
-                  Gastspiel-Gebührenordnung
+                  {t("admin.guestFees.title")}
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Wähle zwischen dem einfachen Standardmodell oder dynamischen Bedingungs-Regeln.
+                  {t("admin.guestFees.subtitle")}
                 </p>
               </div>
             </div>
@@ -319,7 +351,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <span>Einfach (Standard)</span>
+              <span>{t("admin.guestFees.simpleMode")}</span>
             </button>
             <button
               type="button"
@@ -331,7 +363,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <span>Erweitert (Condition Builder)</span>
+              <span>{t("admin.guestFees.advancedMode")}</span>
             </button>
           </div>
         </div>
@@ -342,34 +374,15 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
             <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-100 text-xs text-slate-600 flex items-start gap-2.5">
               <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold text-slate-700">Einfaches Gebührenmodell: </span>
-                Alle Gastbuchungen werden nach einem einheitlichen Satz pro Stunde oder pro Gast abgerechnet.
+                <span className="font-semibold text-slate-700">{t("admin.guestFees.simpleModelDesc")}{" "}</span>
+                {t("admin.guestFees.simpleModelHelp")}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Gebühr (€)
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    id="simple-fee-amount-input"
-                    value={((simpleConfig.amount_cents || 0) / 100).toFixed(2).replace('.', ',')}
-                    onChange={handleSimpleAmountChange}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-800 font-semibold text-sm focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 outline-none transition-all pr-8"
-                    placeholder="2,50"
-                  />
-                  <span className="absolute right-3 top-2.5 text-sm font-medium text-slate-400 pointer-events-none">
-                    €
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Abrechnungstyp
+                  {t("admin.guestFees.billingType")}
                 </label>
                 <select
                   id="simple-fee-rate-type-select"
@@ -377,12 +390,71 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                   onChange={(e) => handleSimpleRateTypeChange(e.target.value as RuleAction['type'])}
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-800 font-medium text-sm focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 outline-none transition-all"
                 >
-                  <option value="PER_GUEST_HOUR">Pro Gast und Stunde</option>
-                  <option value="PER_COURT_HOUR">Pauschal pro Platzstunde</option>
-                  <option value="PER_GUEST">Pro Gast (einmalig)</option>
+                  <option value="PER_GUEST_HOUR">{t("admin.guestFees.perGuestHour")}</option>
+                  <option value="PER_COURT_HOUR">{t("admin.guestFees.perCourtHour")}</option>
+                  <option value="PER_GUEST">{t("admin.guestFees.perGuest")}</option>
                 </select>
               </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  {simpleConfig.rate_type === 'PER_COURT_HOUR' ? t("admin.guestFees.courtFee") : t("admin.guestFees.adultFee")}
+                </label>
+                <EuroAmountInput
+                  id="simple-fee-amount-input"
+                  size="md"
+                  valueCents={simpleConfig.amount_cents ?? 250}
+                  onChangeCents={handleSimpleAmountCentsChange}
+                  placeholder="2,50"
+                  aria-label={simpleConfig.rate_type === 'PER_COURT_HOUR' ? t("admin.guestFees.courtFee") : t("admin.guestFees.adultFee")}
+                />
+              </div>
+
+              {simpleConfig.rate_type !== 'PER_COURT_HOUR' && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      {t("admin.guestFees.youthFee")}
+                    </label>
+                    <span className="text-[10px] text-slate-400">{t("admin.guestFees.youthEmptyHint")}</span>
+                  </div>
+                  <EuroAmountInput
+                    id="simple-fee-youth-amount-input"
+                    size="md"
+                    valueCents={simpleConfig.youth_amount_cents}
+                    onChangeCents={handleSimpleYouthAmountCentsChange}
+                    allowNull
+                    placeholder="z.B. 1,50"
+                    aria-label={t("admin.guestFees.youthFee")}
+                  />
+                </div>
+              )}
             </div>
+
+            {simpleConfig.rate_type !== 'PER_COURT_HOUR' && (
+              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    {t("admin.guestFees.youthAgeThreshold", "Altersgrenze für Kinder / Jugendliche")}
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {t("admin.guestFees.youthAgeThresholdHelp", "Personen unter dieser Altersgrenze zählen als Kinder/Jugendliche.")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">U</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={feeSettings.youth_age_threshold ?? 18}
+                    onChange={handleYouthAgeThresholdChange}
+                    className="w-16 px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800 font-bold text-center text-xs focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 outline-none transition-all"
+                  />
+                  <span className="text-xs text-slate-500 font-medium">Jahre</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -392,8 +464,31 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
             <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-100 text-xs text-emerald-900 flex items-start gap-2.5">
               <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold">Top-Down Auswertung (Prioritätsreihenfolge): </span>
-                Die Regeln werden strikt von oben nach unten geprüft. Die erste Regel, deren Bedingungen zutreffen, bestimmt den Buchungspreis. Nutze den Drag-Griff <span className="font-mono font-bold">:::</span>, um Prioritäten zu ändern.
+                <span className="font-bold">{t("admin.guestFees.topDownEvaluation")}{" "}</span>
+                {t("admin.guestFees.topDownHelp")}
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  {t("admin.guestFees.youthAgeThreshold", "Altersgrenze für Kinder / Jugendliche")}
+                </label>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {t("admin.guestFees.youthAgeThresholdHelp", "Personen unter dieser Altersgrenze zählen als Kinder/Jugendliche.")}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">U</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={feeSettings.youth_age_threshold ?? 18}
+                  onChange={handleYouthAgeThresholdChange}
+                  className="w-16 px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800 font-bold text-center text-xs focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 outline-none transition-all"
+                />
+                <span className="text-xs text-slate-500 font-medium">Jahre</span>
               </div>
             </div>
 
@@ -429,7 +524,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                         {/* Drag Handle */}
                         <div
                           className="cursor-grab active:cursor-grabbing p-1 text-slate-400 hover:text-slate-700 transition-colors"
-                          title="Priorität per Drag-and-Drop verschieben"
+                          title={t("admin.guestFees.dragPriorityTitle")}
                         >
                           <GripVertical className="w-4 h-4" />
                         </div>
@@ -445,7 +540,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                             type="text"
                             value={rule.name}
                             onChange={(e) => handleUpdateRule(rule.id, { name: e.target.value })}
-                            placeholder="Regel-Name (z.B. Einzel mit 1 Gast)"
+                            placeholder={t("admin.guestFees.ruleNamePlaceholder")}
                             className={`w-full max-w-sm px-2.5 py-1 text-xs font-bold text-slate-800 bg-white border rounded-lg outline-none transition-all ${
                               validation.errors[`rule_${rule.id}_name`]
                                 ? 'border-red-400 focus:border-red-500'
@@ -464,7 +559,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                             disabled={index === 0}
                             onClick={() => handleMoveRule(index, 'up')}
                             className="p-1 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 transition-colors"
-                            title="Nach oben verschieben"
+                            title={t("admin.guestFees.moveUp")}
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
                           </button>
@@ -473,7 +568,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                             disabled={index === rules.length - 1}
                             onClick={() => handleMoveRule(index, 'down')}
                             className="p-1 hover:bg-slate-100 border-l border-slate-200 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 transition-colors"
-                            title="Nach unten verschieben"
+                            title={t("admin.guestFees.moveDown")}
                           >
                             <ArrowDown className="w-3.5 h-3.5" />
                           </button>
@@ -484,7 +579,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                           type="button"
                           onClick={() => handleDeleteRule(rule.id)}
                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Regel löschen"
+                          title={t("admin.guestFees.deleteRule")}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -494,7 +589,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                     {/* Conditions List */}
                     <div className="pt-3 space-y-2.5">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                        <span>Bedingungen</span>
+                        <span>{t("admin.guestFees.conditions")}</span>
                         {validation.errors[`rule_${rule.id}_conditions`] && (
                           <span className="text-red-500 font-normal">
                             {validation.errors[`rule_${rule.id}_conditions`]}
@@ -513,7 +608,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                           >
                             {cIdx === 0 ? (
                               <span className="text-[11px] font-bold text-slate-500 w-14 text-center py-1 bg-slate-100/90 rounded-lg select-none shrink-0">
-                                WENN
+                                {t("admin.guestFees.when")}
                               </span>
                             ) : (
                               <div className="inline-flex p-0.5 bg-slate-100 border border-slate-200/80 rounded-lg text-[10px] font-bold shrink-0">
@@ -529,9 +624,9 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                                       ? 'bg-emerald-600 text-white shadow-2xs'
                                       : 'text-slate-600 hover:text-slate-900'
                                   }`}
-                                  title="UND-Verknüpfung"
+                                  title={t("admin.guestFees.andTitle")}
                                 >
-                                  UND
+                                  {t("admin.guestFees.and")}
                                 </button>
                                 <button
                                   type="button"
@@ -545,9 +640,9 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                                       ? 'bg-emerald-600 text-white shadow-2xs'
                                       : 'text-slate-600 hover:text-slate-900'
                                   }`}
-                                  title="ODER-Verknüpfung"
+                                  title={t("admin.guestFees.orTitle")}
                                 >
-                                  ODER
+                                  {t("admin.guestFees.or")}
                                 </button>
                               </div>
                             )}
@@ -566,7 +661,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                             >
                               {CONDITION_FIELDS.map((f) => (
                                 <option key={f.id} value={f.id}>
-                                  {f.label}
+                                  {t(`admin.guestFees.fields.${f.id}`, { defaultValue: f.label })}
                                 </option>
                               ))}
                             </select>
@@ -583,7 +678,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                             >
                               {CONDITION_OPERATORS.map((op) => (
                                 <option key={op.id} value={op.id}>
-                                  {op.label}
+                                  {t(`admin.guestFees.operators.${op.id}`, { defaultValue: op.label })}
                                 </option>
                               ))}
                             </select>
@@ -598,11 +693,14 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                                   const val = e.target.value === '' ? null : parseInt(e.target.value, 10);
                                   handleUpdateCondition(rule.id, cond.id, { value: isNaN(val as number) ? null : val });
                                 }}
-                                placeholder="Wert"
+                                placeholder={t("admin.guestFees.valuePlaceholder")}
                                 className={`w-20 px-2 py-1.5 text-xs font-bold rounded-lg border bg-white outline-none transition-all ${
                                   valError ? 'border-red-400 ring-1 ring-red-300' : 'border-slate-200 focus:border-emerald-600'
                                 }`}
                               />
+                              {cond.field === 'anzahl_slots' && (
+                                <span className="text-[10px] font-semibold text-slate-500 ml-1">Std.</span>
+                              )}
                               {cond.field === 'dauer_minuten' && (
                                 <span className="text-[10px] text-slate-400 ml-1">Min.</span>
                               )}
@@ -614,7 +712,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                                 type="button"
                                 onClick={() => handleDeleteCondition(rule.id, cond.id)}
                                 className="p-1 text-slate-400 hover:text-red-500 rounded-md transition-colors ml-auto"
-                                title="Bedingung entfernen"
+                                title={t("admin.guestFees.removeCondition")}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -630,7 +728,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                         className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1.5 py-1 px-2 hover:bg-emerald-50/60 rounded-lg transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Bedingung hinzufügen</span>
+                        <span>{t("admin.guestFees.addCondition")}</span>
                       </button>
                     </div>
 
@@ -638,31 +736,8 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                     <div className="mt-4 pt-3.5 border-t border-slate-200/70">
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                          DANN berechne:
+                          {t("admin.guestFees.thenCalculate")}
                         </span>
-
-                        {rule.action.type !== 'FREE' && (
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={((rule.action.amount_cents || 0) / 100).toFixed(2).replace('.', ',')}
-                              onChange={(e) => {
-                                const raw = e.target.value.replace(',', '.');
-                                const parsed = parseFloat(raw);
-                                handleUpdateRule(rule.id, {
-                                  action: {
-                                    ...rule.action,
-                                    amount_cents: isNaN(parsed) ? 0 : Math.round(parsed * 100),
-                                  },
-                                });
-                              }}
-                              className="w-24 px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg bg-white outline-none focus:border-emerald-600 transition-all pr-6"
-                            />
-                            <span className="absolute right-2.5 top-1.5 text-xs font-semibold text-slate-400 pointer-events-none">
-                              €
-                            </span>
-                          </div>
-                        )}
 
                         <select
                           value={rule.action.type}
@@ -678,10 +753,54 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                         >
                           {ACTION_TYPES.map((a) => (
                             <option key={a.id} value={a.id}>
-                              {a.label}
+                              {t(`admin.guestFees.actions.${a.id}`, { defaultValue: a.label })}
                             </option>
                           ))}
                         </select>
+
+                        {rule.action.type !== 'FREE' && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              {rule.action.type === 'PER_COURT_HOUR' ? t("admin.guestFees.amountLabel") : t("admin.guestFees.adultsLabel")}
+                            </span>
+                            <EuroAmountInput
+                              size="sm"
+                              valueCents={rule.action.amount_cents ?? 0}
+                              onChangeCents={(cents) => {
+                                handleUpdateRule(rule.id, {
+                                  action: {
+                                    ...rule.action,
+                                    amount_cents: cents ?? 0,
+                                  },
+                                });
+                              }}
+                              aria-label={rule.action.type === 'PER_COURT_HOUR' ? t("admin.guestFees.amountLabel") : t("admin.guestFees.adultsLabel")}
+                            />
+                          </div>
+                        )}
+
+                        {rule.action.type !== 'FREE' && rule.action.type !== 'PER_COURT_HOUR' && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              {t("admin.guestFees.youthLabel")}
+                            </span>
+                            <EuroAmountInput
+                              size="sm"
+                              valueCents={rule.action.youth_amount_cents}
+                              onChangeCents={(cents) => {
+                                handleUpdateRule(rule.id, {
+                                  action: {
+                                    ...rule.action,
+                                    youth_amount_cents: cents,
+                                  },
+                                });
+                              }}
+                              allowNull
+                              placeholder={t("admin.guestFees.sameYouthPlaceholder")}
+                              aria-label={t("admin.guestFees.youthLabel")}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {/* Live Business Sentence Preview */}
@@ -703,7 +822,7 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
               className="w-full py-3 border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-2xl text-xs font-bold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/20 transition-all flex items-center justify-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              <span>Neue Bedingungs-Regel hinzufügen</span>
+              <span>{t("admin.guestFees.addNewRule")}</span>
             </button>
 
             {/* STANDARD-REGEL SECTION (ANCHORED AT THE BOTTOM) */}
@@ -715,36 +834,13 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-slate-600" />
                   <span className="text-xs font-bold text-slate-800">
-                    Standard-Regel (Greift, wenn keine obige Regel zutrifft)
+                    {t("admin.guestFees.defaultRuleTitle")}
                   </span>
                 </div>
               </div>
 
               <div className="pt-3.5 flex flex-wrap items-center gap-3">
-                <span className="text-xs font-medium text-slate-600">Standard-Gebühr:</span>
-                {advancedConfig.default_rule?.type !== 'FREE' && (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={(
-                        (advancedConfig.default_rule?.amount_cents ?? 250) / 100
-                      )
-                        .toFixed(2)
-                        .replace('.', ',')}
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(',', '.');
-                        const parsed = parseFloat(raw);
-                        handleDefaultRuleChange({
-                          amount_cents: isNaN(parsed) ? 0 : Math.round(parsed * 100),
-                        });
-                      }}
-                      className="w-24 px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg bg-white outline-none focus:border-emerald-600 transition-all pr-6"
-                    />
-                    <span className="absolute right-2.5 top-1.5 text-xs font-semibold text-slate-400 pointer-events-none">
-                      €
-                    </span>
-                  </div>
-                )}
+                <span className="text-xs font-medium text-slate-600">{t("admin.guestFees.defaultFeeLabel")}</span>
 
                 <select
                   value={advancedConfig.default_rule?.type || 'PER_GUEST_HOUR'}
@@ -757,14 +853,52 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                 >
                   {ACTION_TYPES.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.label}
+                      {t(`admin.guestFees.actions.${a.id}`, { defaultValue: a.label })}
                     </option>
                   ))}
                 </select>
+
+                {advancedConfig.default_rule?.type !== 'FREE' && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {advancedConfig.default_rule?.type === 'PER_COURT_HOUR' ? t("admin.guestFees.amountLabel") : t("admin.guestFees.adultsLabel")}
+                    </span>
+                    <EuroAmountInput
+                      size="sm"
+                      valueCents={advancedConfig.default_rule?.amount_cents ?? 250}
+                      onChangeCents={(cents) => {
+                        handleDefaultRuleChange({
+                          amount_cents: cents ?? 0,
+                        });
+                      }}
+                      aria-label={advancedConfig.default_rule?.type === 'PER_COURT_HOUR' ? t("admin.guestFees.amountLabel") : t("admin.guestFees.adultsLabel")}
+                    />
+                  </div>
+                )}
+
+                {advancedConfig.default_rule?.type !== 'FREE' && advancedConfig.default_rule?.type !== 'PER_COURT_HOUR' && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {t("admin.guestFees.youthLabel")}
+                    </span>
+                    <EuroAmountInput
+                      size="sm"
+                      valueCents={advancedConfig.default_rule?.youth_amount_cents}
+                      onChangeCents={(cents) => {
+                        handleDefaultRuleChange({
+                          youth_amount_cents: cents,
+                        });
+                      }}
+                      allowNull
+                      placeholder={t("admin.guestFees.sameYouthPlaceholder")}
+                      aria-label={t("admin.guestFees.youthLabel")}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="mt-3 text-[11px] text-slate-500 italic">
-                Wenn keine obige Bedingung erfüllt ist, {describeAction(advancedConfig.default_rule || { type: 'PER_GUEST_HOUR', amount_cents: 250 })}.
+                {t("admin.guestFees.defaultFallbackText", { action: describeAction(advancedConfig.default_rule || { type: 'PER_GUEST_HOUR', amount_cents: 250 }) })}
               </div>
             </div>
           </div>
@@ -775,29 +909,29 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
           <div className="flex items-center gap-2 pb-3">
             <Calculator className="w-4 h-4 text-emerald-600" />
             <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
-              Live-Regelprüfer & Gebühren-Simulator
+              {t("admin.guestFees.simulatorTitle")}
             </h4>
           </div>
 
-          <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="pt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                Gäste
+                {t("admin.guestFees.simAdultGuests")}
               </label>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setSimGuests(Math.max(0, simGuests - 1))}
+                  onClick={() => setSimAdultGuests(Math.max(0, simAdultGuests - 1))}
                   className="w-7 h-7 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs"
                 >
                   -
                 </button>
                 <span className="w-8 text-center text-xs font-bold text-slate-800">
-                  {simGuests}
+                  {simAdultGuests}
                 </span>
                 <button
                   type="button"
-                  onClick={() => setSimGuests(simGuests + 1)}
+                  onClick={() => setSimAdultGuests(simAdultGuests + 1)}
                   className="w-7 h-7 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs"
                 >
                   +
@@ -807,7 +941,32 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
 
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                Mitglieder
+                {t("admin.guestFees.simYouthGuests")}
+              </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSimYouthGuests(Math.max(0, simYouthGuests - 1))}
+                  className="w-7 h-7 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs"
+                >
+                  -
+                </button>
+                <span className="w-8 text-center text-xs font-bold text-slate-800">
+                  {simYouthGuests}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSimYouthGuests(simYouthGuests + 1)}
+                  className="w-7 h-7 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                {t("admin.guestFees.simMembers")}
               </label>
               <div className="flex items-center gap-1.5">
                 <button
@@ -832,34 +991,43 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
 
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                Dauer
+                {t("admin.guestFees.simDuration")}
               </label>
               <select
                 value={simDuration}
                 onChange={(e) => setSimDuration(parseInt(e.target.value, 10))}
-                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white outline-none focus:border-emerald-600"
+                className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none focus:border-emerald-600"
               >
-                <option value={30}>30 Min.</option>
-                <option value={60}>60 Min. (1h)</option>
-                <option value={90}>90 Min. (1.5h)</option>
-                <option value={120}>120 Min. (2h)</option>
+                <option value={60}>{t("admin.guestFees.slotOption1")}</option>
+                <option value={120}>{t("admin.guestFees.slotOption2")}</option>
+                <option value={180}>{t("admin.guestFees.slotOption3")}</option>
+                <option value={240}>{t("admin.guestFees.slotOption4")}</option>
               </select>
             </div>
           </div>
 
           {/* Calculation Result Banner */}
-          <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-            <div>
+          <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start justify-between gap-4">
+            <div className="space-y-1">
               <span className="text-[11px] font-bold text-slate-400 uppercase block">
-                Berechnetes Ergebnis ({simResult.mode}-Modus)
+                {t("admin.guestFees.calculatedResult", { mode: simResult.mode })}
               </span>
-              <span className="text-xs font-semibold text-slate-700">
-                {simResult.matchedRuleName
-                  ? `Angewendet: ${simResult.matchedRuleName}`
-                  : simResult.description}
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-800">
+                  {simResult.matchedRuleName || t("admin.guestFees.standardTariff")}
+                </span>
+                <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  {simResult.appliedRateText || simResult.description}
+                </span>
+              </div>
+              {simResult.matchedRuleId && simResult.matchedRuleId !== 'DEFAULT_RULE' && simResult.ruleSentence && (
+                <div className="text-[11px] text-slate-500 font-medium italic flex items-center gap-1 mt-0.5">
+                  <Info className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{simResult.ruleSentence}</span>
+                </div>
+              )}
             </div>
-            <div className="text-right">
+            <div className="text-right shrink-0">
               <span className="text-lg font-black text-emerald-700">
                 {simResult.totalEuro.toFixed(2).replace('.', ',')} €
               </span>
@@ -875,11 +1043,11 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
             <div className="flex items-center gap-3 text-amber-600">
               <AlertCircle className="w-6 h-6 shrink-0" />
               <h3 className="font-bold text-slate-900 text-sm">
-                Zum einfachen Modus wechseln?
+                {t("admin.guestFees.switchModalTitle")}
               </h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Deine erweiterten Regeln bleiben im Hintergrund erhalten, werden jedoch solange der einfache Modus aktiv ist, nicht zur Gebührenberechnung herangezogen.
+              {t("admin.guestFees.switchModalDesc")}
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
@@ -887,14 +1055,14 @@ export const GuestFeeSettingsEditor: React.FC<GuestFeeSettingsEditorProps> = ({
                 onClick={() => setShowModeSwitchModal(false)}
                 className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
               >
-                Abbrechen
+                {t("admin.guestFees.switchModalCancel")}
               </button>
               <button
                 type="button"
                 onClick={() => applyModeSwitch('SIMPLE')}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors"
               >
-                Ja, zum einfachen Modus wechseln
+                {t("admin.guestFees.switchModalConfirm")}
               </button>
             </div>
           </div>

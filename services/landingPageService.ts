@@ -77,6 +77,9 @@ export const formatConfig = (data: Partial<LandingPageConfig>): LandingPageConfi
         default_view: it.default_view === "week" ? "week" : "day",
         eyebrow: it.eyebrow || undefined,
         image_url: it.image_url || undefined,
+        image_position_x: typeof it.image_position_x === "number" && !isNaN(it.image_position_x) ? it.image_position_x : undefined,
+        image_position_y: typeof it.image_position_y === "number" && !isNaN(it.image_position_y) ? it.image_position_y : undefined,
+        image_scale: typeof it.image_scale === "number" && !isNaN(it.image_scale) ? it.image_scale : undefined,
         bg_color_start: it.bg_color_start || undefined,
         bg_color_end: it.bg_color_end || undefined,
         cta_text: it.cta_text || undefined,
@@ -166,16 +169,29 @@ export function listenToLandingPageConfig(
   const normId = getNormalizedVereinsId(vereinsId);
   const cacheKey = getCacheKey(normId);
 
+  let hasDelivered = false;
+  const safeCallback = (cfg: LandingPageConfig) => {
+    hasDelivered = true;
+    callback(cfg);
+  };
+
   // Set initial cache if present
   try {
     const cached = sessionStorage.getItem(cacheKey);
     if (cached) {
       const parsed = JSON.parse(cached);
       if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
-        callback(parsed as LandingPageConfig);
+        safeCallback(parsed as LandingPageConfig);
       }
     }
   } catch {}
+
+  // Fallback timer: if Firestore has not responded within 1.5s and no cache was found, fall back to default
+  const fallbackTimer = setTimeout(() => {
+    if (!hasDelivered) {
+      safeCallback(DEFAULT_LANDING_PAGE);
+    }
+  }, 1500);
 
   const clubDocRef = doc(db, "vereine", normId);
   const unsub = onSnapshot(
@@ -186,7 +202,7 @@ export function listenToLandingPageConfig(
         try {
           sessionStorage.setItem(cacheKey, JSON.stringify(config));
         } catch {}
-        callback(config);
+        safeCallback(config);
       } else {
         // Fallback check on subcollection
         getDoc(doc(db, "vereine", normId, "settings", "landing_page"))
@@ -196,22 +212,27 @@ export function listenToLandingPageConfig(
               try {
                 sessionStorage.setItem(cacheKey, JSON.stringify(cfg));
               } catch {}
-              callback(cfg);
+              safeCallback(cfg);
             } else {
-              callback(DEFAULT_LANDING_PAGE);
+              safeCallback(DEFAULT_LANDING_PAGE);
             }
           })
           .catch(() => {
-            callback(DEFAULT_LANDING_PAGE);
+            safeCallback(DEFAULT_LANDING_PAGE);
           });
       }
     },
     (err) => {
       console.warn("listenToLandingPageConfig snapshot error:", err);
+      // Guarantee fallback so user is never stuck on endless spinner
+      safeCallback(DEFAULT_LANDING_PAGE);
     }
   );
 
-  return unsub;
+  return () => {
+    clearTimeout(fallbackTimer);
+    unsub();
+  };
 }
 
 /**
@@ -240,6 +261,9 @@ export async function saveLandingPageConfig(
       if (it.default_view) cleanItem.default_view = it.default_view === "week" ? "week" : "day";
       if (it.eyebrow?.trim()) cleanItem.eyebrow = it.eyebrow.trim();
       if (it.image_url?.trim()) cleanItem.image_url = it.image_url.trim();
+      if (typeof it.image_position_x === "number" && !isNaN(it.image_position_x)) cleanItem.image_position_x = it.image_position_x;
+      if (typeof it.image_position_y === "number" && !isNaN(it.image_position_y)) cleanItem.image_position_y = it.image_position_y;
+      if (typeof it.image_scale === "number" && !isNaN(it.image_scale)) cleanItem.image_scale = it.image_scale;
       if (it.bg_color_start?.trim()) cleanItem.bg_color_start = it.bg_color_start.trim();
       if (it.bg_color_end?.trim()) cleanItem.bg_color_end = it.bg_color_end.trim();
       if (it.cta_text?.trim()) cleanItem.cta_text = it.cta_text.trim();

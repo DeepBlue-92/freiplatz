@@ -1,4 +1,4 @@
-import { collection, doc, query, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, deleteField, writeBatch } from 'firebase/firestore';
+import { collection, doc, query, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, deleteField, writeBatch, increment } from 'firebase/firestore';
 import { db, auth, testConnection, handleFirestoreError, OperationType, waitForAuth, ensureServerAuthenticated } from '../lib/firebase';
 import { Booking, Tournament, RankingState, User, Role, RegularLock, RangeLock, ArbeitsEinsatz, PlannedWorkShift, Gender, Person, Mitgliedschaft, Verein, UserClub, ClubFeeSettings, ClubOnboardingSettings } from '../types';
 import { UserNotificationSettings } from '../types/notifications';
@@ -121,6 +121,16 @@ export const DEFAULT_DYNAMIC_LEAGUES: DynamicLeague[] = [
   { id: "open_mixed", name: "Offen", active: true, isActive: true, status: "active", description: "Hobbyliga Offen", displayOrder: 3 },
 ];
 
+export interface TenantLanguageTranslations {
+  courts?: Record<string, string>;
+  equipment?: Record<string, string>;
+  lockReasons?: Record<string, string>;
+  categories?: Record<string, string>;
+  leagues?: Record<string, string>;
+  welcomeMessage?: string;
+  news?: string;
+}
+
 export interface ClubSettings {
   clubName: string;
   street?: string;
@@ -143,8 +153,11 @@ export interface ClubSettings {
   customHeaderLogoUrl?: string;
   customFaviconUrl?: string;
   customBannerUrl?: string;
-  customLoginBannerUrl?: string;
   bannerPosition?: string;
+  bannerType?: "image" | "color" | "gradient";
+  bannerColor?: string;
+  bannerGradientStart?: string;
+  bannerGradientEnd?: string;
   primaryColor: string;
   accentColor?: string;
   accentColor2?: string;
@@ -153,6 +166,7 @@ export interface ClubSettings {
   hideWebsiteLink?: boolean;
   welcomeMessage?: string;
   courts: string[];
+  equipmentList?: string[];
   news: string;
   impressum?: string;
   helpText?: string;
@@ -160,6 +174,7 @@ export interface ClubSettings {
     events: boolean;
     ranking: boolean;
     guests?: boolean;
+    spielpartner?: boolean;
     arbeitseinsaetze?: boolean;
     league?: boolean;
     championship?: boolean;
@@ -203,6 +218,7 @@ export interface ClubSettings {
     maxAdvanceWeeks?: number;
     allowPastBookings?: boolean;
     requireCoplayer?: boolean;
+    allowParticipantsToEdit?: boolean;
     openingHours?: Record<string, { start: string; end: string; closed: boolean }>;
   };
   publicCalendar?: {
@@ -226,6 +242,12 @@ export interface ClubSettings {
   recurringLocks?: RegularLock[];
   rangeLocks?: RangeLock[];
   club_onboarding_settings?: ClubOnboardingSettings;
+  i18n?: {
+    defaultLanguage: "de" | "en";
+    supportedLanguages: ("de" | "en")[];
+    translations?: Record<string, TenantLanguageTranslations>;
+  };
+  customAiInstructions?: string;
   geloescht?: boolean;
   deletedAt?: string;
   lastEditedBy?: string;
@@ -263,6 +285,10 @@ export const DEFAULT_SETTINGS: ClubSettings = {
   faviconUrl: "data:image/webp;base64,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",
   bannerUrl: "data:image/webp;base64,UklGRpoqAABXRUJQVlA4WAoAAAAgAAAArwQA3wAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggrCgAAJDEAJ0BKrAE4AA+nUqgTSWjoyWhMHmIsBOJZ27VAzqdjfXUZWIwTsGvNUafn0CAj/hAXSh/4u/b+ST733xv+56gvE69N3/b9Vv9Y9AH8x/3P7Te+56KP+D6gH+D9Pb1BvQA8uv93vhL/tv/b/d74Ef2v//HsAf//22P4B1F/ZrtK/2flTq3MJfzXXE//+tP9z/0n+F/HX0F/Lf3b/o+oR+Jfxr+++lj9p2tWw/730AvUT53/lf7x/i/10+eeab+2f//YA/5//s9c+9M/x9EB/k//D/ceiH6v/9/+L/z/yI/zD+z/+D++9t30xhTgGiFMMMv0Pg2y6Q8l5hohbh2bBeFX2/JCQ8Lk1qIPg2y6Q8mgvz6gfBtl0h4VBTFjd6/dDiAzQ+1k1N0xduOUWgpKM6Sz09zi6ezoMjLwajfUWuRSPPbO/J2FbpjUQfBtZkQemicW0o3kPxl9dTkqeW0E/c6WrZsM6f87+e8SOL5rUf2Zg3TPAt4o1E3zJPj1x9vpbUJ1IffHbniMISUT3KeHk2segtavSAAqrUv4nvu9aObuGk/7XvDHLaNsNDyEK08cUOm+FSKsfZf5WedueHjh9hmr6txSzugkE5CROLRPyUwh/BMh3jCBx8whIc6kQKFsHnlA2+oSGFtGydfH8PJuZSL938SynHWEx7yaWcd7CaxE+2Jq9BND6c6HsMKHyxwmTUH+iDH93y0cE14T3+QaTwFQRl9vd28x7KyD6E1CC5cdxmJMEpHn2KD9+uwFzE9hA3070Gz/JKFPqB8/zsEoyZj1n0+cdyD/TuA+Vdvzh/rboOR3E59WoRGyjYacZoC8zfFq57Tk++dDa9Y5KIPmOJARiJEwg0NyTdZJogab25Gbw/LHK4KFot4AdlSdfY4zlq6zqBqNcMtaEG+uusunH314Ml4X+5TmpnKsin2FuBfss/If9XLmLF+uAnq10Of16UXcFq/B760L9p1/0fcVBL8zfiqhwtKLvN7oaVyc/kIrbg/eeO4Pt8Yp9U/UT98bOjB2/GhK8Am9KE7i3VfizwNOL3AyU8o5KW03cQOv+ADAsD9UkAImEOJgppnbWY9RVeEQba1I3wLHBYdepzDevpfleW5Hh/0Tasg8UZdzlqc4VSREMW/4HfGLxb/wFMauIlOyYYTxSdeV0FdSUFhsWuxLbmYGbLKVAIsvMMEk8lk73uaIiz62JdG5Ug7B+QgiiVtdP32dc+dJVb72Bx80ESpx7JTBABYmo1iXH6uuU0zryZtSfQhEZefi+Z8bfk+FRnh3wLd2FdkR0ov/8jAXKFqchywHvIIbYIWWi+2+nCk71L5jZg31DgzFXuMbSN/lJkokjmw5syXIbR5O21ZtO1o2luzAwcPXj8sjkiiC05xF6PA611NXbxiw7m+nKUxW1FmaPxHaxU08MX/e+BJWbo9tSrIlAWGVc5ETwSPwy6H2eVUJnwJmfmR46t+WTV6osRrWwhcq8S//224cXNolLSFZMVMk+g9GQm5YLBSdCsTT62a04LM4myZc6tckGPubm5Ex8zKSsKkuHg53i3Y/Q2SmBzpH0LOEdgRmOBL39xwO7yDwiBnPt3skEquJpDE/1tHn6eMQTuV332zXlD54+X6SISam2v/pZXDVY/nxkp+Hd4+r8mK/nSlkc/8l8xZ4E9WqzAVR/o3BRl+LfSep4jcdCmL7dam5lPB30diqHEtSEL3FktHHpgPxVIv0mqNjfx3bn3zGlWQ0hQ9sRp+phES2Q/8afpcmIb8/zmJNHmaV2UqP/1RkquAL4jko9cCsYFcU1f+UHoKYPwzF/92Ix/h257azXqTHneWCB+ZaLXvGiEg7Zab6k5UOl4MQ9xelvxF9VDbjB7u2QeAtDWcF9GKHm2dgrYEOIGQOI0hHOrvRWKinw/M1XWbOppDCIo858HvBL572H71GxphS2M29S+7htsv3zjo5Tzj5qe4X/fvsgBXH7dAeFMWGIi8zltDrvJpGmBbQQTScNgRGHwChE4ol5OpnXRD1WAQMd5bm0+LyZnP9aFCR6qnjq7QPSBZtND4dcXcnoWkQWgtHiE8h83I+jV+tOnf7+MEev9wYQ0tFIDdxwg/2XwHPrp14AD+8mP/f+Bf21/WPJLU0cDP+1dczxo+qH6ZmrN1JBWcJJbPGDOy5rOBjlKcfQ8SrbdY0XE5pNZYVhRetBPTKJCmQe9YeWac/ZE4DQdGBYT4aWWPOt28rkz1B12iTsW9Hl4fsQXmnS+SPhOLuUBgKUQC4VLJpBiA+Z9GsIHZY++f4UsuwtbNGZB92gFjqgoUtUiOw4DPgAH4D7/unpPCdpd1qw37rP9yBQvC3KprUjDVdaJpTFPXkV67NHAE4asqMCxXlCrSzS7goVPNj9Cpm3rIi/OOEmJb/HVKHsbBQZQpzyifYudLaVPFEhLahNRYK5w9lecgcpH0GLjufdXep4jWgur0oUpCEA3FiXnqndVAeTp8qCKr4nEsEMgv/xOyjpYiS+FAq8AIz1u83HtCeBWVuISaMhEgjKSZW5zPtAn6hwCY94lnJX3pP/IbRJNOiJ30AwrYCbxNmx5SEiZTrshr8UbdM+ER1E6Uxru69V3E0f+a1e3Vy/uGTmlyyDH0GkEoWB8zOt+jJTZhIjJYumJz1vqWkzF5yB0SHv9S65dCqJZNB5hxAYdBKRYDfTe1tFGvnoot+S45a+A/skfvUxrkEAAvCHysuz5ABawgkgXa7FEVg1PNxEJdPGGs0fbQRV3px3mcuDYA1lwUaJoJGw993nfcTT+/eX5jgVtOJyNk+wl/eQ6T4CORn7qq7HF2aabAAAHE2bqF3+3VJaQDivPK5tBWSiCpDVP1or6m5i2IbQMc4ZCWYH/nIOUK/maNUw6oYlbVJ72oiTNWJUzOlwvlcOjmc1lmcB90goUe4l/zKiCJdSJYNSF5Wyvxdx1FBKcUBoyQCM1WkHpAb54DBdzX5jUw5lQ7E8MKJOMK7NZl1QQm+sQ0IDdqpajqHHxFWlLNFX0N7EBseG5uIZIEr0qaMcv2uR4WBWUqM07X3HgG3bdXq4/ns/pg+UnTi7V7J1uKvJkg8IgEdf5t3eRCskMHGpO1Hg26wWNs/fDl2cVErLneJMcnXjODZgHXVjbLYVCJlwP8vmsLM+IqDWZ/BCwy7aWKYQRnioQtSSvYb0jIq/QpPj2T4iZ38myN+lbpLgCtUr4TaKgHj4v6oXqV1TgR7UNqTKqclk8tvENjrRfVbFDzv5vv8BCoH0rwU7DHDjgwGVdG8juU1tKfy4z+iRiJ2ns5mxbcBeTKzTABOpiG6N5AIsneRwm/pWBs/+pchMFdIAr6s//2PacAKbq1YqNysDIEaQp8Hjh5LswwmcTlB2Qa4wlrFo47lVIe/pcyQBprZfDfbhyZF1BANdNlAzk4NfBxZgrHE5zOYkgRw5UqOXU5w5Q9WpSyeEQDVEZdw5EG1NVTsMtNZFl8Rtwb/h6b/anjXH+AUWHIw22l5lXm6qBwTPBLxVd4M7fYd+kjzIPV82fCpGcdgCa/lkw3VR/U7gT7Nz8XUscSvk+y874oQZQzAMIZLaiDAmCOmeAhjhlfhxsgAThr9PhV+L+Nim5bS4QGBpeZCYyFfKHDFtXc2F/IoyypCwa1WCCQQWLOMXFIcexsSyZRBgAABPz19g8Fa4RMfb3OIYoJDo491YYHn/ZrgJxpo53fyA2IqMCNEkpPOyqvylFmn1CLXLxj7PteOQreSHMNE5KEp2axDlSxs4gnyGL6mR1CP5TViya6dR1NBIPoU4TaxOwck5lI+ukvZBu2XFnsx9SnTnI6l+ZmrDnFgp0gpJSuCX5mL4Q6K8fMLyyVx9BPHFrdhsE6ZbjKBGboPgOBPyTK0BJLgqSy80lIEiv4vu2yv8SWO90ENmDQE9Isc9GWLjPlO+WjISEZqBwzYx6OWvMNgxYSZVCBBy37cWklHtS3V+YXoJQlmqGM85KfAUz3RogE9uCvM2rLfgDNAbNPUfdnevQt4tKKA46uSNotnrZgBRlWPl3KmsmHOvVUoEbTbu2NPaOVoMGl4t7N9GoQiacOeb3GJ/ETFKliuC6CUMccYCnLKAT/UCrwh9duHFvtvMK/Y3MGYst2PfnrH0eEHfeNQIcT+1m60khGOLCRUSAzDW0+Jp/Vmy/jlqQJOiK/9kAPO0Gj1H8OitlkNBTSntQq6Ret1629M2HVfNPkmHzM1NuNdVVh7M5ClB7FxdAANV7PLDxhiJE1bKfJAXXkyM6wvMb4mCMAAAAMcdfYTZmuETH3qrdIxf62nCHuevm2Wcmp3biqbnomViKZISu8xp+EHPzYFvswFkjcUgObkPzQNsc79vOv8iIKgTL3kXV9rq07wYmNpxQmyhvUxrMxvgNbDLC8oACIEKXJUPMWeZA5IFIcw15m7F4p0istz7hPbJg0NJZzjjZFPnr+bgKw5oqk23JWBjJXLKVNPuvgoQYeSEsVTqkmbeq22/7gNEqVGLLlcRMSMvpHxFnS7JdVD3a1JfXSPn9fMxYAaVama28eotTZNLvwUcJbPiZUHvfxcI7v4vliadETVVdG5iEwmME6QshIxfyGD+Bv+WZ3GbsMmhE9GogVuVYB8tbVLQLB9TXrHtu5CNf4qvr8w+8cECpyQ/y+k2/1jtJm0cXnW0Yf9/OgV8Rd6n9cr9ang2cOPATeu2Hd0LneGwJiLYRU/k3qefpq2Ix6F4m50Y1iYxMNGOR6h2XzDiFtcAT9gFKJfdZu9Q+y4VUbKbwlhdA2/LBbs3VVmI/GLDmAti/9WvxPYQDDRMC8BkfaG3QXnZV0myEuIBr6t+dqspl2oLs8ShzdvbClm/4fgEkgu1F567Gt72wurVraAAAAV6GeoJ8FJVOsVmtvf+gtK4Q/TfLFXrpUyFtQLG1LuFm55v78XyOoP0DDdI2bkac7vD+UKcKtHej33NtsdweCrjcuI/IWUZ6t78k2xnEZ5AgNt/TfiZXO2ANzr7tiOWjXFTqmYlfVNWDzKowIRGlvBZE0vzqfrfTCccjk6U1cD9KFuXCULnB0nWLIE/3/2dRWS83di3GAoDiONnDzxC2tjhIsfS8Sl5JvYPYRUId1v4BR/3eJhlricE8aX3exZ26jgqSRrivt8fradVp6vuufdZ64otUbU3OnpZ/SGdlyYzyLuvAGwBHeboLJRK+BlKY9UXW7lG+jOLuaWkGiL6or6bNrNmBOBD2+RhNOklbQ/hyZ2c9Gjb1Yp70sQQ3+SBdgRkKVGC450HgumL8V/a4BlnroDAaZmu80dCqZyCgxjrfgLMspNS1Dlis36+TNAsbJV8twRFKOHITZAHrYYb9YEGE3OfBQb77/7ebBb0t+N/+OGqNIWN8CkGGhfROjH3TCiJwiBLwFIQDPBY1hMXV3+75+G+MWZiQ3/faQPASsug6uykxS5FE7G3HeNoLFe/FEKgftebIia37/5onANvlOwwib8VFTelgBdxSHY0Dyfz4BP0f+t63Pq727DKSNOcN415dwqbPHEIwk3H+LQzkwnQN2Pem8TxaATRBOQf0ARzS7/VopIhXqNf9pcxR6FGZTr21wYBDtR8Osm9DZpPjOELt+wtfQmBzzSyH2uELBwjBF55nR79XOg1XYlLqTnTMrNKljCnlbCuK1jCykHbvm1rjdkH7WgTDB/PGBp2AsgqgFDokPADbVc1wVlRjJERv+MMUDi4o/sCCEmMq8GXZtLqDBC2RO986z33IhhOMIUHC4xeQ+XPMKtEY4QtvCHVZgB6T1IV1hQwhEe5Zy7Wt8E08MZcM+Ilvr6bRn3J4kG6zIIwpEVc8Bz0hJRkgHuQw8rJAQwLHraQpkcARPft/J9kAmqDAT6Qy7dGGY+7zqMApej9IPosCzXYyxeK3pITsEceLDBPHkn0UL7StbuWe1wHqXqHfhkTpAvoLkWurZk5mnf+pftuDpA5ElcmHGD7H9OmEmh6RIiCueViUPibrm9ZlG0bB7kprpXCrzLaqSn7l8za6+nr4O8m33ho4vb1/wokP/mc4WQ3cdQRuIbMsIGiwnsYSwE1IehoycH8pNjqER28fBBmHZp4ikCfR62dY+SwpA0skg6tDGt5+Qc140d+yLkFnYQ1KqFuda9MMWij7Ee8yne+ODTRTsgoKjrtJPj0P2rkxJO9jwfEpUlUklRMCra3OVN3BAWsyrOLjkZapP5tuOyEHrlO8gnD53xRwSHFchHTbOV0QRY75cWlLiRPEjPdzTovd5YyB1Qq6BE1AjLa0U7W0361rok23TlAhng3c3jZMAoTDZ3HPQoMcArzw3h5wXYTDbwsT98mXiQ4xqvlAfhKXvB8dm//CotaQbcivI/CKTNzzwR7Woc6WyHlE/CBCKOOftFqB1wRk7GXH5m035TqsvG5GbQjtlMkGEMn3MjhHNdsy4h3mwzeurJBsPFP/kgQWhi+1KnAN3VkiITExGRss/Ha9Wfz3ZNXJ4j2PQndQuyBu4rlgCCs33xVRaGl9GrdgoU13+AFY+treGkFNk0V97bKLg6eGq3YXTsyMSOVQwrScyvALWnmn4jZ7tGOn37KDCgyTu+cjgQV7e56YMZU1UOakwt1/vH5PFkoq7pU6wtpzyXYiKndGGsHVJ1qnm5VvoaKoKu+AfdI36cPeg3/NDs5tT3lJYY31tTmeNpxKFko5lBrSYCUJf12G0dJJ5Qk/B+HaVSq882YJpjATZV21MrAigj9N5E0NwFCQ+MQ5ZqLae1PZ/VCTkJRyxp7MEGZ9MmjFjk8sfJuhVkVyZ9rbcAFpSr3mDH9gO/v8ldLbeClyKhD4DA3fHwP2XmpBJtT6RnGiWfMHtmctgg3PO1y4PaLk/qyhwJix4YTAofDiumjhVmFQEuar3wjTpEIHp8BNhNskwkcb9K2siQdwOyVK8OmFNwgZmT+tYVR2FeMtqJo+HNhPFf5oQcm3WPvMxlY3680h395Ax3V1NCITthBM3kyX7srE/JvmmWmZiZtQ5jDAp8sqtlj0pV3Gg7BgxL6JXgmTtWUB+2Wlsj4xCybnSvmx0ORRADCrK/PIH2J271XBYMOCgjSvIPgThNciTFYXeHXnxhlUMxiX4n+L+kZPIvsl935wqVSgcbpgQmZOuwWBtwfKuXB/VrJSSJBQYy9qmb3Vwfi8YEgjJGrBmwh6qG+Vys8yprGNXW2mGT+u2IvgXAqQZJcH1O5WfQGJ9U1oFXhLYNMhc9ytrUlMvC8t+ylsVEktlmQkrytS4vYlP86hEbk8DCf7QgwY3cKQOtPcRns862L7KuQp9lnZndsBNyP06rNhwREYJqzRHUVozLnyMKAgd/qiPYOeumNH7Qvgpi7iCgjcvrBUhU2rSvdTZ9e2rwvRU5EbXk68fZAo5E4mP0AsC6a5Iexp73o7IZWcXCD7pWYXxLUsdfh1npZXfC975weILkxn171qtZmfhcj6LV4g+vOXpu2udR7MPSvYSGw5PlSLvV+KemIzgtm2IZ0AMlrILQsNHTNUJ00tPoEx/UGaejYQE3zOwoRoA+r0uR+y49YChaqln4rkOGQc2NCvg/FeGu31Mf7RmtPxt2J7aBgerk1sdar67ARhYnpKEAN80FDZI90fqSvBOFNVQ724G0PriAs0PapuL2wsD/JXzi5qyXiyPqvxRpJAy64Z2G8B9Uvwl70X1MrLTMmbTckJ4F+3x7CeSdAuxKpYovq/w4zRiIXTpjzqq++FBhyZ/Dt24DppbqMmlN0w59fdSvfQRWOnSawtCdwErGr6pIcdHgMCSTforO/F0OUSlYzlBerMflVP7sWvP3yRR/kPaZgOWW9FVWQ9jPy/2X2JseCMaQs6TUUC6xvht3kPzco8ESB1iJ4T25KZNyN8fq66MqJLZVeADwd3v1Xn5LYqN/A0E5uoBwUAGQODQDGGWL7FPUYsrronCpgtXaL7IK3l8F+BqcbtSx+pTbOzvL0twmULWfmgHOKQvvf2H/CoFLY4GDxB20FCiX6M7FHzk5n5QCjAH4k5SGUqz/CNJ/Lr7NHcbF12Wj3zqPSeBsn9ehj017uRDzcOhD03u8NTZdENNWmeP3rNwraagJqTNyqypUlHgIyTgUKIjwUolYVDIXMwxnY3W4RFS9PgMWu7wN7A0bKR6UsDICadMDKC/SeoWNGuPV3VlagnjGB6hq9NVco8s94nwZujiI70CZddefwZ1kUh6k9mXyBHCJAL+7vP3LzUpDtXf0EsG8WzTMNY7TgrFAY4/ZvJDQA/iYwt+B5fY326jxXH75ybJKJQiSnz4GOsh1LRQZrWn9jKTFqyjtywjsph/UHQ8rlJtwE6TitDfTm4eatOrmvfw9nXHuBO/9PIBkJgZWkWPfj8C4IntAGTRUa6d0vU9Hx9YWnWmSntcnO7D09VLr2tv/4kgqy9n+kxwHQuH2i4W04xY5MwfC6tdL+N/eatWl2hHLGY1E/ZVb/QF08ltHpfPs2YyrpEqmEw+khSnnao0suUiv9cmQOzPFVvxLIO6LBy/NE+V0Aew+z/UGRbi4+1Fs3TKxiXNTVLyoF2/YAbLElUZSvR3I6e/AbYvU0isyl8ols/a0Bn9T2ZKssZUp30yqYDikwVspUtmjqY8C9NShAbkVPeph1tU5MjdJL9zGzBd1WYXWd9WhUV3mg8langU2B0fKTNWjYuQHm9XMXmGO7oXzn1Dy/0cOmOsLkmbaQp43rMYD7gJ0QNBQf1WENfr5xWPsj1NXD2gkNkUs93Lx9b+VYN/hkzp3Ndz0uiP41OZ4pFls9G15IaCYm59JdN6tqeCUOcP89tYwBe0c8WxmLwfQza6y2QpSY0zGIbrb/hYVzbPYKCMtcjbELGbgiqF78FaVF1HEIbvFNGYojFgErMncdCVCJnYApIAgbSL8tSZq+YzmkIYwAHPJBfLknVCACfmpZHbxVKyjX6q1X/eCb6wnTp/o5quun1fqEhtW/dU21Bz+Pc5Ung5sFlPupr6mT0pK4DegIXRZoKQSnmSEuEH1gnecdkA9AUC0BdA1JwI0iS/R1yAQeX4HqQ3J1FVFF6jU/5wYk4y542h+x86pAfltmz+0SNvhjcg30GGIq91zy1ImZvLh5++02SbMx7lVLLbDJ5npS2quLKQwGJDf3GwzcPSPkuOzuVnIQqVNbWzA6Q2biGHWuQ8tKDIx2PmrFACnULaINrMqTzyEde9ANhzTAkjm8QF+t3WpBK1kGBBDELvTpHvUz4x9cnL2f35VN1oe4syLxW1/SwWl3/a8Xa13K9qdWzDECgtnYbSVUI5wCOAtmH2RshttX0qSYXeM09A9cEw6KJmkElZhj1rog/SbMK1Iu8iYh2FHmEH0NbBe3Gsmj1w3adbEmH4CjJ2FHxfngnG4sKesBTlHBVcK8ca8gn/mE1ZWcQjqkg+2VC+A782bpbD0hjAOk4f/wPH3E3epArSaRwI8nmMCBO41lwPSrksqxMAhBcXUROc7biqWEb0j9Bo61uDdyr9cjgtQNdGOAVH4aUwFD4WpogwfYTIMd7nysxrOLrUQTGF0shqhWu18jo4+3DWZ4MFBxxeV2b0zaC5SURqRHa0YAb9klsRp3qth4X1FsITTWTAf/6Z4MFVvU9ASCa76JvSqA7qauTQQv547twRx4jQW9iakRXauYFw8eNeZyM77sYkjT5soFCazHP00P0o8M+5lakWNjKOUnhHAEHCdfn3X/RJo1vWpTCf3ERAaLy7t9I6bPk+sAFMGXISCuhUKGvsgivBsL+rU0xT0D1GnlH3i8aK3MdMOHrqciPsCe2C39leDDKKgMT6k/wABdg/jFFpx3lTg5XF+L5c9F9hneAxd2nLgtYdRyuplz/7fWsIq0t2a31njtD12rVARHwnsgC3Wi7WnilqtsJ6WO7M/H/4V3NO35U/7w8yT4RWxijHSZShycG+KJGVaeJec/IaXfMMFRVD4Ed7SRTK4bwaLFIpcZIguEKbAtaKFyr4KoaxAVYHnoX1AD9QIlODAeWJn9G8wQkIXiNXgzBV/vLDrrPncoQCBWA6mJgjQji6akRd7tKIiD6Y2YvUMQ6AKY/I9TSrw78ci5GqRlVuoHF3sxCLMzrFVLAEH0xsxpK4L2SZMSjfKuA4gJA5sR+xIDuo1tXp0HAoIm1aKXMzN0MpmTfrmRgweFlr6cIvsRy08hvWvwY/JYONn41K0P/90uS6oTKjLhsMLYTKFszuzIaTbKa2ifjoZdf19L51fCJwkwLek0TDMyhojrmY0+cLJ71GXekGEwg9ZYDgZ2P33QhuFO0a9bBb3XtYU7onBpimT2m8+p0GiguwhehF8ZRy30ePvJlBiLZhoDaCZ4tbENSaf2wb/+wyZMw9PxLcQl3A+G9XtpMQ6gEj906yhcW0gBd1Y0tB+nT3Lw1TaOIDTMSOK+lR7z7ZwQ/t4Z79TyDPP9Z6Q+RKNvQse2mwWCgPnnqaBT33MTKMQ32xZO1oquAh9FWK6sgsGxDYEL+qN43VC0XR91mI04riCW60HRTJR1SwUi4ByBFE5oZfgAIaXOZKbzBMwIX+U43A0g+5G9taoJbUEvUxVqoyUeBcK2uG2r4yqLe+sVyvlYYbBP+4XwOjZnpVbW/t9d9Q05SDQSnj4o2oPlaTT9Ae50zIbLOO8wI8pX35EdFDEYZLE63Vah/nPH/IlmfLNlm3RIi4gCFHg2K/9RhGOcIhzRAF9bDMrQklT+4N1xCJhD+MxH3VNNcoH3oEfi/iHOtrVT4cuoXTfVl0Ll564JM2qIczDk+V0+MjieyZyTXen+tEJ4Kjr9hDXd3edenW+7i0JnCAIKocBOaqxGDVJvyHREYYrP7ArYz0zfGxYQytNe+CNZ1FqRXWX+Y8wylhpuN6E5WwKXbCmcW+SmcBp9anvkYVVLMNSWEbWGfxoq0tpC9rjwOnirsoBEfXuiP3NvNLlAaV3ekMj3rf+mKbKjvAq3NGfjbCHczgA6TV8ro/f1GzEwApKV83PSzZUWwqBGn5fTcR9bMJcObugtgUNgNBOvP/17efaCsBSNX99qqW+6g19kIrpngAFq1U9+Xy9I4j9obfJaLBUU3IJ88+KyJ7DSEmGemoZM3iaeCB5DZ175w14FUi9umkI5jMJSFY36krgORs5qAuzkh0MyszPyh97DoK5Quew+o3TkFoOInIOzU46BQthe1pYDiIeSvr+0AA/99EkMuVJbAGDR8vmYL7KPxDYnbDFac6fYcaHOeyc3yosOqctTYo037L4hC4E43mVHDDig0+SWCu91BcNmP7UZ33sfKc1M3/4MGQtGXSMXbdiLTRabiMwP49m3bYXYp4/ax+I+5O/LKTj3Osa8Qp7zT5/QdbvIEAh6WBXLhQy2h+tTAUvi0FpOVfgIOSFDq42WeA4KfnmJa5+nNcBeBDjd/U1dYsds1XjBnUSuEs1fBAFaHuruekyhpKwr6mu8eqeWGwkF8zt2JO1RYD2y+RP5cBAvusnPSKbyCxCPfgSd2SGF7CcCqqMbLWzqq9GQxwEASHMsWAclRY779RF5FIa3i7hmpn7jt5tUkvb7cVaJX4sZr5pyKU9lJFN3a5e8Rvp/jffm+QT9e8Xdrl3776fRo+AOhVMBWB98KcBous4SX049tbMrp9boX0uy15sO8O2w6hVWdg8T1C4vutKWGrRUt3aQN9EiG0Ca//2IKLE/WM4ExGGIFI1qWhKcSZQHWVF2cVoYyYLdDF/D/PoNhgG//T+vDd7TT5dEvvzvG3xTGwhLRWf4G7O1xN//wTyG3sXTsBsdQ/pEYeJhdRsYqvFGhT4wdY7JvcywrNhsa/g+s+MamNLKDTLA6u0QDCq4+rucQ74fi4pI29Z1fvR955pJImVOgqFwW+vezHQF/D8cQwxu54cfobY5pek8UXI9ywChW1ReIA7NHzNXhrJ2rFN0BLn9fW1ylZxPbKoG1Zf1W78ngakraJ9fTgvXJjkfeR0BF7RrCALDPTa2gS8KajHG9/NhsAamE6leWaWBn4e0+a0QSf7Vp89w/S6ppdZwZLejzqCwNFnNYSBLsZewWjbnxDr0XkqFZp3A+w3EZSiDHZxB/TZDg4/O4mtq/kDrpv9Whk8YkuBf9DV3QRIkvF99XpOLuAH8Tt4Bte20/f/wUZ5QHIo7Xkv5/qDT6BANVKG4CsnVLjfAYop1agVc9MCA101yKql6OVyc+0DqcnZEu2CFxF+iDe6MsnfHgLfcZVVCtCQxArOCE4Q/oQjE9QYLopdp0IahfW3T1tXN2dA5ci+3ZdAXETxf4xlzJ9XIqFdQrI23PU1fxVuFV1PduGN1vHkH6Gywk1jV2aj5qZeRJxH3JRX6rbKK/hD2ArqaKIks4DDWJCYTTM+8M9I96EfWe93t4ltFjjbzDTAZGRilRVcqnLFB/LKjfQvLumYvxhSphDiJJXbmNPMjkPVN+2z898vImYNMf3x7K0XKYIoo4EOWVxjnuEDn2p3uTynNJZeQ8qOPGhm4yIyNEK1xLYQc7iIaEz7rfUhRe7yqcIzMPqF6nW+zP9d9v5rfK4BJmBm96k4ekTmUcHQauevfCr9XP3idhd3dZ+3EKEIsqxUTJw4RoB7+ycW0dxv7F0UB9oc1bhmynZf04ES0ueHzsT2qJK8C14nYXGPNClo+qcP9JKWSat6nH00+dvpk8IVutc2BqYoNBbXQ77NuhyzzOj9E4HJzB/fvHGV6bNdJBUTuUZgy3RUbaaqY5pVwvno83gM6IhG4wJcwxysdcikbk0xX7YcrdDAfoTiLcaW08mFwpgICl2Cswhkp3Tdo/v7xO9aGUsJ00syQiAfC19XS/FKkFroPyItKMLS1Zv1f42M76PobT3XjJN8IXtH3+yCEqo5I6pylMaW864ZyLcHfmHUAYBPj8Wy3KiunfRSw08cHO3X6hX6tyvOGes9AObGWwWmPNHxi0ceJCMGj96h9aeYwiEfkYt+7RzZxMp/oQymbMRqwMiNzaNVT+gTXVcWYsEEX6C17xwBIlGESvANtTwm5WCZWsA4KctqhQmZv7wSUQN5EhPNTTxIkz46YxXtA2JsO2LVTDQLMggk5ljkOBYr7ikcqLYT4MCWT/ddy5JL1FWIT569lzaXANLRdr6ArXBdiy+kSzvrMf6CHu4ddJbSK1pn7sTkBmZGRbuSGgkGVFQqkguFdPXINatss767SiOB/fh1REqwv4dsN+50XxE9MzB0PDnXm3NHl9eV7ZdtAXhdy61OddGIUNEjozCYAO3Hwr/viptw/IT+otH/gFeQ8Vcga1xoWFrz5elJzqm9xTmHcpJqiDy24RHyT37CNjJcVs1g8CzXUpnrTFnoKsqQF/nd9QXiAUgphGE6ueU1ygmCVn7n035xnQZC+e50FUNlHlx9BaahaUnj4PK/mFryKf4c1xxSlmNfxkcXAwaLk5ky2cgdzvjFaEDJM3O22obqy06RPKATdssZlu5T7QvMvWoYfwnDQ1wZgrdXyXXQkFtp0tpCyxWJJcTyJqM0pZcROOfQa79BakPpgiElbAqxMW37nTscizon3IhX+cruAEqpYDn9BqT+VcNPEBBkk0e5EB8E1VbyAEduaIRaxEQg8d8ATxMW7AKUFpYlUMA5hOpAH/nFVt46SWDHDBZMzS1QtVEh4cj0ViEfYhHEBnG5ze62V8lb9o40BiJWFBLxnQBYSVddmxSecmfSb7eQMNlmBW3hiTVPOKP0lb6Fp5Z6MuJI8sahO2zZRf9KLhApuIhLFxYFuhFTSqbEzBcLt6mwy6ovJKSIbccM93kYfUL1M9XusSMAt9+Z/4B0sYn70tnt4Yz+ePxlrFvkvt3qT4ZEud1kYUZaLMLjXSyKGAQf16KO++yif34quJRbRzc+Oleevc7OvgCP4QvbiwKWvArbRA2ciAX4StrUWPerubDXgQKNxlBcIwAAAA",
   useDefaultBanner: true,
+  bannerType: "image",
+  bannerColor: "#1b4332",
+  bannerGradientStart: "#1b4332",
+  bannerGradientEnd: "#2d6a4f",
   loginBannerUrl: "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?q=80&w=2070&auto=format&fit=crop",
   useDefaultLoginBanner: true,
   bannerPosition: "50% 50%",
@@ -274,6 +300,7 @@ export const DEFAULT_SETTINGS: ClubSettings = {
   hideWebsiteLink: false,
   welcomeMessage: "Herzlich willkommen im modernisierten Reservierungssystem! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.",
   courts: ["Platz 1", "Platz 2"],
+  equipmentList: ["Ballmaschine", "Ballkorb"],
   news: "",
   impressum: `Angaben gemäß § 5 TMG
 Tennis-Club e.V.
@@ -306,6 +333,7 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
     events: true,
     ranking: true,
     guests: true,
+    spielpartner: true,
     arbeitseinsaetze: false,
     league: false,
     championship: false,
@@ -313,6 +341,7 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
   navigationOrder: [
     "landing_page",
     "reservation",
+    "spielpartner",
     "tournaments",
     "ranking",
     "championship",
@@ -352,6 +381,7 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
     maxAdvanceWeeks: 2,
     allowPastBookings: false,
     requireCoplayer: false,
+    allowParticipantsToEdit: false,
     openingHours: {
       "1": { start: "08:00", end: "21:00", closed: false },
       "2": { start: "08:00", end: "21:00", closed: false },
@@ -382,7 +412,12 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
   },
   recurringLocks: [],
   rangeLocks: [],
-  club_onboarding_settings: DEFAULT_ONBOARDING_SETTINGS
+  club_onboarding_settings: DEFAULT_ONBOARDING_SETTINGS,
+  i18n: {
+    defaultLanguage: "de",
+    supportedLanguages: ["de", "en"],
+    translations: {},
+  }
 };
 
 // --- Hooks and Listeners ---
@@ -515,26 +550,45 @@ export function listenToSettings(vereinsId: string, callback: (s: ClubSettings) 
         const resolvedHeaderLogo = data.customHeaderLogoUrl || data.headerLogoUrl || resolvedLogo || (isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : "");
         const resolvedClubName = data.clubName || data.vereinsName || (isNeuhausen ? "SV Neuhausen" : isFurth ? "DJK Furth" : isSportsgeist ? "TC Sportsgeist" : DEFAULT_SETTINGS.clubName);
 
+        const defaultBannerImg = isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "";
+        const defaultLoginBannerImg = isNeuhausen ? (DEFAULT_SETTINGS.loginBannerUrl || DEFAULT_SETTINGS.bannerUrl) : "";
+
         const useDefaultBanner = data.useDefaultBanner !== undefined
           ? Boolean(data.useDefaultBanner)
-          : Boolean(!data.bannerUrl || data.bannerUrl === DEFAULT_SETTINGS.bannerUrl);
+          : isNeuhausen
+          ? Boolean(!data.bannerUrl || data.bannerUrl === DEFAULT_SETTINGS.bannerUrl)
+          : Boolean(!data.customBannerUrl && !data.bannerUrl);
 
-        const defaultLoginBannerImg = DEFAULT_SETTINGS.loginBannerUrl || DEFAULT_SETTINGS.bannerUrl;
         const useDefaultLoginBanner = data.useDefaultLoginBanner !== undefined
           ? Boolean(data.useDefaultLoginBanner)
-          : Boolean(
+          : isNeuhausen
+          ? Boolean(
               !data.loginBannerUrl ||
               data.loginBannerUrl === defaultLoginBannerImg ||
               data.loginBannerUrl === DEFAULT_SETTINGS.bannerUrl
-            );
+            )
+          : Boolean(!data.customLoginBannerUrl && !data.loginBannerUrl);
+
+        const defaultBannerType = data.bannerType || (isNeuhausen ? "image" : "gradient");
+        const defaultBannerColor = data.bannerColor || data.primaryColor || (isFurth ? "#003366" : isSportsgeist ? "#1e3a8a" : "#1b4332");
+        const defaultBannerGradStart = data.bannerGradientStart || data.primaryColor || defaultBannerColor;
+        const defaultBannerGradEnd = data.bannerGradientEnd || data.accentColor || (isFurth ? "#1e40af" : isSportsgeist ? "#3b82f6" : "#2d6a4f");
 
         const resolvedBanner = useDefaultBanner
-          ? DEFAULT_SETTINGS.bannerUrl
-          : (data.customBannerUrl || data.bannerUrl || DEFAULT_SETTINGS.bannerUrl);
+          ? defaultBannerImg
+          : (data.customBannerUrl || data.bannerUrl || defaultBannerImg);
 
         const resolvedLoginBanner = useDefaultLoginBanner
           ? defaultLoginBannerImg
           : (data.customLoginBannerUrl || data.loginBannerUrl || defaultLoginBannerImg);
+
+        const resolvedLeague = data.modules?.league !== undefined
+          ? data.modules.league === true
+          : (data.enableLeague !== undefined
+          ? data.enableLeague === true
+          : (data.modules?.liga !== undefined
+          ? data.modules.liga === true
+          : DEFAULT_SETTINGS.modules.league === true));
 
         const merged: ClubSettings = {
           ...DEFAULT_SETTINGS,
@@ -542,15 +596,21 @@ export function listenToSettings(vereinsId: string, callback: (s: ClubSettings) 
           logoUrl: resolvedLogo,
           headerLogoUrl: resolvedHeaderLogo,
           clubName: resolvedClubName,
+          bannerType: defaultBannerType,
+          bannerColor: defaultBannerColor,
+          bannerGradientStart: defaultBannerGradStart,
+          bannerGradientEnd: defaultBannerGradEnd,
           useDefaultBanner,
           useDefaultLoginBanner,
           bannerUrl: resolvedBanner,
           loginBannerUrl: resolvedLoginBanner,
-          customBannerUrl: data.customBannerUrl || (data.bannerUrl !== DEFAULT_SETTINGS.bannerUrl ? data.bannerUrl : "") || "",
+          customBannerUrl: data.customBannerUrl || (data.bannerUrl && data.bannerUrl !== defaultBannerImg ? data.bannerUrl : "") || "",
           customLoginBannerUrl: data.customLoginBannerUrl || (data.loginBannerUrl && data.loginBannerUrl !== defaultLoginBannerImg ? data.loginBannerUrl : "") || "",
+          enableLeague: resolvedLeague,
           modules: {
             ...DEFAULT_SETTINGS.modules,
-            ...(data.modules || {})
+            ...(data.modules || {}),
+            league: resolvedLeague,
           },
           reservationRules: {
             ...DEFAULT_SETTINGS.reservationRules,
@@ -563,7 +623,19 @@ export function listenToSettings(vereinsId: string, callback: (s: ClubSettings) 
             field_gender: data.club_onboarding_settings?.field_gender || data.club_onboarding_settings?.field_demographics || DEFAULT_ONBOARDING_SETTINGS.field_gender
           },
           recurringLocks: data.recurringLocks || [],
-          rangeLocks: data.rangeLocks || []
+          rangeLocks: data.rangeLocks || [],
+          navigationOrder: (() => {
+            const raw = Array.isArray(data.navigationOrder) && data.navigationOrder.length > 0
+              ? data.navigationOrder
+              : (DEFAULT_SETTINGS.navigationOrder || []);
+            const res = [...raw];
+            for (const dId of (DEFAULT_SETTINGS.navigationOrder || [])) {
+              if (!res.includes(dId)) {
+                res.push(dId);
+              }
+            }
+            return res;
+          })(),
         };
         callback(merged);
       } else {
@@ -576,6 +648,10 @@ export function listenToSettings(vereinsId: string, callback: (s: ClubSettings) 
           ? "/images/wappen_tc_sportsgeist_login.png"
           : DEFAULT_SETTINGS.logoUrl;
 
+        const defaultBannerType = isNeuhausen ? "image" : "gradient";
+        const defaultBannerColor = isFurth ? "#003366" : isSportsgeist ? "#1e3a8a" : "#1b4332";
+        const defaultBannerGradEnd = isFurth ? "#1e40af" : isSportsgeist ? "#3b82f6" : "#2d6a4f";
+
         callback({
           ...DEFAULT_SETTINGS,
           clubName: resolvedClubName,
@@ -583,6 +659,14 @@ export function listenToSettings(vereinsId: string, callback: (s: ClubSettings) 
           vereinsId: normalizedId,
           logoUrl: defaultClubLoginLogo,
           headerLogoUrl: isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : defaultClubLoginLogo,
+          bannerType: defaultBannerType,
+          bannerColor: defaultBannerColor,
+          bannerGradientStart: defaultBannerColor,
+          bannerGradientEnd: defaultBannerGradEnd,
+          bannerUrl: isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "",
+          loginBannerUrl: isNeuhausen ? DEFAULT_SETTINGS.loginBannerUrl : "",
+          useDefaultBanner: isNeuhausen,
+          useDefaultLoginBanner: isNeuhausen,
           courts: ["Platz 1", "Platz 2"],
           aktiv: true,
           websiteUrl: isNeuhausen ? "https://www.svneuhausen1947.de/tennis" : "",
@@ -693,7 +777,7 @@ export function listenToUsers(vereinsId: string, callback: (u: Record<string, Us
         vereinsId: docData.tenantId || docData.vereinsId || normalizedId,
         clubs: userClubs.length > 0 ? userClubs : [{ vereinsId: normalizedId, clubName: normalizedId, role: resolvedRole }],
         password: docData.password || docData.passwort || '',
-        klarname: docData.klarname || `${docData.firstName || ''} ${docData.lastName || ''}`.trim() || username,
+        klarname: `${docData.firstName || ''} ${docData.lastName || ''}`.trim() || docData.klarname || username,
         firstName: docData.firstName || '',
         lastName: docData.lastName || '',
         email: docData.email || '',
@@ -704,7 +788,8 @@ export function listenToUsers(vereinsId: string, callback: (u: Record<string, Us
         hauptAdmin: !!docData.hauptAdmin,
         createdAt: docData.createdAt || new Date().toISOString(),
         showAiAssistant: docData.showAiAssistant !== false,
-        onboarding_pending: !!docData.onboarding_pending,
+        onboarding_pending: !!(docData.onboarding_pending ?? docData.onboardingPending ?? docData.onboardingRequired),
+        onboardingPending: !!(docData.onboarding_pending ?? docData.onboardingPending ?? docData.onboardingRequired),
         birthDate: docData.birthDate || null,
         avatarUrl: docData.avatarUrl || null,
         avatarIcon: docData.avatarIcon || null,
@@ -734,6 +819,19 @@ export async function saveBooking(vereinsId: string, booking: Booking) {
       const docSnap = await transaction.get(docRef);
       if (docSnap.exists()) {
         const existingData = docSnap.data() as Booking;
+
+        // Spezialbehandlung für Platz-Sperren:
+        if (booking.isLocked) {
+          // Falls der Zeitslot regulär von einem Mitglied gebucht ist, bleibt die Buchung des Mitglieds erhalten (nicht überschreiben & kein Fehler)
+          if (!existingData.isLocked) {
+            console.info(`[saveBooking] Zeitslot am ${booking.date} um ${booking.time} Uhr auf ${booking.court} ist bereits regulär gebucht. Sperre überspringt diesen Slot.`);
+            return;
+          }
+          // Falls der Zeitslot bereits eine Sperre ist, darf der Admin diese Sperre aktualisieren/überschreiben
+          transaction.set(docRef, { ...cleanBooking, id: finalId });
+          return;
+        }
+
         const isSameId = booking.id === finalId || booking.id === existingData.id;
         const isEditingThisBooking =
           booking.editingBookingId === existingData.id ||
@@ -775,12 +873,95 @@ export async function deleteBooking(vereinsId: string, bookingId: string) {
   }
 }
 
-export async function updateBookingPaidStatus(vereinsId: string, bookingId: string, isPaid: boolean) {
+export async function deleteBookingsBatch(vereinsId: string, bookingIds: string[]) {
+  if (!bookingIds || bookingIds.length === 0) return;
+  const normalizedId = getNormalizedVereinsId(vereinsId);
+  const uniqueIds = Array.from(new Set(bookingIds)).filter(Boolean);
+
+  const BATCH_SIZE = 400;
+  for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
+    const chunk = uniqueIds.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+    for (const bId of chunk) {
+      batch.delete(doc(db, 'vereine', normalizedId, 'bookings', bId));
+    }
+    await batch.commit();
+  }
+}
+
+export async function saveLockRangeBatch(vereinsId: string, bookingsToSave: Booking[]) {
+  if (!bookingsToSave || bookingsToSave.length === 0) return;
+  const normalizedId = getNormalizedVereinsId(vereinsId);
+
+  // Check existing docs to safely preserve regular member bookings
+  const checks = await Promise.all(
+    bookingsToSave.map(async (booking) => {
+      const finalId = `slot_${booking.date}_${booking.time.replace(':', '-')}_${booking.court.replace(/\s+/g, '_')}`;
+      const docRef = doc(db, 'vereine', normalizedId, 'bookings', finalId);
+      try {
+        const snap = await getDoc(docRef);
+        return { booking, finalId, docRef, exists: snap.exists(), data: snap.exists() ? (snap.data() as Booking) : null };
+      } catch (e) {
+        return { booking, finalId, docRef, exists: false, data: null };
+      }
+    })
+  );
+
+  const BATCH_SIZE = 400;
+  for (let i = 0; i < checks.length; i += BATCH_SIZE) {
+    const chunk = checks.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+    let count = 0;
+    for (const item of chunk) {
+      if (item.exists && item.data && !item.data.isLocked) {
+        console.info(`[saveLockRangeBatch] Zeitslot am ${item.booking.date} um ${item.booking.time} Uhr auf ${item.booking.court} ist bereits regulär gebucht. Überspringe Slot.`);
+        continue;
+      }
+      const cleanBooking = deepCleanUndefined({ ...item.booking, id: item.finalId });
+      batch.set(item.docRef, cleanBooking);
+      count++;
+    }
+    if (count > 0) {
+      await batch.commit();
+    }
+  }
+}
+
+export async function updateBookingPaidStatus(
+  vereinsId: string,
+  bookingId: string,
+  isPaid: boolean,
+  paidDate?: string | null
+) {
   const normalizedId = getNormalizedVereinsId(vereinsId);
   const path = `vereine/${normalizedId}/bookings/${bookingId}`;
   try {
     const docRef = doc(db, 'vereine', normalizedId, 'bookings', bookingId);
-    await updateDoc(docRef, { isPaid });
+    const updateData: any = { isPaid };
+    if (isPaid) {
+      updateData.paidDate =
+        paidDate !== undefined
+          ? paidDate
+          : new Date().toISOString().split('T')[0];
+    } else {
+      updateData.paidDate = null;
+    }
+    await updateDoc(docRef, updateData);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function updateBookingPaidDate(
+  vereinsId: string,
+  bookingId: string,
+  paidDate: string | null
+) {
+  const normalizedId = getNormalizedVereinsId(vereinsId);
+  const path = `vereine/${normalizedId}/bookings/${bookingId}`;
+  try {
+    const docRef = doc(db, 'vereine', normalizedId, 'bookings', bookingId);
+    await updateDoc(docRef, { paidDate: paidDate || null });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -849,6 +1030,24 @@ export function prepareTournamentSave(data: any): any {
   if (data.deletedAt && typeof data.deletedAt === 'string' && data.deletedAt.trim()) {
     result.deletedAt = data.deletedAt.trim();
   }
+  if (typeof data.isPoll === 'boolean') {
+    result.isPoll = data.isPoll;
+  }
+  if (data.pollStatus && typeof data.pollStatus === 'string') {
+    result.pollStatus = data.pollStatus;
+  }
+  if (typeof data.allowMaybe === 'boolean') {
+    result.allowMaybe = data.allowMaybe;
+  }
+  if (Array.isArray(data.proposedDates)) {
+    result.proposedDates = data.proposedDates;
+  }
+  if (data.pollVotes && typeof data.pollVotes === 'object' && !Array.isArray(data.pollVotes)) {
+    result.pollVotes = data.pollVotes;
+  }
+  if (data.finalizedDateId && typeof data.finalizedDateId === 'string' && data.finalizedDateId.trim()) {
+    result.finalizedDateId = data.finalizedDateId.trim();
+  }
   return result;
 }
 
@@ -859,7 +1058,7 @@ export function prepareTournamentUpdate(updates: any): any {
       if (typeof v === 'string' && v.trim()) {
         result.title = v.trim();
       }
-    } else if (k === 'hideExpired' || k === 'allowComment' || k === 'isRegistrationBlocked') {
+    } else if (k === 'hideExpired' || k === 'allowComment' || k === 'isRegistrationBlocked' || k === 'isPoll' || k === 'allowMaybe') {
       result[k] = Boolean(v);
     } else if (k === 'maxParticipants') {
       const num = typeof v === 'string' ? parseInt(v, 10) : Number(v);
@@ -878,6 +1077,14 @@ export function prepareTournamentUpdate(updates: any): any {
       result.auditLog = Array.isArray(v) ? v : [];
     } else if (k === 'registrationComments') {
       result.registrationComments = (v && typeof v === 'object' && !Array.isArray(v)) ? v : deleteField();
+    } else if (k === 'pollStatus') {
+      result.pollStatus = (typeof v === 'string' && v.trim()) ? v.trim() : deleteField();
+    } else if (k === 'proposedDates') {
+      result.proposedDates = Array.isArray(v) ? v : deleteField();
+    } else if (k === 'pollVotes') {
+      result.pollVotes = (v && typeof v === 'object' && !Array.isArray(v)) ? v : deleteField();
+    } else if (k === 'finalizedDateId') {
+      result.finalizedDateId = (typeof v === 'string' && v.trim()) ? v.trim() : deleteField();
     } else if (v !== undefined) {
       result[k] = v === null ? deleteField() : v;
     }
@@ -921,8 +1128,18 @@ export async function saveSettings(vereinsId: string, settings: ClubSettings) {
   const normalizedId = getNormalizedVereinsId(vereinsId);
   const cleanSettings = deepCleanUndefined(settings);
   const path = `vereine/${normalizedId}`;
+  const leagueVal = cleanSettings.modules?.league === true;
   try {
-    await setDoc(doc(db, 'vereine', normalizedId), { ...cleanSettings, vereinsId: normalizedId, vereinsName: cleanSettings.clubName || normalizedId }, { merge: true });
+    await setDoc(doc(db, 'vereine', normalizedId), {
+      ...cleanSettings,
+      vereinsId: normalizedId,
+      vereinsName: cleanSettings.clubName || normalizedId,
+      enableLeague: leagueVal,
+      modules: {
+        ...(cleanSettings.modules || {}),
+        league: leagueVal,
+      },
+    }, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -1049,7 +1266,13 @@ export async function saveUser(vereinsId: string, user: User) {
   } else {
     finalDoc.showAiAssistant = true;
   }
-  if (user.onboarding_pending !== undefined) finalDoc.onboarding_pending = !!user.onboarding_pending;
+  const isPending = user.onboarding_pending !== undefined
+    ? !!user.onboarding_pending
+    : (user.onboardingPending !== undefined
+        ? !!user.onboardingPending
+        : !!(existingData.onboarding_pending ?? existingData.onboardingPending));
+  finalDoc.onboarding_pending = isPending;
+  finalDoc.onboardingPending = isPending;
   if (user.avatarUrl !== undefined) {
     finalDoc.avatarUrl = user.avatarUrl || null;
   } else if (existingData.avatarUrl !== undefined) {
@@ -1172,6 +1395,40 @@ export async function updateUserAceWelcomeSeen(userId: string): Promise<void> {
       await setDoc(userRef, { has_seen_ace_welcome: true }, { merge: true });
     } catch (fallbackErr) {
       console.warn('Failed to update has_seen_ace_welcome in Firestore:', fallbackErr);
+    }
+  }
+}
+
+/**
+ * Atomically increments booking partner frequencies for the booker in users/{bookerId}.
+ * Uses partnerStats.{currentYear}.{partnerId} with Firestore increment(1).
+ */
+export async function recordBookingPartnerStats(
+  bookerId: string,
+  partnerUserIds: string[],
+  yearOverride?: string
+): Promise<void> {
+  if (!bookerId || !partnerUserIds || partnerUserIds.length === 0) return;
+  const currentYear = yearOverride || new Date().getFullYear().toString();
+  const updates: Record<string, any> = {};
+
+  for (const partnerId of partnerUserIds) {
+    if (partnerId && partnerId !== bookerId) {
+      updates[`partnerStats.${currentYear}.${partnerId}`] = increment(1);
+    }
+  }
+
+  if (Object.keys(updates).length === 0) return;
+
+  try {
+    const userRef = doc(db, 'users', bookerId);
+    await updateDoc(userRef, updates);
+  } catch (err) {
+    try {
+      const userRef = doc(db, 'users', bookerId);
+      await setDoc(userRef, updates, { merge: true });
+    } catch (fallbackErr) {
+      console.warn('[partnerStats] Failed to record partner stats in Firestore:', fallbackErr);
     }
   }
 }
@@ -1480,10 +1737,43 @@ export async function getClubDefaultNotificationSettings(
   return inMemoryClubDefaults[normalizedId] || null;
 }
 
-export async function deleteUserDoc(vereinsId: string, username: string) {
+export async function deleteUserDoc(vereinsId: string, usernameOrId: string, userId?: string) {
   const normalizedId = getNormalizedVereinsId(vereinsId);
-  const normalizedUsername = username.toLowerCase().replace(/\s/g, '');
+  const normalizedUsername = (usernameOrId || '').toLowerCase().replace(/\s/g, '');
 
+  // 1. Try backend server endpoint first (privileged, authoritative, handles multi-club detach cleanly)
+  try {
+    const res = await fetch("/api/admin/delete-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vereinsId: normalizedId,
+        username: normalizedUsername,
+        userId: userId || undefined,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return;
+      }
+      if (data.error) {
+        throw new Error(data.error);
+      }
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      if (errData.error) {
+        throw new Error(errData.error);
+      }
+    }
+  } catch (backendErr: any) {
+    if (backendErr.message && !backendErr.message.includes("fetch") && !backendErr.message.includes("network") && !backendErr.message.includes("Failed to fetch")) {
+      throw backendErr;
+    }
+    console.warn("Backend user deletion endpoint unavailable, falling back to direct Firestore:", backendErr);
+  }
+
+  // 2. Direct Firestore Fallback:
   const currentFbUser = auth.currentUser;
   if (!currentFbUser) {
     throw new Error("Nicht angemeldet.");
@@ -1495,21 +1785,45 @@ export async function deleteUserDoc(vereinsId: string, username: string) {
   }
   const performer = performerDoc.data() as any;
 
-  const q = query(
-    collection(db, 'users'), 
-    where('username', '==', normalizedUsername)
-  );
-  const snap = await getDocs(q);
-  if (snap.empty) {
-    throw new Error(`Benutzer ${username} wurde nicht gefunden.`);
+  // Resolve target doc
+  let userDoc: any = null;
+  if (userId) {
+    const directDoc = await getDoc(doc(db, 'users', userId));
+    if (directDoc.exists()) {
+      userDoc = directDoc;
+    }
   }
 
-  const userDoc = snap.docs[0];
+  if (!userDoc) {
+    const q = query(
+      collection(db, 'users'), 
+      where('username', '==', normalizedUsername)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      // Find the document belonging to this club
+      userDoc = snap.docs.find(d => {
+        const data = d.data();
+        return data.tenantId === normalizedId ||
+          (data.clubIds && data.clubIds.includes(normalizedId)) ||
+          (data.clubs && data.clubs.some((c: any) => (c.vereinsId || c.id) === normalizedId));
+      }) || snap.docs[0];
+    } else {
+      const directDoc = await getDoc(doc(db, 'users', usernameOrId));
+      if (directDoc.exists()) {
+        userDoc = directDoc;
+      } else {
+        throw new Error(`Benutzer ${usernameOrId} wurde nicht gefunden.`);
+      }
+    }
+  }
+
   const targetUser = userDoc.data() as any;
   const targetId = userDoc.id;
 
   const isPerformerSuperAdmin = performer.role === 'super-admin' || performer.role === 'superadmin';
-  const isPerformerClubAdmin = performer.role === 'admin' || performer.hauptAdmin === true;
+  const isPerformerClubAdmin = performer.role === 'admin' || performer.hauptAdmin === true ||
+    (performer.adminClubIds && performer.adminClubIds.includes(normalizedId));
 
   if (isPerformerSuperAdmin) {
     if (targetId === currentFbUser.uid) {
@@ -1592,6 +1906,10 @@ export async function saveSystemUpdates(text: string, updatedBy: string) {
 
 export interface GlobalSystemSettings {
   chatbotEnabled?: boolean;
+  leagueTitle?: string;
+  leagueSubtitle?: string;
+  leagueBannerUrl?: string;
+  leagueBannerPosition?: string;
   lastUpdated?: string;
   updatedBy?: string;
 }
@@ -1605,6 +1923,10 @@ export function listenToGlobalSystemSettings(callback: (settings: GlobalSystemSe
         const data = docSnap.data();
         const settings: GlobalSystemSettings = {
           chatbotEnabled: data.chatbotEnabled !== false,
+          leagueTitle: data.leagueTitle || 'Hobbyliga',
+          leagueSubtitle: data.leagueSubtitle || '',
+          leagueBannerUrl: data.leagueBannerUrl || '',
+          leagueBannerPosition: data.leagueBannerPosition || 'center 25%',
           lastUpdated: data.lastUpdated,
           updatedBy: data.updatedBy,
         };
@@ -1616,11 +1938,11 @@ export function listenToGlobalSystemSettings(callback: (settings: GlobalSystemSe
         try {
           const cached = localStorage.getItem('system_chatbot_enabled');
           if (cached !== null) {
-            callback({ chatbotEnabled: cached !== 'false' });
+            callback({ chatbotEnabled: cached !== 'false', leagueTitle: 'Hobbyliga' });
             return;
           }
         } catch {}
-        callback({ chatbotEnabled: true });
+        callback({ chatbotEnabled: true, leagueTitle: 'Hobbyliga' });
       }
     },
     (error) => {
@@ -1673,11 +1995,22 @@ export function listenToClubs(callback: (clubs: any[]) => void) {
             const newId = id.toLowerCase().replace(/\s/g, '');
             performClubMigration(id, newId);
           } else {
+            const isLeague = data.modules?.league !== undefined
+              ? data.modules.league === true
+              : (data.enableLeague !== undefined
+              ? data.enableLeague === true
+              : (data.modules?.liga === true));
+
             list.push({
               vereinsId: id,
               ...data,
               clubName: data.clubName || data.vereinsName || id,
-              aktiv: data.aktiv !== false
+              aktiv: data.aktiv !== false,
+              enableLeague: isLeague,
+              modules: {
+                ...(data.modules || {}),
+                league: isLeague,
+              }
             });
           }
         });
@@ -1704,9 +2037,11 @@ export async function saveClub(clubDoc: { vereinsId: string, vereinsName: string
     const existingData = docSnap.data();
     const tenantSalt = existingData.tenantSalt || Math.random().toString(36).substring(2, 7);
     const updatedModules = { ...existingData.modules };
-    if (clubDoc.enableLeague !== undefined) {
-      updatedModules.league = clubDoc.enableLeague;
-    }
+    const leagueVal = clubDoc.enableLeague !== undefined
+      ? Boolean(clubDoc.enableLeague)
+      : (existingData.enableLeague ?? updatedModules.league ?? false);
+    updatedModules.league = leagueVal;
+
     // Wenn der Verein existiert, überschreiben wir die Plätze NICHT, 
     // um die Einstellungen des Admins im Tenant nicht zu zerstören.
     await setDoc(docRef, {
@@ -1717,12 +2052,14 @@ export async function saveClub(clubDoc: { vereinsId: string, vereinsName: string
       tenantSalt,
       geloescht: false,
       deletedAt: null,
+      enableLeague: leagueVal,
       ...(clubDoc.hilfetextMarkdown !== undefined ? { hilfetextMarkdown: clubDoc.hilfetextMarkdown } : {}),
       modules: updatedModules
     }, { merge: true });
   } else {
     // Bei neuem Verein werden die Plätze initial auf 2 gesetzt (oder je nach Parameter)
     const tenantSalt = Math.random().toString(36).substring(2, 7);
+    const leagueVal = clubDoc.enableLeague !== undefined ? Boolean(clubDoc.enableLeague) : false;
     await setDoc(docRef, {
       ...clubDoc,
       vereinsId: normalizedId,
@@ -1730,13 +2067,14 @@ export async function saveClub(clubDoc: { vereinsId: string, vereinsName: string
       tenantSalt,
       geloescht: false,
       deletedAt: null,
+      enableLeague: leagueVal,
       courts: Array.from({ length: clubDoc.plaetze || 2 }, (_, i) => `Platz ${i + 1}`),
       modules: {
         events: true,
         ranking: true,
         guests: true,
         arbeitseinsaetze: false,
-        league: clubDoc.enableLeague || false
+        league: leagueVal
       }
     }, { merge: true });
   }
@@ -2242,6 +2580,23 @@ export async function saveArbeitseinsatz(vereinsId: string, entry: ArbeitsEinsat
   const normalizedId = getNormalizedVereinsId(vereinsId);
   const path = `vereine/${normalizedId}/arbeitseinsaetze/${entry.id}`;
   const cleanEntry = deepCleanUndefined(entry);
+
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/arbeitseinsaetze/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vereinsId: normalizedId, entry: cleanEntry })
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success) return;
+      }
+    } catch (apiErr) {
+      console.warn("Backend save API request notice, falling back to direct Firestore:", apiErr);
+    }
+  }
+
   try {
     await setDoc(doc(db, 'vereine', normalizedId, 'arbeitseinsaetze', entry.id), cleanEntry, { merge: true });
   } catch (error) {
@@ -2249,9 +2604,75 @@ export async function saveArbeitseinsatz(vereinsId: string, entry: ArbeitsEinsat
   }
 }
 
+export async function updateArbeitseinsatzParticipation(
+  vereinsId: string,
+  entryId: string,
+  coWorkers: string[],
+  auditLog: any[]
+) {
+  const normalizedId = getNormalizedVereinsId(vereinsId);
+  const path = `vereine/${normalizedId}/arbeitseinsaetze/${entryId}`;
+  const cleanCoWorkers = deepCleanUndefined(coWorkers) || [];
+  const cleanAuditLog = deepCleanUndefined(auditLog) || [];
+
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/arbeitseinsaetze/participation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vereinsId: normalizedId,
+          entryId,
+          coWorkers: cleanCoWorkers,
+          auditLog: cleanAuditLog
+        })
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success) return;
+      }
+    } catch (apiErr) {
+      console.warn("Backend participation API notice, falling back to direct Firestore:", apiErr);
+    }
+  }
+
+  try {
+    await updateDoc(doc(db, 'vereine', normalizedId, 'arbeitseinsaetze', entryId), {
+      coWorkers: cleanCoWorkers,
+      auditLog: cleanAuditLog
+    });
+  } catch (error) {
+    try {
+      await setDoc(doc(db, 'vereine', normalizedId, 'arbeitseinsaetze', entryId), {
+        coWorkers: cleanCoWorkers,
+        auditLog: cleanAuditLog
+      }, { merge: true });
+    } catch (fallbackErr) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  }
+}
+
 export async function deleteArbeitseinsatz(vereinsId: string, entryId: string) {
   const normalizedId = getNormalizedVereinsId(vereinsId);
   const path = `vereine/${normalizedId}/arbeitseinsaetze/${entryId}`;
+
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/arbeitseinsaetze/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vereinsId: normalizedId, entryId })
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success) return;
+      }
+    } catch (apiErr) {
+      console.warn("Backend delete API notice, falling back to direct Firestore:", apiErr);
+    }
+  }
+
   try {
     await deleteDoc(doc(db, 'vereine', normalizedId, 'arbeitseinsaetze', entryId));
   } catch (error) {

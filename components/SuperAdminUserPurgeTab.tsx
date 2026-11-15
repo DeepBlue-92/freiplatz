@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { calculateAge, parseDateToYYYYMMDD } from "../utils/playerHelper";
 import { Person, Mitgliedschaft, LeagueMatch, Role, User } from "../types";
 import {
@@ -10,6 +12,7 @@ import {
 import { addExistingPersonToClub } from "../services/duplicateDetection";
 import { resolveClubName } from "../services/clubHelper";
 import SuperAdminCreateUserModal from "./SuperAdminCreateUserModal";
+import { AvatarUploader } from "./AvatarUploader";
 
 interface SuperAdminUserPurgeTabProps {
   allPersons: Person[];
@@ -32,6 +35,7 @@ export default function SuperAdminUserPurgeTab({
   onRefreshData,
   onLoginAs,
 }: SuperAdminUserPurgeTabProps) {
+  const { t } = useTranslation();
   // --- Search & Filters ---
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClubFilter, setSelectedClubFilter] = useState("all");
@@ -65,24 +69,42 @@ export default function SuperAdminUserPurgeTab({
     lastName: string;
     name: string;
     email: string;
+    is_placeholder_email: boolean;
     phone: string;
     gender: "m" | "w";
     birthDate: string;
+    language: "de" | "en";
     newPassword?: string;
     passwordConfirm?: string;
+    mustChangePassword?: boolean;
     showContactInfo: boolean;
+    onboarding_pending: boolean;
+    showAiAssistant: boolean;
+    isSuspended: boolean;
+    avatarUrl?: string | null;
+    avatarIcon?: string | null;
+    avatarColor?: string | null;
     clubAssignments: Record<string, Role>;
   }>({
     firstName: "",
     lastName: "",
     name: "",
     email: "",
+    is_placeholder_email: false,
     phone: "",
     gender: "m",
     birthDate: "",
+    language: "de",
     newPassword: "",
     passwordConfirm: "",
+    mustChangePassword: false,
     showContactInfo: true,
+    onboarding_pending: false,
+    showAiAssistant: true,
+    isSuspended: false,
+    avatarUrl: null,
+    avatarIcon: null,
+    avatarColor: null,
     clubAssignments: {},
   });
   
@@ -96,17 +118,30 @@ export default function SuperAdminUserPurgeTab({
       initialAssignments[c.clubId] = c.role;
     });
 
+    const isPending = (user as any).onboarding_pending !== undefined
+      ? !!(user as any).onboarding_pending
+      : !!(user as any).onboardingPending;
+
     setGlobalEditForm({
       firstName: user.firstName || "",
       lastName: user.lastName || "",
       name: user.name || "",
       email: user.email || "",
+      is_placeholder_email: !!(user as any).is_placeholder_email,
       phone: user.phone || "",
       gender: user.gender || "m",
       birthDate: parseDateToYYYYMMDD(user.birthDate),
+      language: user.language || "de",
       newPassword: "",
       passwordConfirm: "",
+      mustChangePassword: !!(user as any).mustChangePassword,
       showContactInfo: user.showContactInfo !== false,
+      onboarding_pending: isPending,
+      showAiAssistant: (user as any).showAiAssistant !== false,
+      isSuspended: !!user.isSuspended,
+      avatarUrl: user.avatarUrl || null,
+      avatarIcon: user.avatarIcon || null,
+      avatarColor: user.avatarColor || null,
       clubAssignments: initialAssignments,
     });
   };
@@ -130,16 +165,30 @@ export default function SuperAdminUserPurgeTab({
         firstName: globalEditForm.firstName.trim(),
         lastName: globalEditForm.lastName.trim(),
         name: globalEditForm.name.trim(),
-        email: globalEditForm.email.trim(),
+        email: globalEditForm.email?.trim() || "",
+        is_placeholder_email: !globalEditForm.email?.trim(),
         phone: globalEditForm.phone.trim(),
         gender: globalEditForm.gender,
         birthDate: globalEditForm.birthDate || null,
+        language: globalEditForm.language || "de",
         showContactInfo: globalEditForm.showContactInfo,
+        onboarding_pending: !!globalEditForm.onboarding_pending,
+        onboardingPending: !!globalEditForm.onboarding_pending,
+        showAiAssistant: globalEditForm.showAiAssistant !== false,
+        isSuspended: !!globalEditForm.isSuspended,
+        avatarUrl: globalEditForm.avatarUrl !== undefined ? globalEditForm.avatarUrl : null,
+        avatarIcon: globalEditForm.avatarIcon !== undefined ? globalEditForm.avatarIcon : null,
+        avatarColor: globalEditForm.avatarColor !== undefined ? globalEditForm.avatarColor : null,
       };
 
       if (globalEditForm.newPassword && globalEditForm.newPassword.trim().length >= 4) {
         updates.password = globalEditForm.newPassword.trim();
         updates.passwort = globalEditForm.newPassword.trim();
+        if (globalEditForm.mustChangePassword) {
+          updates.mustChangePassword = true;
+        } else {
+          updates.mustChangePassword = false;
+        }
       }
 
       const { getDocs, collection, deleteDoc, setDoc } = await import("firebase/firestore");
@@ -335,6 +384,18 @@ export default function SuperAdminUserPurgeTab({
       }
     });
     return map;
+  }, [clubs]);
+
+  // Active non-deleted clubs (excludes soft-deleted / archived clubs like TC Sportsgeist)
+  const activeClubs = useMemo(() => {
+    return clubs.filter(
+      (c) =>
+        c.geloescht !== true &&
+        c.deleted !== true &&
+        !c.deletedAt &&
+        c.vereinsId !== "super-admin" &&
+        c.vereinsId !== "system"
+    );
   }, [clubs]);
 
   // Map each user ID to their active memberships & clubs
@@ -571,11 +632,9 @@ export default function SuperAdminUserPurgeTab({
     linkedClubIds: string[],
     linkedClubNames: string[]
   ) => {
-    const unlinkedClubs = clubs.filter(
+    const unlinkedClubs = activeClubs.filter(
       (c) =>
         c.aktiv !== false &&
-        c.vereinsId !== "super-admin" &&
-        c.vereinsId !== "system" &&
         !linkedClubIds.includes(c.vereinsId)
     );
     setAssignClubForm({
@@ -753,24 +812,13 @@ export default function SuperAdminUserPurgeTab({
 
   return (
     <div className="space-y-6 font-sans">
-      {/* Header Actions */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-        <h2 className="text-lg font-black text-[#1b4332] uppercase tracking-wider">Benutzerverwaltung</h2>
-        <button
-          onClick={() => setShowCreateUserModal(true)}
-          className="px-4 py-2.5 bg-[#1b4332] hover:bg-emerald-900 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-2"
-        >
-          <i className="fa-solid fa-user-plus"></i> Neuen Benutzer anlegen
-        </button>
-      </div>
-
       {showCreateUserModal && (
         <SuperAdminCreateUserModal 
           onClose={() => setShowCreateUserModal(false)}
-          clubs={clubs}
+          clubs={activeClubs}
           onUserCreated={() => {
             setShowCreateUserModal(false);
-            showToast("Benutzer erfolgreich angelegt", "success");
+            showToast(t("superadmin.userCreatedSuccess", "Benutzer erfolgreich angelegt"), "success");
             // The list will update automatically via Firebase listener
           }}
         />
@@ -781,7 +829,7 @@ export default function SuperAdminUserPurgeTab({
         <div
           className={`fixed bottom-6 right-6 z-[100] p-4 rounded-2xl shadow-2xl border-2 flex items-center gap-3 transition-all ${
             toastNotification.type === "success"
-              ? "bg-emerald-900 text-white border-emerald-500"
+              ? "bg-[#c8631b] text-white border-emerald-500"
               : "bg-rose-900 text-white border-rose-500"
           }`}
         >
@@ -799,22 +847,31 @@ export default function SuperAdminUserPurgeTab({
       )}
 
       {/* Main Container */}
-      <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
+      <div className="bg-white border-2 border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
         {/* Header & Description */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 pb-5">
-          <div>
-            <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-              <i className="fa-solid fa-user-shield text-[#1b4332]"></i>
-              Benutzer-Verwaltung & Account-Purge
-            </h2>
-            <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1 max-w-4xl">
-              Globale Liste aller registrierten Konten über alle Vereine hinweg. Hier kannst du Mitgliedschaften entkoppeln oder ungenutzte Accounts und verbundene Ligaspiele unwiderruflich löschen.
-            </p>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#e47726] text-lg shrink-0">
+              <i className="fa-solid fa-user-shield"></i>
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                {t("superadmin.userManagement")}
+              </h2>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
+                {t("superadmin.userManagementSubtitle")}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-sm text-xs font-bold text-slate-700">
-            <i className="fa-solid fa-users text-[#1b4332]"></i>
-            <span>Gesamt im System: <strong>{allPersons.length} Konten</strong></span>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setShowCreateUserModal(true)}
+              className="px-4 py-2.5 bg-[#e47726] hover:bg-[#c8631b] text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-user-plus"></i>
+              {t("superadmin.createUserBtn")}
+            </button>
           </div>
         </div>
 
@@ -831,8 +888,8 @@ export default function SuperAdminUserPurgeTab({
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Name, E-Mail, Username oder ID suchen..."
-                className="w-full pl-9 pr-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1b4332] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                placeholder={t("superadmin.searchUserPlaceholder", "Name, E-Mail, Username oder ID suchen...")}
+                className="w-full pl-9 pr-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#e47726] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
               />
               {searchTerm && (
                 <button
@@ -847,7 +904,7 @@ export default function SuperAdminUserPurgeTab({
             {/* Club Filter */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
-                Verein:
+                {t("superadmin.clubFilterLabel", "Verein:")}
               </label>
               <select
                 value={selectedClubFilter}
@@ -855,10 +912,10 @@ export default function SuperAdminUserPurgeTab({
                   setSelectedClubFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full bg-white border-2 border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#1b4332] font-sans font-medium"
+                className="w-full bg-white border-2 border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#e47726] font-sans font-medium"
               >
-                <option value="all">Alle Vereine ({clubs.length})</option>
-                {clubs.map((c) => (
+                <option value="all">{t("superadmin.allClubs", "Alle Vereine")} ({activeClubs.length})</option>
+                {activeClubs.map((c) => (
                   <option key={c.vereinsId} value={c.vereinsId}>
                     {c.vereinsName || c.name || c.vereinsId}
                   </option>
@@ -869,7 +926,7 @@ export default function SuperAdminUserPurgeTab({
             {/* Protection Filter */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
-                Schutz-Status:
+                {t("superadmin.protectionStatusLabel", "Schutz-Status:")}
               </label>
               <select
                 value={selectedProtectionFilter}
@@ -877,11 +934,11 @@ export default function SuperAdminUserPurgeTab({
                   setSelectedProtectionFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full bg-white border-2 border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#1b4332] font-sans font-medium"
+                className="w-full bg-white border-2 border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#e47726] font-sans font-medium"
               >
-                <option value="all">Alle Schutzstufen</option>
-                <option value="backup">Gesichert (In Backup vorhanden)</option>
-                <option value="none">Kein Backup (Ungeschützt)</option>
+                <option value="all">{t("superadmin.allProtectionLevels", "Alle Schutzstufen")}</option>
+                <option value="backup">{t("superadmin.protectedInBackup", "Gesichert (In Backup vorhanden)")}</option>
+                <option value="none">{t("superadmin.noBackupUnprotected", "Kein Backup (Ungeschützt)")}</option>
               </select>
             </div>
           </div>
@@ -890,15 +947,15 @@ export default function SuperAdminUserPurgeTab({
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-700">
               <span className="bg-slate-100 text-slate-800 px-3 py-1 rounded-lg border border-slate-200">
-                Gefiltert: <strong>{filteredUserStats.length}</strong> von <strong>{allPersons.length}</strong> Konten
+                {t("superadmin.filteredCount", "Gefiltert:")} <strong>{filteredUserStats.length}</strong> {t("superadmin.of", "von")} <strong>{allPersons.length}</strong> {t("superadmin.accounts", "Konten")}
               </span>
               <span className="bg-emerald-50 text-emerald-800 px-3 py-1 rounded-lg border border-emerald-200">
-                Anzeige: <strong>{(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredUserStats.length)}</strong> (Seite {currentPage} von {totalPages})
+                {t("superadmin.showing", "Anzeige:")} <strong>{(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredUserStats.length)}</strong> ({t("superadmin.pageOf", "Seite")} {currentPage} {t("superadmin.of", "von")} {totalPages})
               </span>
               {selectedUserIds.length > 0 && (
                 <span className="bg-purple-50 text-purple-800 px-3 py-1.5 rounded-lg border border-purple-200 font-black flex items-center gap-1.5">
                   <i className="fa-solid fa-check-double text-purple-600"></i>
-                  {selectedUserIds.length} ausgewählt
+                  {selectedUserIds.length} {t("superadmin.selected", "ausgewählt")}
                 </span>
               )}
             </div>
@@ -909,13 +966,13 @@ export default function SuperAdminUserPurgeTab({
                 onClick={toggleSelectPage}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold border bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                {isPageAllSelected ? "Diese Seite abwählen" : `Diese Seite auswählen (${paginatedUsers.length})`}
+                {isPageAllSelected ? t("superadmin.deselectPage", "Diese Seite abwählen") : `${t("superadmin.selectPage", "Diese Seite auswählen")} (${paginatedUsers.length})`}
               </button>
               <button
                 onClick={toggleSelectFilteredAll}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold border bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                {isFilteredAllSelected ? "Alle abwählen" : `Alle gefilterten auswählen (${filteredUserStats.length})`}
+                {isFilteredAllSelected ? t("superadmin.deselectAllFiltered", "Alle abwählen") : `${t("superadmin.selectAllFiltered", "Alle gefilterten auswählen")} (${filteredUserStats.length})`}
               </button>
 
               {selectedUserIds.length > 0 && (
@@ -927,7 +984,7 @@ export default function SuperAdminUserPurgeTab({
                     className="bg-rose-700 hover:bg-rose-800 disabled:opacity-40 text-white px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md flex items-center gap-1.5 cursor-pointer border border-rose-800"
                   >
                     <i className="fa-solid fa-trash-can"></i>
-                    Löschen ({selectedUserIds.length})
+                    {t("superadmin.deleteTooltip", "Löschen")} ({selectedUserIds.length})
                   </button>
                 </div>
               )}
@@ -937,23 +994,26 @@ export default function SuperAdminUserPurgeTab({
 
         {/* Live Progress Bar Indicator */}
         {progressStatus && (
-          <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-xl space-y-3 border-2 border-slate-700">
+          <div className="bg-white border-2 border-orange-200/80 rounded-2xl p-5 shadow-sm space-y-3 animate-in fade-in duration-200">
             <div className="flex justify-between items-center text-xs font-black uppercase tracking-wider">
-              <span className="flex items-center gap-2 text-emerald-400">
-                <i className="fa-solid fa-spinner fa-spin"></i>
-                Stapelverarbeitung läuft...
+              <span className="flex items-center gap-2 text-[#e47726]">
+                <i className="fa-solid fa-spinner fa-spin text-sm"></i>
+                {t("superadmin.batchProcessingRunning", "Stapelverarbeitung läuft...")}
               </span>
-              <span className="font-mono text-emerald-300 text-sm">
+              <span className="font-mono text-slate-700 text-xs font-bold bg-orange-50/80 px-2.5 py-1 rounded-lg border border-orange-200/60 shadow-2xs">
                 {progressStatus.current} / {progressStatus.total} ({Math.round((progressStatus.current / progressStatus.total) * 100)}%)
               </span>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden border border-slate-700">
+            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200/80 p-0.5">
               <div
-                className="bg-emerald-500 h-3 rounded-full transition-all duration-300 shadow-md"
+                className="bg-[#e47726] h-full rounded-full transition-all duration-300 shadow-xs"
                 style={{ width: `${Math.max(5, (progressStatus.current / progressStatus.total) * 100)}%` }}
               ></div>
             </div>
-            <p className="text-xs text-slate-300 font-medium leading-relaxed">{progressStatus.message}</p>
+            <p className="text-xs text-slate-600 font-medium leading-relaxed flex items-center gap-2">
+              <i className="fa-solid fa-gear fa-spin text-slate-400 text-[10px]"></i>
+              {progressStatus.message}
+            </p>
           </div>
         )}
 
@@ -974,12 +1034,17 @@ export default function SuperAdminUserPurgeTab({
               <thead>
                 <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-black uppercase text-slate-600 tracking-wider">
                   <th className="py-3 px-4 w-10 text-center">
-                    <input className="w-4 h-4 accent-[#1b4332] rounded cursor-pointer placeholder: placeholder: placeholder: font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                    <input
+                      type="checkbox"
+                      checked={isPageAllSelected}
+                      onChange={toggleSelectPage}
+                      className="w-4 h-4 accent-[#e47726] rounded cursor-pointer transition-all"
+                      title={isPageAllSelected ? t("superadmin.deselectPage", "Diese Seite abwählen") : t("superadmin.selectPage", "Diese Seite auswählen")}
                     />
                   </th>
-                  <th className="py-3 px-4">Name & E-Mail</th>
-                  <th className="py-3 px-4">Verknüpfte Vereine</th>
-                  <th className="py-3 px-4 text-right">Aktionen</th>
+                  <th className="py-3 px-4">{t("superadmin.colNameEmail", "Name & E-Mail")}</th>
+                  <th className="py-3 px-4">{t("superadmin.colLinkedClubs", "Verknüpfte Vereine")}</th>
+                  <th className="py-3 px-4 text-right">{t("common.actions", "Aktionen")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium">
@@ -1010,7 +1075,7 @@ export default function SuperAdminUserPurgeTab({
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelectUser(user.id)}
-                          className="w-4 h-4 accent-[#1b4332] rounded cursor-pointer font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                          className="w-4 h-4 accent-[#e47726] rounded cursor-pointer font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                         />
                       </td>
 
@@ -1116,7 +1181,7 @@ export default function SuperAdminUserPurgeTab({
                             title={`Nutzer ${user.firstName || user.lastName ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : user.name || user.id} bearbeiten`}
                           >
                             <i className="fa-solid fa-pen"></i>
-                            <span className="hidden sm:inline">Bearbeiten</span>
+                            <span className="hidden sm:inline">{t("common.edit", "Bearbeiten")}</span>
                           </button>
                           
                           {/* Proxy als Button */}
@@ -1126,7 +1191,7 @@ export default function SuperAdminUserPurgeTab({
                             title={`Als ${user.firstName || user.lastName ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : user.name || user.id} einloggen`}
                           >
                             <i className="fa-solid fa-user-check text-blue-600"></i>
-                            <span className="hidden sm:inline">Proxy als</span>
+                            <span className="hidden sm:inline">{t("superadmin.proxyAsBtn", "Proxy als")}</span>
                           </button>
 
                           {/* Context Menu Dropdown / Modal Trigger */}
@@ -1182,9 +1247,9 @@ export default function SuperAdminUserPurgeTab({
       </div>
 
       {/* --- MODAL 0A: Assign User to Club --- */}
-      {assignClubUser && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="border-none outline-none bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden space-y-0">
+      {assignClubUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden space-y-0">
             <div className="bg-emerald-50 border-b border-emerald-100 p-6 flex items-center gap-4">
               <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0 text-xl">
                 <i className="fa-solid fa-building-circle-check"></i>
@@ -1211,11 +1276,9 @@ export default function SuperAdminUserPurgeTab({
               </p>
 
               {(() => {
-                const availableClubs = clubs.filter(
+                const availableClubs = activeClubs.filter(
                   (c) =>
                     c.aktiv !== false &&
-                    c.vereinsId !== "super-admin" &&
-                    c.vereinsId !== "system" &&
                     !assignClubUser.linkedClubIds.includes(c.vereinsId)
                 );
 
@@ -1241,7 +1304,7 @@ export default function SuperAdminUserPurgeTab({
                         onChange={(e) =>
                           setAssignClubForm({ ...assignClubForm, clubId: e.target.value })
                         }
-                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-700 focus:outline-none focus:border-[#1b4332] font-sans font-medium"
+                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-700 focus:outline-none focus:border-[#e47726] font-sans font-medium"
                       >
                         {availableClubs.map((c) => (
                           <option key={c.vereinsId} value={c.vereinsId}>
@@ -1319,13 +1382,14 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* --- MODAL 0B: Last Club Removal Warning Modal --- */}
-      {lastClubWarningUser && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="border-none outline-none bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      {lastClubWarningUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="bg-rose-50 border-b border-rose-100 p-6 flex items-center gap-4">
               <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center shrink-0 text-xl">
                 <i className="fa-solid fa-triangle-exclamation"></i>
@@ -1389,13 +1453,14 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* --- MODAL 1: Single Remove From Club Modal --- */}
-      {singleRemoveClubUser && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="border-none outline-none bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden space-y-0">
+      {singleRemoveClubUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden space-y-0">
             <div className="bg-amber-50 border-b border-amber-100 p-6 flex items-center gap-4">
               <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center shrink-0 text-xl">
                 <i className="fa-solid fa-user-minus"></i>
@@ -1437,13 +1502,14 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* --- MODAL 2: Single Purge User Modal --- */}
-      {singlePurgeUser && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="border-none outline-none bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      {singlePurgeUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="bg-rose-50 border-b border-rose-100 p-6 flex items-center gap-4">
               <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center shrink-0 text-xl">
                 <i className="fa-solid fa-triangle-exclamation"></i>
@@ -1497,13 +1563,14 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* --- MODAL 4: Batch Purge Confirm Modal --- */}
-      {showBatchPurgeModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="border-none outline-none bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      {showBatchPurgeModal && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="bg-rose-50 border-b border-rose-100 p-6 flex items-center gap-4">
               <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center shrink-0 text-xl">
                 <i className="fa-solid fa-triangle-exclamation"></i>
@@ -1557,13 +1624,14 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Multi-Club Selection Dialog for Proxy Session */}
-      {proxyClubSelectionUser && (
-        <div className="fixed inset-0 bg-[#1b4332]/30 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="border-none outline-none bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden -200">
+      {proxyClubSelectionUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="bg-blue-50 border-b border-blue-100 p-5 flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-100 text-blue-700 rounded-xl flex items-center justify-center shrink-0 text-lg shadow-sm">
                 <i className="fa-solid fa-user-check"></i>
@@ -1623,17 +1691,18 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Global Edit Modal */}
-      {globalEditUser && (
-        <div className="fixed inset-0 bg-[#1b4332]/30 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="border-none outline-none bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col -200/80">
+      {globalEditUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+          <div className="border border-slate-200 outline-none bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div>
                 <h3 className="font-black text-slate-800 text-lg flex items-center gap-2">
-                  <i className="fa-solid fa-pen-to-square text-blue-600"></i>
+                  <i className="fa-solid fa-user-pen text-blue-600"></i>
                   Profil bearbeiten
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
@@ -1648,7 +1717,36 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
             
-            <div className="p-5 overflow-y-auto max-h-[60vh] space-y-4">
+            <div className="p-5 overflow-y-auto max-h-[70vh] space-y-5">
+              {/* Profilbild & Avatar */}
+              <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80">
+                <AvatarUploader
+                  user={{
+                    id: globalEditUser.user.id,
+                    name: globalEditForm.name || globalEditUser.user.name,
+                    firstName: globalEditForm.firstName,
+                    lastName: globalEditForm.lastName,
+                    avatarUrl: globalEditForm.avatarUrl,
+                    avatarIcon: globalEditForm.avatarIcon,
+                    avatarColor: globalEditForm.avatarColor,
+                  }}
+                  userId={globalEditUser.user.id}
+                  avatarUrl={globalEditForm.avatarUrl}
+                  avatarIcon={globalEditForm.avatarIcon}
+                  avatarColor={globalEditForm.avatarColor}
+                  onChange={({ avatarUrl, avatarIcon, avatarColor }) => {
+                    setGlobalEditForm((prev) => ({
+                      ...prev,
+                      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+                      ...(avatarIcon !== undefined ? { avatarIcon } : {}),
+                      ...(avatarColor !== undefined ? { avatarColor } : {}),
+                    }));
+                  }}
+                  primaryColor="#2563eb"
+                  hideTitle={false}
+                />
+              </div>
+
               {/* 1. PERSÖNLICHE DATEN */}
               <div className="space-y-4">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
@@ -1663,7 +1761,7 @@ export default function SuperAdminUserPurgeTab({
                       type="text"
                       value={globalEditForm.firstName}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, firstName: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                       placeholder="Vorname"
                     />
                   </div>
@@ -1675,7 +1773,7 @@ export default function SuperAdminUserPurgeTab({
                       type="text"
                       value={globalEditForm.lastName}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, lastName: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                       placeholder="Nachname"
                     />
                   </div>
@@ -1688,16 +1786,23 @@ export default function SuperAdminUserPurgeTab({
                     <select
                       value={globalEditForm.gender}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, gender: e.target.value as "m" | "w" })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all appearance-none cursor-pointer font-sans font-medium"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer font-sans font-medium"
                     >
                       <option value="m">männlich</option>
                       <option value="w">weiblich</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5 ml-1">
-                      Geburtsdatum
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5 ml-1">
+                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                        Geburtsdatum
+                      </label>
+                      {globalEditForm.birthDate && calculateAge(globalEditForm.birthDate) !== null && (
+                        <span className="text-[10px] font-black text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          {calculateAge(globalEditForm.birthDate)} J. {calculateAge(globalEditForm.birthDate)! < 18 ? "(Jugend/U18)" : "(Erwachsen)"}
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="date"
                       min="1900-01-01"
@@ -1709,8 +1814,21 @@ export default function SuperAdminUserPurgeTab({
                           setGlobalEditForm({ ...globalEditForm, birthDate: val });
                         }
                       }}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5 ml-1">
+                      Bevorzugte Sprache
+                    </label>
+                    <select
+                      value={globalEditForm.language || "de"}
+                      onChange={(e) => setGlobalEditForm({ ...globalEditForm, language: e.target.value as "de" | "en" })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer font-sans font-medium"
+                    >
+                      <option value="de">Deutsch (DE)</option>
+                      <option value="en">English (EN)</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -1723,14 +1841,14 @@ export default function SuperAdminUserPurgeTab({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5 ml-1">
-                      E-Mail-Adresse <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                      E-Mail-Adresse <span className="text-slate-400 font-normal lowercase">(optional)</span>
                     </label>
                     <input
                       type="email"
-                      value={globalEditForm.email}
+                      value={globalEditForm.email || ""}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, email: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                      placeholder="E-Mail"
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400 bg-slate-50 border-slate-200 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      placeholder="name@beispiel.de"
                     />
                   </div>
                   <div>
@@ -1741,7 +1859,7 @@ export default function SuperAdminUserPurgeTab({
                       type="tel"
                       value={globalEditForm.phone}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, phone: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                       placeholder="+49 ..."
                     />
                   </div>
@@ -1751,7 +1869,7 @@ export default function SuperAdminUserPurgeTab({
               {/* 3. ZUGANGSDATEN & PASSWORT */}
               <div className="space-y-4">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-                  3. Zugangsdaten & Passwort
+                  3. Zugangsdaten &amp; Passwort
                 </h3>
                 <div>
                   <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5 ml-1">
@@ -1761,27 +1879,50 @@ export default function SuperAdminUserPurgeTab({
                     type="text"
                     value={globalEditForm.name}
                     onChange={(e) => setGlobalEditForm({ ...globalEditForm, name: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                     placeholder="Benutzername"
                     required
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="relative">
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5 ml-1">
-                      Neues Passwort setzen
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5 ml-1">
+                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                        Neues Passwort setzen
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                          let pwd = "";
+                          for (let i = 0; i < 8; i++) {
+                            pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+                          }
+                          setGlobalEditForm({
+                            ...globalEditForm,
+                            newPassword: pwd,
+                            passwordConfirm: pwd,
+                            mustChangePassword: true,
+                          });
+                        }}
+                        className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                        title="Zufälliges Einmalpasswort generieren"
+                      >
+                        <i className="fa-solid fa-wand-magic-sparkles text-[10px]"></i>
+                        Generieren
+                      </button>
+                    </div>
                     <input
                       type={showGlobalPassword ? "text" : "password"}
-                      value={globalEditForm.newPassword}
-                      onChange={(e) => setGlobalEditForm({ ...globalEditForm, newPassword: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all pr-12 font-mono font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                      value={globalEditForm.newPassword || ""}
+                      onChange={(e) => setGlobalEditForm({ ...globalEditForm, newPassword: e.target.value, mustChangePassword: false })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all pr-12 font-mono font-medium placeholder:font-sans placeholder:font-normal placeholder:text-slate-400"
                       placeholder="Nicht ändern..."
                     />
                     <button
                       type="button"
                       onClick={() => setShowGlobalPassword(!showGlobalPassword)}
-                      className="absolute right-3 top-[28px] p-2 text-slate-400 hover:text-slate-600 transition-colors"
+                      className="absolute right-3 top-[32px] p-2 text-slate-400 hover:text-slate-600 transition-colors"
                       title={showGlobalPassword ? "Passwort verbergen" : "Passwort anzeigen"}
                     >
                       <i className={`fa-solid ${showGlobalPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
@@ -1793,44 +1934,130 @@ export default function SuperAdminUserPurgeTab({
                     </label>
                     <input
                       type={showGlobalPassword ? "text" : "password"}
-                      value={globalEditForm.passwordConfirm}
+                      value={globalEditForm.passwordConfirm || ""}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, passwordConfirm: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono font-medium placeholder:font-sans placeholder:font-normal placeholder:text-slate-400"
                       placeholder="Bestätigen..."
                     />
                   </div>
                 </div>
+                {globalEditForm.mustChangePassword && (
+                  <p className="text-xs text-amber-700 mt-1 font-medium flex items-center gap-1.5 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                    <i className="fa-solid fa-circle-info text-xs"></i>
+                    Benutzer wird beim nächsten Login zur Passwortänderung aufgefordert.
+                  </p>
+                )}
               </div>
 
-              {/* 4. PRIVATSPHÄRE & APP-ANZEIGE */}
-              <div className="space-y-4">
+              {/* 4. PRIVATSPHÄRE, ONBOARDING & APP-ANZEIGE */}
+              <div className="space-y-3">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-                  4. Privatsphäre & App-Anzeige
+                  4. Privatsphäre, Onboarding &amp; App-Anzeige
                 </h3>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer group">
+                <div className="space-y-2.5">
+                  <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-blue-400 transition-colors select-none">
                     <input
                       type="checkbox"
                       checked={globalEditForm.showContactInfo}
                       onChange={(e) => setGlobalEditForm({ ...globalEditForm, showContactInfo: e.target.checked })}
-                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-600 accent-blue-600 font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                      className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-600 accent-blue-600"
                     />
-                    <span className="text-sm font-bold text-slate-700 group-hover:text-slate-900">
-                      Kontaktdaten freigeben (E-Mail / Telefon in Börse anzeigen)
-                    </span>
+                    <div className="flex-1">
+                      <span className="text-sm font-bold text-slate-800 group-hover:text-slate-900 block">
+                        Kontaktdaten freigeben
+                      </span>
+                      <p className="text-xs text-slate-500 mt-0.5 font-normal">
+                        E-Mail und Telefonnummer für andere Vereinsmitglieder in Börse und Rangliste einblenden.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-blue-400 transition-colors select-none">
+                    <input
+                      type="checkbox"
+                      checked={globalEditForm.onboarding_pending}
+                      onChange={(e) => setGlobalEditForm({ ...globalEditForm, onboarding_pending: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-600 accent-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-800 group-hover:text-slate-900">
+                          Onboarding ausstehend
+                        </span>
+                        {globalEditForm.onboarding_pending && (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-md uppercase">
+                            Aktiv
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5 font-normal">
+                        Beim nächsten Login des Mitglieds wird das Begrüßungs- &amp; Datenüberprüfungs-Modal geöffnet.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-blue-400 transition-colors select-none">
+                    <input
+                      type="checkbox"
+                      checked={globalEditForm.showAiAssistant}
+                      onChange={(e) => setGlobalEditForm({ ...globalEditForm, showAiAssistant: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-600 accent-blue-600"
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm font-bold text-slate-800 group-hover:text-slate-900 block">
+                        KI-Assistent &quot;Ace&quot; aktivieren
+                      </span>
+                      <p className="text-xs text-slate-500 mt-0.5 font-normal">
+                        Zeigt das interaktive Tennis-Assistenten-Maskottchen für diesen Benutzer an.
+                      </p>
+                    </div>
                   </label>
                 </div>
               </div>
 
-              {/* 5. VEREINS- & ROLLENZUORDNUNG */}
+              {/* 5. KONTOSTATUS & SPERRE */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
+                  5. Kontostatus &amp; Sperre
+                </h3>
+                <label className={`flex items-start gap-3 cursor-pointer group p-3.5 rounded-xl border transition-all select-none ${
+                  globalEditForm.isSuspended
+                    ? "bg-red-50/80 border-red-300 text-red-900"
+                    : "bg-slate-50 border-slate-200/80 hover:border-slate-300"
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={globalEditForm.isSuspended}
+                    onChange={(e) => setGlobalEditForm({ ...globalEditForm, isSuspended: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 rounded text-red-600 focus:ring-red-600 accent-red-600"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-800 group-hover:text-slate-900">
+                        Konto sperren (Login blockieren)
+                      </span>
+                      {globalEditForm.isSuspended && (
+                        <span className="px-1.5 py-0.5 bg-red-600 text-white text-[10px] font-black rounded-md uppercase">
+                          Gesperrt
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5 font-normal">
+                      Verhindert den Login dieses Benutzers in allen zugewiesenen Vereinen des Systems.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* 6. VEREINE & ROLLEN */}
               <div className="space-y-4">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center justify-between">
-                  <span>5. Vereine & Rollen</span>
+                  <span>6. Vereine &amp; Rollen</span>
                   <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">{Object.keys(globalEditForm.clubAssignments).length}</span>
                 </h3>
                                 
                 <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto p-1">
-                  {clubs.map((c) => {
+                  {activeClubs.map((c) => {
                     const isSelected = !!globalEditForm.clubAssignments[c.vereinsId];
                     return (
                       <div
@@ -1873,9 +2100,9 @@ export default function SuperAdminUserPurgeTab({
                                   [c.vereinsId]: e.target.value as Role
                                 }
                               })}
-                              className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 font-sans font-medium"
+                              className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 font-sans font-medium cursor-pointer"
                             >
-                              <option value={Role.MITGLIED}>Spieler (Standard)</option>
+                              <option value={Role.MITGLIED}>Mitglied</option>
                               <option value={Role.ADMIN}>Vereinsadmin</option>
                             </select>
                           </div>
@@ -1908,20 +2135,21 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       {/* User Actions & Roles Modal */}
-      {userActionsModalUser && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-in fade-in duration-200">
+      {userActionsModalUser && createPortal(
+        <div className="fixed inset-0 bg-white/70 backdrop-blur-md flex items-center justify-center p-4 z-[99999] animate-in fade-in duration-200">
           <div
-            className="border-none outline-none bg-white rounded-2xl w-full max-w-sm shadow-2xl -200 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+            className="border border-slate-200 outline-none bg-white rounded-2xl w-full max-w-sm shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex flex-col">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <i className="fa-solid fa-list-check text-[#1b4332]"></i>
+                  <i className="fa-solid fa-list-check text-[#e47726]"></i>
                   Aktionen & Rollen
                 </h3>
                 <span className="text-[10px] font-medium text-slate-500 truncate mt-0.5">
@@ -2057,7 +2285,7 @@ export default function SuperAdminUserPurgeTab({
                                 className={`w-full text-xs font-bold rounded-lg px-3 py-1.5 pr-8 border outline-none cursor-pointer transition-all appearance-none shadow-xs ${
                                   club.isAdmin
                                     ? "bg-white border-amber-300 text-amber-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
-                                    : "bg-white border-slate-300 text-slate-700 focus:border-[#1b4332] focus:ring-2 focus:ring-[#1b4332]/20"
+                                    : "bg-white border-slate-300 text-slate-700 focus:border-[#e47726] focus:ring-2 focus:ring-[#e47726]/20"
                                 }`}
                               >
                                 <option value={Role.MITGLIED}>Mitglied / Spieler</option>
@@ -2096,7 +2324,8 @@ export default function SuperAdminUserPurgeTab({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

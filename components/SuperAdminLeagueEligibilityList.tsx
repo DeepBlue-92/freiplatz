@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Person, League } from '../types';
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLeagues }: Props) {
+  const { t } = useTranslation();
   const [selectedLeagueId, setSelectedLeagueId] = useState<string>("");
 
   const selectedLeague = dynamicLeagues.find(l => l.id === selectedLeagueId);
@@ -54,14 +56,13 @@ export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLea
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
         <div>
           <div className="flex items-center gap-2">
-            <i className="fa-solid fa-users-viewfinder text-indigo-500 text-lg"></i>
+            <i className="fa-solid fa-users-viewfinder text-[#e47726] text-lg"></i>
             <h2 className="text-base font-black text-slate-800 uppercase tracking-tight">
-              Test der Ligaberechtigung
+              {t("superadmin.leagueEligibilityTitle", "Test der Ligaberechtigung")}
             </h2>
           </div>
           <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1 max-w-3xl">
-            Überprüfe, welche registrierten Benutzer anhand ihrer Profildaten (Alter, Geschlecht) 
-            für eine spezifische Liga spielberechtigt sind.
+            {t("superadmin.leagueEligibilitySubtitle", "Überprüfe, welche registrierten Benutzer anhand ihrer Profildaten (Alter, Geschlecht) für eine spezifische Liga spielberechtigt sind.")}
           </p>
         </div>
       </div>
@@ -69,18 +70,18 @@ export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLea
       <div className="space-y-4">
         <div>
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 ml-1">
-            Liga auswählen
+            {t("superadmin.selectLeagueLabel", "Liga auswählen")}
           </label>
           <div className="relative">
             <select
               value={selectedLeagueId}
               onChange={(e) => setSelectedLeagueId(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-10 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none cursor-pointer font-sans font-medium"
+              className="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-10 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#e47726]/20 focus:border-[#e47726] transition-all appearance-none cursor-pointer font-sans font-medium"
             >
-              <option value="">-- Bitte wählen --</option>
+              <option value="">{t("superadmin.selectLeaguePlaceholder", "-- Bitte wählen --")}</option>
               {dynamicLeagues.map((league) => (
                 <option key={league.id} value={league.id}>
-                  {league.name} {league.status === 'inactive' ? '(Inaktiv)' : ''}
+                  {league.name} {league.status === 'inactive' ? `(${t("superadmin.inactive", "Inaktiv")})` : ''}
                 </option>
               ))}
             </select>
@@ -92,10 +93,10 @@ export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLea
           <div className="mt-6">
             <div className="flex items-center justify-between mb-3 px-1">
               <h3 className="text-sm font-bold text-slate-800">
-                Berechtigte Spieler für {selectedLeague.name}
+                {t("superadmin.eligiblePlayersFor", { league: selectedLeague.name, defaultValue: `Berechtigte Spieler für ${selectedLeague.name}` })}
               </h3>
-              <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
-                {eligibleUsers.length} Treffer
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-orange-100 text-[#e47726] border border-orange-200">
+                {t("superadmin.hitsCount", { count: eligibleUsers.length, defaultValue: `${eligibleUsers.length} Treffer` })}
               </span>
             </div>
 
@@ -118,8 +119,8 @@ export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLea
                           </div>
                         </div>
                         <div className="text-[10px] text-slate-400 font-medium">
-                          {user.gender === 'm' ? 'Männlich' : user.gender === 'w' ? 'Weiblich' : 'Keine Angabe'}
-                          {user.birthDate ? ` • ${new Date().getFullYear() - new Date(user.birthDate).getFullYear()} Jahre` : ''}
+                          {user.gender === 'm' ? t("superadmin.genderMaleDesc", "Männlich") : user.gender === 'w' ? t("superadmin.genderFemaleDesc", "Weiblich") : t("superadmin.genderNotSpecified", "Keine Angabe")}
+                          {user.birthDate ? ` • ${new Date().getFullYear() - new Date(user.birthDate).getFullYear()} ${t("superadmin.yearsAge", "Jahre")}` : ''}
                         </div>
                       </li>
                     );
@@ -131,9 +132,9 @@ export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLea
                 <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-300">
                   <i className="fa-solid fa-user-slash text-xl"></i>
                 </div>
-                <h4 className="text-sm font-bold text-slate-700 mb-1">Keine berechtigten Spieler</h4>
+                <h4 className="text-sm font-bold text-slate-700 mb-1">{t("superadmin.noEligiblePlayersTitle", "Keine berechtigten Spieler")}</h4>
                 <p className="text-xs text-slate-500">
-                  Für diese Ligakriterien konnten keine passenden Benutzer gefunden werden.
+                  {t("superadmin.noEligiblePlayersDesc", "Für diese Ligakriterien konnten keine passenden Benutzer gefunden werden.")}
                 </p>
               </div>
             )}
@@ -143,3 +144,4 @@ export default function SuperAdminLeagueEligibilityList({ allPersons, dynamicLea
     </div>
   );
 }
+

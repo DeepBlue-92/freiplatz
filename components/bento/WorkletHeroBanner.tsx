@@ -8,6 +8,8 @@ interface WorkletHeroBannerProps {
   primaryColor?: string;
   clubName?: string;
   onNavigateToBooking?: () => void;
+  onNavigateToEvents?: () => void;
+  onNavigateToChampionship?: () => void;
 }
 
 export const WorkletHeroBanner: React.FC<WorkletHeroBannerProps> = ({
@@ -15,6 +17,8 @@ export const WorkletHeroBanner: React.FC<WorkletHeroBannerProps> = ({
   primaryColor = "#0c3823",
   clubName = "Tennisclub",
   onNavigateToBooking,
+  onNavigateToEvents,
+  onNavigateToChampionship,
 }) => {
   const bgStart = item.bg_color_start || primaryColor || "#0c3823";
   const bgEnd = item.bg_color_end || "#14532d";
@@ -35,14 +39,66 @@ export const WorkletHeroBanner: React.FC<WorkletHeroBannerProps> = ({
     item.content?.trim() ||
     "Hier findest du alle wichtigen Informationen rund um die Tennisabteilung. Entdecke unsere Plätze, Veranstaltungen und aktuellen Ranglisten.";
 
+  const rawLink = item.cta_link?.trim();
+  // A link is active if cta_link is set and not explicitly "none" or empty
+  const hasLink = Boolean(rawLink && rawLink !== "none" && rawLink !== "");
+  const isExternal = Boolean(hasLink && (rawLink?.startsWith("http://") || rawLink?.startsWith("https://")));
+
+  const handleAction = () => {
+    if (!hasLink) return;
+    if (isExternal && rawLink) {
+      window.open(rawLink, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (rawLink === "tournaments" || rawLink === "events") {
+      if (onNavigateToEvents) onNavigateToEvents();
+      else if (onNavigateToBooking) onNavigateToBooking();
+    } else if (rawLink === "championship" || rawLink === "meisterschaft") {
+      if (onNavigateToChampionship) onNavigateToChampionship();
+      else if (onNavigateToBooking) onNavigateToBooking();
+    } else {
+      // Default to booking
+      if (onNavigateToBooking) onNavigateToBooking();
+    }
+  };
+
+  const posX = typeof item.image_position_x === "number" ? item.image_position_x : 50;
+  const posY = typeof item.image_position_y === "number" ? item.image_position_y : 50;
+  const baseScale = typeof item.image_scale === "number" ? item.image_scale / 100 : 1;
+
   return (
-    <div className="relative w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200/80 min-h-[220px] sm:min-h-[250px] lg:min-h-[260px] flex items-stretch select-none group">
+    <div
+      onClick={hasLink ? handleAction : undefined}
+      onKeyDown={
+        hasLink
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleAction();
+              }
+            }
+          : undefined
+      }
+      role={hasLink ? "link" : undefined}
+      tabIndex={hasLink ? 0 : undefined}
+      className={`relative w-full rounded-2xl overflow-hidden shadow-[0_8px_30px_-6px_rgba(0,0,0,0.16),0_2px_8px_-1px_rgba(0,0,0,0.06)] border border-white/20 ring-1 ring-white/10 min-h-[220px] sm:min-h-[250px] lg:min-h-[260px] flex items-stretch select-none transition-all duration-300 ${
+        hasLink
+          ? "group cursor-pointer hover:shadow-[0_20px_45px_-8px_rgba(0,0,0,0.26),0_0_35px_2px_rgba(16,185,129,0.22)] hover:border-white/35 hover:-translate-y-0.5"
+          : "cursor-default hover:shadow-[0_12px_36px_-6px_rgba(0,0,0,0.20)]"
+      }`}
+    >
       {/* Background Image Layer on the Right */}
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-0 overflow-hidden">
         <img
           src={imageUrl}
           alt={title}
-          className="w-full h-full object-cover object-center lg:object-right transition-transform duration-700 ease-out group-hover:scale-105"
+          style={{
+            objectPosition: `${posX}% ${posY}%`,
+            transformOrigin: `${posX}% ${posY}%`,
+            transform: `scale(${baseScale})`,
+          }}
+          className="w-full h-full object-cover transition-transform duration-500 ease-out"
         />
         {/* Fallback subtle dark overlay to guarantee contrast on right side */}
         <div className="absolute inset-0 bg-black/15 z-0 pointer-events-none" />
@@ -83,32 +139,12 @@ export const WorkletHeroBanner: React.FC<WorkletHeroBannerProps> = ({
         </div>
 
         {/* Optional CTA Button */}
-        {item.cta_text && (
+        {hasLink && item.cta_text && (
           <div className="pt-4 mt-2">
-            {item.cta_link?.startsWith("http") ? (
-              <a
-                href={item.cta_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-[var(--color-primary)] hover:bg-slate-100 text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-              >
-                <span>{item.cta_text}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  if (onNavigateToBooking) {
-                    onNavigateToBooking();
-                  }
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-[var(--color-primary)] hover:bg-slate-100 text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-              >
-                <span>{item.cta_text}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            )}
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-[var(--color-primary)] group-hover:bg-slate-100 group-hover:shadow-lg text-xs font-bold transition-all shadow-md active:scale-95 pointer-events-none">
+              <span>{item.cta_text}</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </div>
           </div>
         )}
       </div>

@@ -16,7 +16,7 @@ import {
   setLogLevel 
 } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-import firebaseConfig from '../firebase-applet-config.json';
+import defaultFirebaseConfig from '../firebase-applet-config.json';
 import { User, Role } from '../types';
 import { getUserClubs } from './userUtils';
 
@@ -24,17 +24,86 @@ setLogLevel('error');
 
 const isBrowser = typeof window !== 'undefined';
 
-const app = initializeApp(firebaseConfig);
+// Liest Firebase-Konfiguration primär aus import.meta.env
+export const getEnvFirebaseConfig = () => {
+  const meta = typeof import.meta !== 'undefined' ? (import.meta as any) : {};
+  const env = meta.env || {};
+  const apiKey = env.VITE_FIREBASE_API_KEY;
+  const projectId = env.VITE_FIREBASE_PROJECT_ID;
+
+  if (apiKey && projectId) {
+    return {
+      apiKey: env.VITE_FIREBASE_API_KEY,
+      authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+      projectId: env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+      messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+      appId: env.VITE_FIREBASE_APP_ID || '',
+      measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || '',
+      firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || undefined,
+    };
+  }
+  return null;
+};
+
+export const getActiveFirebaseConfig = () => {
+  if (isBrowser) {
+    try {
+      const stored = localStorage.getItem('custom_firebase_config');
+      if (stored) {
+        return { ...defaultFirebaseConfig, ...JSON.parse(stored) };
+      }
+    } catch (e) {
+      console.warn("Could not load custom firebase config:", e);
+    }
+  }
+
+  // 1. Primär: import.meta.env
+  const envConfig = getEnvFirebaseConfig();
+  if (envConfig) {
+    return envConfig;
+  }
+
+  // 2. Fallback: firebase-applet-config.json (für bestehende Installationen)
+  if (defaultFirebaseConfig && (defaultFirebaseConfig as any).apiKey && (defaultFirebaseConfig as any).projectId) {
+    return defaultFirebaseConfig;
+  }
+
+  // 3. Wenn keine gültigen Keys vorhanden sind
+  return null;
+};
+
+export const activeFirebaseConfig = getActiveFirebaseConfig();
+export const isFirebaseConfigured = Boolean(
+  activeFirebaseConfig &&
+  activeFirebaseConfig.apiKey &&
+  activeFirebaseConfig.apiKey !== 'your-api-key-here' &&
+  activeFirebaseConfig.projectId &&
+  activeFirebaseConfig.projectId !== 'your-project-id'
+);
+export const firebaseConfig = activeFirebaseConfig || defaultFirebaseConfig;
+
+// Initialisiere nur mit Dummy oder gültiger Config, damit Module nicht crashen
+const fallbackDummyConfig = {
+  apiKey: "missing-api-key",
+  authDomain: "missing.firebaseapp.com",
+  projectId: "missing-project",
+  storageBucket: "missing.firebasestorage.app",
+  messagingSenderId: "0000000000",
+  appId: "1:0000000000:web:0000000000",
+};
+
+const app = initializeApp(activeFirebaseConfig || fallbackDummyConfig);
 export const db = isBrowser
   ? initializeFirestore(app, {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager()
       }),
       experimentalForceLongPolling: true,
-    }, (firebaseConfig as any).firestoreDatabaseId)
+    }, (activeFirebaseConfig as any)?.firestoreDatabaseId)
   : initializeFirestore(app, {
       experimentalForceLongPolling: true,
-    }, (firebaseConfig as any).firestoreDatabaseId);
+    }, (activeFirebaseConfig as any)?.firestoreDatabaseId);
 
 export const auth = getAuth(app);
 export const storage = getStorage(app);
@@ -153,41 +222,7 @@ export async function loginWithUsername(username: string, passwordRaw: string, v
     }
 
     if (!matchedDoc) {
-      if (isSuperadmin) {
-        try {
-          let cred;
-          try {
-            cred = await signInWithEmailAndPassword(auth, defaultSysEmail, pwd);
-          } catch (signInErr: any) {
-            cred = await createUserWithEmailAndPassword(auth, defaultSysEmail, pwd);
-          }
-          const uid = cred.user.uid;
-          const saDoc = {
-            id: uid,
-            username: 'superadmin',
-            name: 'superadmin',
-            role: 'super-admin',
-            tenantId: 'system',
-            password: enteredPass,
-            passwort: enteredPass,
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(doc(db, 'users', uid), saDoc);
-          return {
-            id: uid,
-            name: 'superadmin',
-            klarname: 'Globaler Super-Admin',
-            role: Role.SUPER_ADMIN,
-            vereinsId: 'super-admin',
-            clubs: [{ vereinsId: 'system', clubName: 'System', role: Role.SUPER_ADMIN }],
-            createdAt: saDoc.createdAt
-          } as User;
-        } catch (authErr) {
-          throw new Error('Fehler beim Erstellen des Superadmins.');
-        }
-      } else {
-        throw new Error('Benutzername oder Passwort falsch.');
-      }
+      throw new Error('Benutzername oder Passwort falsch.');
     }
 
     const userData = matchedDoc.data() as any;
@@ -304,6 +339,7 @@ export async function loginWithUsername(username: string, passwordRaw: string, v
       }
     }
 
+
     // Return the mapped User object
     const resolvedClubs = getUserClubs(userData);
     const isSuper = (userData.role === 'super-admin' || userData.role === 'superadmin' || userData.role === 'SUPER_ADMIN');
@@ -343,7 +379,7 @@ export async function loginWithUsername(username: string, passwordRaw: string, v
       vereinsId: userData.tenantId || userData.vereinsId || normalizedVereinsId,
       clubs: resolvedClubs.length > 0 ? resolvedClubs : [{ vereinsId: normalizedVereinsId, clubName: normalizedVereinsId, role: isAdminOfCurrentClub ? Role.ADMIN : Role.MITGLIED }],
       password: userData.password || userData.passwort || enteredPass,
-      klarname: userData.klarname || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.username,
+      klarname: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.klarname || userData.username,
       firstName: userData.firstName || '',
       lastName: userData.lastName || '',
       email: userData.email || defaultSysEmail,
@@ -354,7 +390,8 @@ export async function loginWithUsername(username: string, passwordRaw: string, v
       hauptAdmin: !!userData.hauptAdmin,
       showAiAssistant: userData.showAiAssistant !== false,
       showContactInfo: userData.showContactInfo !== undefined ? !!userData.showContactInfo : (userData.kontaktfreigabe !== undefined ? !!userData.kontaktfreigabe : true),
-      onboarding_pending: userData.onboarding_pending !== undefined ? !!userData.onboarding_pending : false,
+      onboarding_pending: !!(userData.onboarding_pending ?? userData.onboardingPending ?? userData.onboardingRequired),
+      onboardingPending: !!(userData.onboarding_pending ?? userData.onboardingPending ?? userData.onboardingRequired),
       avatarUrl: userData.avatarUrl || null,
       avatarIcon: userData.avatarIcon || null,
       avatarColor: userData.avatarColor || null,
@@ -379,6 +416,91 @@ export async function loginWithUsername(username: string, passwordRaw: string, v
 
 export async function logout() {
   await signOut(auth);
+}
+
+export async function fetchUserProfileByUid(uid: string, targetVereinsId?: string): Promise<User | null> {
+  if (!uid) return null;
+  try {
+    const normVereinsId = (targetVereinsId || 'sv-neuhausen').toLowerCase().replace(/\s/g, '');
+    let snap = await getDoc(doc(db, 'users', uid));
+    let userData: any = null;
+    let docId = uid;
+
+    if (snap.exists()) {
+      userData = snap.data();
+    } else {
+      // Try searching by authUid field
+      const qAuth = query(collection(db, 'users'), where('authUid', '==', uid));
+      const qSnap = await getDocs(qAuth);
+      if (!qSnap.empty) {
+        const found = qSnap.docs[0];
+        docId = found.id;
+        userData = found.data();
+      }
+    }
+
+    if (!userData) {
+      // Check superadmin fallback
+      if (uid === 'superadmin' || auth.currentUser?.email?.startsWith('superadmin')) {
+        const saSnap = await getDoc(doc(db, 'users', 'superadmin'));
+        if (saSnap.exists()) {
+          userData = saSnap.data();
+          docId = 'superadmin';
+        }
+      }
+    }
+
+    if (!userData || userData.isSuspended) {
+      return null;
+    }
+
+    const resolvedClubs = getUserClubs(userData);
+    const isSuper = (userData.role === 'super-admin' || userData.role === 'superadmin' || userData.role === 'SUPER_ADMIN');
+    const clubRole = resolvedClubs.find(c => {
+      const cid = (c.vereinsId || c.id || '').toLowerCase().replace(/\s/g, '');
+      return cid === normVereinsId;
+    })?.role;
+    const isAdminOfCurrentClub = (
+      userData.role === 'admin' ||
+      userData.role === Role.ADMIN ||
+      clubRole === 'admin' ||
+      clubRole === Role.ADMIN ||
+      userData.hauptAdmin === true ||
+      (Array.isArray(userData.adminClubIds) && userData.adminClubIds.includes(normVereinsId))
+    );
+
+    return {
+      id: docId,
+      name: userData.username || userData.name || '',
+      role: isSuper ? Role.SUPER_ADMIN : (isAdminOfCurrentClub ? Role.ADMIN : Role.MITGLIED),
+      vereinsId: userData.tenantId || userData.vereinsId || normVereinsId,
+      clubs: resolvedClubs.length > 0 ? resolvedClubs : [{ vereinsId: normVereinsId, clubName: normVereinsId, role: isAdminOfCurrentClub ? Role.ADMIN : Role.MITGLIED }],
+      password: userData.password || userData.passwort || '',
+      klarname: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.klarname || userData.username,
+      firstName: userData.firstName || '',
+      lastName: userData.lastName || '',
+      email: userData.email || auth.currentUser?.email || '',
+      phone: userData.phone || userData.telefon || '',
+      gender: (userData.gender || userData.geschlecht || 'm') as any,
+      birthDate: userData.birthDate || null,
+      isSuspended: !!userData.isSuspended,
+      hauptAdmin: !!userData.hauptAdmin,
+      showAiAssistant: userData.showAiAssistant !== false,
+      showContactInfo: userData.showContactInfo !== undefined ? !!userData.showContactInfo : (userData.kontaktfreigabe !== undefined ? !!userData.kontaktfreigabe : true),
+      onboarding_pending: !!(userData.onboarding_pending ?? userData.onboardingPending ?? userData.onboardingRequired),
+      onboardingPending: !!(userData.onboarding_pending ?? userData.onboardingPending ?? userData.onboardingRequired),
+      avatarUrl: userData.avatarUrl || null,
+      avatarIcon: userData.avatarIcon || null,
+      avatarColor: userData.avatarColor || null,
+      avatarId: userData.avatarId || null,
+      createdAt: userData.createdAt || new Date().toISOString(),
+      language: userData.language || 'de',
+      notification_settings: userData.notification_settings || userData.notificationSettings || userData.notificationPreferences || null
+    } as User;
+  } catch (err) {
+    console.warn("fetchUserProfileByUid error:", err);
+    return null;
+  }
 }
 
 export enum OperationType {
@@ -430,33 +552,14 @@ export async function ensureServerAuthenticated(): Promise<boolean> {
   if (serverAuthPromise) return serverAuthPromise;
 
   serverAuthPromise = (async () => {
-    const emailsToTry = [
-      'superadmin.1788599179609@system.local',
-      'superadmin@system.local',
-      'hujubussunnah32@gmail.com',
-    ];
-    const passwordsToTry = ['admin123', 'superadmin-tennis', 'admin'];
-
-    for (const email of emailsToTry) {
-      for (const pwd of passwordsToTry) {
-        try {
-          await signInWithEmailAndPassword(auth, email, pwd);
-          console.log(`[ServerAuth] Authenticated backend as superadmin: ${auth.currentUser?.email}`);
-          return true;
-        } catch {
-          // continue
-        }
-      }
-    }
-
     try {
       const q = query(collection(db, 'users'), where('role', '==', 'super-admin'));
       const snap = await getDocs(q);
       for (const d of snap.docs) {
         const u = d.data();
         const email = u.email || u.authEmail;
-        const pwd = u.password || u.passwort || 'admin123';
-        if (email) {
+        const pwd = u.password || u.passwort;
+        if (email && pwd) {
           try {
             await signInWithEmailAndPassword(auth, email, pwd);
             console.log(`[ServerAuth] Authenticated backend as ${email}`);

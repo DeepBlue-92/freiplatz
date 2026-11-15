@@ -270,18 +270,18 @@ export const AdminOnboardingTab: React.FC<AdminOnboardingTabProps> = ({
             >
               Begrüßungs-Überschrift (Signaturserifenschrift)
             </label>
-            <input
-              type="text"
+            <textarea
               id="welcome-title-input"
+              rows={2}
               value={config.welcome_title}
               onChange={(e) =>
                 setConfig({ ...config, welcome_title: e.target.value })
               }
               placeholder="Willkommen in unserem Tennisclub!"
-              className="w-full h-11 px-3.5 py-2 rounded-xl bg-white border border-slate-200 focus:border-[var(--color-primary)] outline-none text-sm text-slate-900 font-serif font-bold transition-all shadow-2xs"
+              className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-200 focus:border-[var(--color-primary)] outline-none text-sm text-slate-900 font-serif font-bold transition-all shadow-2xs resize-none"
             />
             <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
-              Wird im Modal mit der eleganten Vereinsserifenschrift (Playfair Display) dargestellt.
+              Wird im Modal mit der eleganten Vereinsserifenschrift (Playfair Display) dargestellt. Zeilenumbrüche (Enter) werden übernommen.
             </p>
           </div>
 

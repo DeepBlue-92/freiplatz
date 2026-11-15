@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Person, DynamicLeague, User, LeaguePlayer, LeagueMatch } from '../types';
@@ -29,6 +30,7 @@ export default function SuperAdminPointsManagement({
   dynamicLeagues,
   currentUser,
 }: Props) {
+  const { t } = useTranslation();
   const [leagueProfiles, setLeagueProfiles] = useState<Record<string, LeaguePlayer>>({});
   const [loadingProfiles, setLoadingProfiles] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -248,7 +250,7 @@ export default function SuperAdminPointsManagement({
       setTimeout(() => setNotification(null), 5000);
     } catch (err: any) {
       console.error('Error applying points correction:', err);
-      setActionError(`Fehler beim Speichern: ${err.message || err}`);
+      setActionError(`${t("superadmin.saveErrorPrefix", "Fehler beim Speichern:")} ${err.message || err}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -262,18 +264,15 @@ export default function SuperAdminPointsManagement({
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700 text-lg shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#e47726] text-lg shrink-0">
             <i className="fa-solid fa-sliders"></i>
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
-              Spieler-Punkteverwaltung & Korrektur-Tool
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                {playerRows.length} {playerRows.length === 1 ? 'Spieler' : 'Spieler'}
-              </span>
+            <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+              {t("superadmin.pointsManagementTitle", "Spieler-Punkteverwaltung & Korrektur-Tool")}
             </h2>
             <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5">
-              Übersicht aller Liga-Teilnehmer mit Multi-Selektion. Setze absolute Werte oder addiere/subtrahiere Punkte mit transparentem Audit-Trail für den Spieler.
+              {t("superadmin.pointsManagementSubtitle", "Übersicht aller Liga-Teilnehmer mit Multi-Selektion. Setze absolute Werte oder addiere/subtrahiere Punkte mit transparentem Audit-Trail für den Spieler.")}
             </p>
           </div>
         </div>
@@ -283,10 +282,10 @@ export default function SuperAdminPointsManagement({
           <button
             type="button"
             onClick={handleBatchAdjust}
-            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0 animate-in fade-in"
+            className="px-4 py-2.5 bg-[#e47726] hover:bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0 animate-in fade-in"
           >
             <i className="fa-solid fa-pen-to-square"></i>
-            <span>Punkte anpassen ({selectedUserIds.size})</span>
+            <span>{t("superadmin.adjustPointsSelected", { count: selectedUserIds.size, defaultValue: `Punkte anpassen (${selectedUserIds.size})` })}</span>
           </button>
         )}
       </div>
@@ -313,7 +312,7 @@ export default function SuperAdminPointsManagement({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
         <div>
           <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">
-            Suche (Name / E-Mail / ID)
+            {t("superadmin.searchNameEmailId", "Suche (Name / E-Mail / ID)")}
           </label>
           <div className="relative">
             <i className="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
@@ -321,25 +320,25 @@ export default function SuperAdminPointsManagement({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Spieler suchen..."
-              className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+              placeholder={t("superadmin.searchPlayerPlaceholder", "Spieler suchen...")}
+              className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-[#e47726] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
             />
           </div>
         </div>
 
         <div>
           <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">
-            Liga-Filter
+            {t("superadmin.leagueFilterLabel", "Liga-Filter")}
           </label>
           <select
             value={selectedLeagueFilter}
             onChange={(e) => setSelectedLeagueFilter(e.target.value)}
-            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 font-sans font-medium"
+            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-[#e47726] font-sans font-medium"
           >
-            <option value="all">Alle Ligen</option>
+            <option value="all">{t("superadmin.allLeagues", "Alle Ligen")}</option>
             {dynamicLeagues.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.name} {l.active ? '' : '(Inaktiv)'}
+                {l.name} {l.active ? '' : `(${t("superadmin.inactive", "Inaktiv")})`}
               </option>
             ))}
           </select>
@@ -347,14 +346,14 @@ export default function SuperAdminPointsManagement({
 
         <div>
           <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">
-            Vereins-Filter
+            {t("superadmin.clubFilterLabelPoints", "Vereins-Filter")}
           </label>
           <select
             value={selectedClubFilter}
             onChange={(e) => setSelectedClubFilter(e.target.value)}
-            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 font-sans font-medium"
+            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-[#e47726] font-sans font-medium"
           >
-            <option value="all">Alle Vereine</option>
+            <option value="all">{t("superadmin.allClubs", "Alle Vereine")}</option>
             {uniqueClubs.map((c) => (
               <option key={c} value={c}>
                 {c === 'sv-neuhausen' ? 'SV Neuhausen' : c === 'djk-furth' ? 'DJK Furth' : c}
@@ -367,22 +366,22 @@ export default function SuperAdminPointsManagement({
       {/* Multi-Selection Control Bar */}
       <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
         <div className="flex items-center gap-2">
-          <span>{filteredRows.length} Spieler gelistet</span>
+          <span>{t("superadmin.playersListed", { count: filteredRows.length, defaultValue: `${filteredRows.length} Spieler gelistet` })}</span>
           {selectedUserIds.size > 0 && (
-            <span className="text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full font-bold">
-              {selectedUserIds.size} ausgewählt
+            <span className="text-[#e47726] bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full font-bold">
+              {t("superadmin.playersSelectedBadge", { count: selectedUserIds.size, defaultValue: `${selectedUserIds.size} ausgewählt` })}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="text-slate-400">Tipp: Halte <strong>Shift</strong> gedrückt für Bereichs-Auswahl</span>
+          <span className="text-slate-400">{t("superadmin.shiftSelectionTip", "Tipp: Halte Shift gedrückt für Bereichs-Auswahl")}</span>
           {selectedUserIds.size > 0 && (
             <button
               type="button"
               onClick={() => setSelectedUserIds(new Set())}
               className="text-rose-600 hover:underline font-bold cursor-pointer"
             >
-              Auswahl aufheben
+              {t("superadmin.clearSelection", "Auswahl aufheben")}
             </button>
           )}
         </div>
@@ -391,12 +390,12 @@ export default function SuperAdminPointsManagement({
       {/* Table */}
       {loadingProfiles ? (
         <div className="py-12 text-center text-slate-400 font-bold flex flex-col items-center gap-2">
-          <i className="fa-solid fa-circle-notch fa-spin text-xl text-indigo-600"></i>
-          <span className="text-xs">Lade Spieler & Punktestände...</span>
+          <i className="fa-solid fa-circle-notch fa-spin text-xl text-[#e47726]"></i>
+          <span className="text-xs">{t("superadmin.loadingPlayersAndScores", "Lade Spieler & Punktestände...")}</span>
         </div>
       ) : filteredRows.length === 0 ? (
         <div className="py-10 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs font-medium">
-          Keine passenden Spieler für die aktuellen Filterkriterien gefunden.
+          {t("superadmin.noMatchingPlayersFound", "Keine passenden Spieler für die aktuellen Filterkriterien gefunden.")}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -420,16 +419,16 @@ export default function SuperAdminPointsManagement({
                       if (el) el.indeterminate = isPartiallySelected;
                     }}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                    title="Alle auswählen"
+                    className="w-4 h-4 rounded text-[#e47726] focus:ring-[#e47726] cursor-pointer accent-[#e47726] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                    title={t("superadmin.selectAllFiltered", "Alle auswählen")}
                   />
                 </th>
-                <th className="h-8 px-3 py-1 text-slate-700 font-sans font-medium">Spieler / Name</th>
-                <th className="h-8 px-3 py-1 text-slate-700 font-sans font-medium">Verein</th>
-                <th className="h-8 px-3 py-1 text-slate-700 font-sans font-medium">Liga</th>
-                <th className="h-8 px-3 py-1 text-slate-700 text-center font-sans font-medium">Spiele</th>
-                <th className="h-8 px-3 py-1 text-slate-700 text-right font-sans font-medium">Aktuelle Punkte</th>
-                <th className="h-8 px-3 py-1 text-slate-700 text-right font-sans font-medium">Aktion</th>
+                <th className="h-8 px-3 py-1 text-slate-700 font-sans font-medium">{t("superadmin.colPlayerName", "Spieler / Name")}</th>
+                <th className="h-8 px-3 py-1 text-slate-700 font-sans font-medium">{t("superadmin.colClub", "Verein")}</th>
+                <th className="h-8 px-3 py-1 text-slate-700 font-sans font-medium">{t("superadmin.colLeague", "Liga")}</th>
+                <th className="h-8 px-3 py-1 text-slate-700 text-center font-sans font-medium">{t("superadmin.colMatches", "Spiele")}</th>
+                <th className="h-8 px-3 py-1 text-slate-700 text-right font-sans font-medium">{t("superadmin.colCurrentPoints", "Aktuelle Punkte")}</th>
+                <th className="h-8 px-3 py-1 text-slate-700 text-right font-sans font-medium">{t("common.actions", "Aktion")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
@@ -440,7 +439,7 @@ export default function SuperAdminPointsManagement({
                     key={row.userId}
                     onClick={(e) => handleRowClick(row.userId, idx, e)}
                     className={`transition-colors cursor-pointer ${
-                      isSelected ? 'bg-indigo-50/70 hover:bg-indigo-50' : 'hover:bg-slate-50/80'
+                      isSelected ? 'bg-orange-50/70 hover:bg-orange-50' : 'hover:bg-slate-50/80'
                     }`}
                   >
                     <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -454,18 +453,18 @@ export default function SuperAdminPointsManagement({
                           setSelectedUserIds(newSet);
                           lastClickedIndexRef.current = idx;
                         }}
-                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                        className="w-4 h-4 rounded text-[#e47726] focus:ring-[#e47726] cursor-pointer accent-[#e47726] font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                       />
                     </td>
                     <td className="h-8 px-3 py-1 overflow-hidden font-sans font-medium">
                       <div className="font-bold text-slate-900 flex items-center gap-2 truncate">
                         <span className="truncate">{row.name}</span>
                         {isSelected && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 shrink-0"></span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#e47726] shrink-0"></span>
                         )}
                       </div>
                       <div className="text-[11px] text-slate-400 font-normal truncate">
-                        {row.email || <span className="italic">Keine E-Mail</span>}
+                        {row.email || <span className="italic">{t("superadmin.noEmail", "Keine E-Mail")}</span>}
                       </div>
                     </td>
                     <td className="h-8 px-3 py-1 overflow-hidden font-sans font-medium">
@@ -483,18 +482,18 @@ export default function SuperAdminPointsManagement({
                     </td>
                     <td className="h-8 px-3 py-1 text-right font-sans font-medium">
                       <span className="text-slate-800 text-xs font-normal font-mono">
-                        {row.currentPoints.toFixed(1)} Pkt.
+                        {row.currentPoints.toFixed(1)} {t("superadmin.pointsAbbr", "Pkt.")}
                       </span>
                     </td>
                     <td className="h-8 px-3 py-1 text-right font-sans font-medium" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={(e) => handleSingleAdjust(row, e)}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-1.5 ml-auto"
-                        title="Punkte für diesen Spieler korrigieren"
+                        className="px-2.5 py-1 bg-white hover:bg-orange-50 text-[#e47726] border border-orange-200 rounded-lg text-[11px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-1.5 ml-auto"
+                        title={t("superadmin.adjustTooltip", "Punkte für diesen Spieler korrigieren")}
                       >
                         <i className="fa-solid fa-pen-to-square text-[10px]"></i>
-                        <span>Anpassen</span>
+                        <span>{t("superadmin.adjust", "Anpassen")}</span>
                       </button>
                     </td>
                   </tr>
@@ -510,7 +509,7 @@ export default function SuperAdminPointsManagement({
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
           <div className="border-none outline-none bg-white rounded-2xl w-full max-w-lg shadow-2xl -200 overflow-hidden animate-in fade-in zoom-in-95">
             {/* Modal Header */}
-            <div className="p-5 bg-indigo-600 text-white flex items-center justify-between">
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-slate-800 to-[#e47726] text-white flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-white">
                   <i className="fa-solid fa-sliders text-sm"></i>
@@ -518,20 +517,20 @@ export default function SuperAdminPointsManagement({
                 <div>
                   <h3 className="font-black text-sm uppercase tracking-wider">
                     {targetPlayers.length === 1
-                      ? 'Punktekorrektur (Einzelspieler)'
-                      : `Batch-Korrektur (${targetPlayers.length} Spieler)`}
+                      ? t("superadmin.pointsSingleModalTitle", "Punktekorrektur (Einzelspieler)")
+                      : t("superadmin.pointsBatchModalTitle", { count: targetPlayers.length, defaultValue: `Batch-Korrektur (${targetPlayers.length} Spieler)` })}
                   </h3>
-                  <p className="text-[11px] text-indigo-100 font-medium">
+                  <p className="text-[11px] text-orange-100 font-medium">
                     {targetPlayers.length === 1
                       ? targetPlayers[0].name
-                      : `${targetPlayers.slice(0, 3).map((p) => p.name).join(', ')}${targetPlayers.length > 3 ? ` und ${targetPlayers.length - 3} weitere` : ''}`}
+                      : `${targetPlayers.slice(0, 3).map((p) => p.name).join(', ')}${targetPlayers.length > 3 ? ` ${t("superadmin.andMorePlayers", { count: targetPlayers.length - 3, defaultValue: `und ${targetPlayers.length - 3} weitere` })}` : ''}`}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-indigo-200 hover:text-white transition p-1 text-base cursor-pointer"
+                className="text-white/70 hover:text-white transition p-1 text-base cursor-pointer"
               >
                 <i className="fa-solid fa-xmark"></i>
               </button>
@@ -549,7 +548,7 @@ export default function SuperAdminPointsManagement({
               {/* Mode Selection */}
               <div>
                 <label className="block text-xs font-black uppercase text-slate-700 mb-2">
-                  Korrektur-Modus auswählen
+                  {t("superadmin.chooseCorrectionMode", "Korrektur-Modus auswählen")}
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -560,16 +559,16 @@ export default function SuperAdminPointsManagement({
                     }}
                     className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition cursor-pointer ${
                       adjustmentMode === 'relative'
-                        ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-2 ring-indigo-500/20'
+                        ? 'border-[#e47726] bg-orange-50/70 text-slate-900 font-bold ring-2 ring-[#e47726]/20'
                         : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase">Relativer Wert</span>
-                      <i className="fa-solid fa-plus-minus text-indigo-600"></i>
+                      <span className="text-xs font-black uppercase">{t("superadmin.relativeModeTitle", "Relativer Wert")}</span>
+                      <i className="fa-solid fa-plus-minus text-[#e47726]"></i>
                     </div>
                     <span className="text-[11px] text-slate-500 font-medium">
-                      Punkte aufaddieren oder abziehen (z. B. +10 oder -5)
+                      {t("superadmin.relativeModeDesc", "Punkte aufaddieren oder abziehen (z. B. +10 oder -5)")}
                     </span>
                   </button>
 
@@ -581,16 +580,16 @@ export default function SuperAdminPointsManagement({
                     }}
                     className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition cursor-pointer ${
                       adjustmentMode === 'absolute'
-                        ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-2 ring-indigo-500/20'
+                        ? 'border-[#e47726] bg-orange-50/70 text-slate-900 font-bold ring-2 ring-[#e47726]/20'
                         : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase">Absoluter Wert</span>
-                      <i className="fa-solid fa-equals text-indigo-600"></i>
+                      <span className="text-xs font-black uppercase">{t("superadmin.absoluteModeTitle", "Absoluter Wert")}</span>
+                      <i className="fa-solid fa-equals text-[#e47726]"></i>
                     </div>
                     <span className="text-[11px] text-slate-500 font-medium">
-                      Fester Punktestand setzen (z. B. 100.0)
+                      {t("superadmin.absoluteModeDesc", "Fester Punktestand setzen (z. B. 100.0)")}
                     </span>
                   </button>
                 </div>
@@ -599,8 +598,8 @@ export default function SuperAdminPointsManagement({
               {/* Value Input and Presets */}
               <div>
                 <label className="block text-xs font-black uppercase text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span>{adjustmentMode === 'relative' ? 'Punktveränderung (+ / -)' : 'Neuer absoluter Punktestand'}</span>
-                  <span className="text-[10px] text-slate-400 font-bold">Startwert: 0.0</span>
+                  <span>{adjustmentMode === 'relative' ? t("superadmin.pointDeltaLabel", "Punktveränderung (+ / -)") : t("superadmin.pointAbsoluteLabel", "Neuer absoluter Punktestand")}</span>
+                  <span className="text-[10px] text-slate-400 font-bold">{t("superadmin.initialValueLabel", "Startwert: 0.0")}</span>
                 </label>
                 <div className="relative">
                   <input
@@ -610,13 +609,13 @@ export default function SuperAdminPointsManagement({
                     min={adjustmentMode === 'absolute' ? 0 : -9999}
                     value={adjustmentValue}
                     onChange={(e) => setAdjustmentValue(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl h-8 px-3 py-1 text-base text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white transition placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl h-8 px-3 py-1 text-base text-slate-900 focus:outline-none focus:border-[#e47726] focus:bg-white transition placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
                   />
                 </div>
 
                 {/* Quick Presets */}
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className="text-[10px] font-black uppercase text-slate-400 mr-1">Schnellwahl:</span>
+                  <span className="text-[10px] font-black uppercase text-slate-400 mr-1">{t("superadmin.quickSelect", "Schnellwahl:")}</span>
                   {adjustmentMode === 'relative' ? (
                     <>
                       {['+5.0', '+10.0', '+25.0', '+50.0', '-5.0', '-10.0'].map((p) => (
@@ -624,7 +623,7 @@ export default function SuperAdminPointsManagement({
                           key={p}
                           type="button"
                           onClick={() => setAdjustmentValue(p.replace('+', ''))}
-                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 text-[11px] font-bold text-slate-700 transition cursor-pointer"
+                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-orange-50 hover:text-[#e47726] border border-slate-200 text-[11px] font-bold text-slate-700 transition cursor-pointer"
                         >
                           {p}
                         </button>
@@ -637,7 +636,7 @@ export default function SuperAdminPointsManagement({
                           key={p}
                           type="button"
                           onClick={() => setAdjustmentValue(p)}
-                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 text-[11px] font-bold text-slate-700 transition cursor-pointer"
+                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-orange-50 hover:text-[#e47726] border border-slate-200 text-[11px] font-bold text-slate-700 transition cursor-pointer"
                         >
                           {p}
                         </button>
@@ -651,7 +650,7 @@ export default function SuperAdminPointsManagement({
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
                 <div className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
                   <i className="fa-solid fa-calculator text-slate-400"></i>
-                  Vorschau der Punkteberechnung
+                  {t("superadmin.previewPointsCalc", "Vorschau der Punkteberechnung")}
                 </div>
                 {targetPlayers.length === 1 ? (
                   (() => {
@@ -662,25 +661,25 @@ export default function SuperAdminPointsManagement({
                     return (
                       <div className="flex items-center justify-between text-xs bg-white h-8 px-3 py-1 rounded-lg border border-slate-200 font-sans font-medium">
                         <div>
-                          <span className="text-slate-400 block text-[10px]">Bisher</span>
-                          <strong className="font-mono text-slate-700">{p.currentPoints.toFixed(1)} Pkt.</strong>
+                          <span className="text-slate-400 block text-[10px]">{t("superadmin.currentPointsBefore", "Bisher")}</span>
+                          <strong className="font-mono text-slate-700">{p.currentPoints.toFixed(1)} {t("superadmin.pointsAbbr", "Pkt.")}</strong>
                         </div>
                         <i className="fa-solid fa-arrow-right text-slate-300"></i>
                         <div>
-                          <span className="text-slate-400 block text-[10px]">Delta</span>
+                          <span className="text-slate-400 block text-[10px]">{t("superadmin.pointsDelta", "Delta")}</span>
                           <strong
                             className={`font-mono ${
                               delta > 0 ? 'text-emerald-700' : delta < 0 ? 'text-rose-700' : 'text-slate-700'
                             }`}
                           >
-                            {delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)} Pkt.
+                            {delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)} {t("superadmin.pointsAbbr", "Pkt.")}
                           </strong>
                         </div>
                         <i className="fa-solid fa-arrow-right text-slate-300"></i>
                         <div>
-                          <span className="text-indigo-600 font-bold block text-[10px]">Neuer Gesamtstand</span>
-                          <strong className="font-mono text-indigo-950 font-black text-sm bg-indigo-50 px-2 py-0.5 rounded">
-                            {newTot.toFixed(1)} Pkt.
+                          <span className="text-[#e47726] font-bold block text-[10px]">{t("superadmin.newTotalPoints", "Neuer Gesamtstand")}</span>
+                          <strong className="font-mono text-slate-900 font-black text-sm bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">
+                            {newTot.toFixed(1)} {t("superadmin.pointsAbbr", "Pkt.")}
                           </strong>
                         </div>
                       </div>
@@ -688,8 +687,8 @@ export default function SuperAdminPointsManagement({
                   })()
                 ) : (
                   <div className="text-xs text-slate-600">
-                    Wird für alle <strong>{targetPlayers.length} ausgewählten Spieler</strong> angewendet.
-                    Startwerte werden mit {adjustmentMode === 'absolute' ? `genau ${parseFloat(adjustmentValue || '0').toFixed(1)} Pkt.` : `${parseFloat(adjustmentValue || '0') >= 0 ? '+' : ''}${parseFloat(adjustmentValue || '0').toFixed(1)} Pkt.`} aktualisiert.
+                    {t("superadmin.batchPreviewNotice", { count: targetPlayers.length, defaultValue: `Wird für alle ${targetPlayers.length} ausgewählten Spieler angewendet.` })}{' '}
+                    {adjustmentMode === 'absolute' ? `${parseFloat(adjustmentValue || '0').toFixed(1)} ${t("superadmin.pointsAbbr", "Pkt.")}` : `${parseFloat(adjustmentValue || '0') >= 0 ? '+' : ''}${parseFloat(adjustmentValue || '0').toFixed(1)} ${t("superadmin.pointsAbbr", "Pkt.")}`}
                   </div>
                 )}
               </div>
@@ -697,16 +696,16 @@ export default function SuperAdminPointsManagement({
               {/* Reason Input (MANDATORY) */}
               <div>
                 <label className="block text-xs font-black uppercase text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span>Korrekturgrund (Pflichtfeld für Audit Trail) <span className="text-rose-500">*</span></span>
-                  <span className="text-[10px] text-indigo-600 font-bold">Wird für Spieler transparent sichtbar</span>
+                  <span>{t("superadmin.reasonMandatoryLabel", "Korrekturgrund (Pflichtfeld für Audit Trail)")} <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-[#e47726] font-bold">{t("superadmin.reasonVisibleNotice", "Wird für Spieler transparent sichtbar")}</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="z. B. Manuelle Admin-Korrektur, Saison-Ausgleich, Test..."
+                  placeholder={t("superadmin.reasonPlaceholder", "z. B. Manuelle Admin-Korrektur, Saison-Ausgleich, Test...")}
                   value={correctionReason}
                   onChange={(e) => setCorrectionReason(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white transition font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#e47726] focus:bg-white transition font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
               </div>
 
@@ -718,22 +717,22 @@ export default function SuperAdminPointsManagement({
                   disabled={isSubmitting}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
-                  Abbrechen
+                  {t("superadmin.cancel", "Abbrechen")}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 bg-[#e47726] hover:bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? (
                     <>
                       <i className="fa-solid fa-circle-notch fa-spin text-xs"></i>
-                      <span>Speichern...</span>
+                      <span>{t("superadmin.saving", "Speichern...")}</span>
                     </>
                   ) : (
                     <>
                       <i className="fa-solid fa-check text-xs"></i>
-                      <span>Korrektur ausführen</span>
+                      <span>{t("superadmin.executeCorrection", "Korrektur ausführen")}</span>
                     </>
                   )}
                 </button>

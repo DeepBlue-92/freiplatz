@@ -314,7 +314,7 @@ Stehen nach Abschluss der Gruppenphase zwei oder mehr Spieler punktgleich, entsc
     id: 'preise-guthaben',
     title: 'Preise & Guthaben',
     iconName: 'CreditCard',
-    description: 'Gastspielbeiträge, Ballmaschine, Arbeitsdienst und Abrechnungsmodalitäten.',
+    description: 'Gastspielbeiträge, Ballmaschine, Arbeitseinsätze und Abrechnungsmodalitäten.',
     articles: [
       {
         id: 'gastspielpreise',
@@ -343,8 +343,8 @@ Verfügt dein Verein über eine Ballmaschine:
         id: 'arbeitseinsaetze-helferstunden',
         title: 'Arbeitseinsätze & Helferstunden',
         summary: 'So behältst du deine geleisteten Stunden und Pflichtstunden im Blick.',
-        keywords: ['arbeitseinsatz', 'helferstunden', 'stunden', 'arbeitsdienst', 'ersatzgebühr'],
-        content: `### Arbeitsdiensterfassung
+        keywords: ['arbeitseinsatz', 'helferstunden', 'stunden', 'arbeitseinsätze', 'ersatzgebühr'],
+        content: `### Erfassung von Arbeitseinsätzen
 
 Viele Tennisvereine verlangen von aktiven Erwachsenen eine bestimmte Anzahl an Helferstunden pro Jahr (z. B. Platzinstandsetzung im Frühjahr oder Pflege der Außenanlagen):
 - Auf deinem **Dashboard** siehst du im Modul „Meine Arbeitsstunden“ deinen aktuellen Fortschrittsbalken (z. B. *7 von 10 Stunden geleistet*).

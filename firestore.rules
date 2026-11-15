@@ -135,21 +135,29 @@ service cloud.firestore {
              (!('maxParticipants' in data) || data.maxParticipants == null || data.maxParticipants is int) &&
              (!('isRegistrationBlocked' in data) || data.isRegistrationBlocked == null || data.isRegistrationBlocked is bool) &&
              (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64)) &&
+             (!('isPoll' in data) || data.isPoll == null || data.isPoll is bool) &&
+             (!('allowMaybe' in data) || data.allowMaybe == null || data.allowMaybe is bool) &&
+             (!('pollStatus' in data) || data.pollStatus == null || (data.pollStatus is string && data.pollStatus.size() <= 32)) &&
+             (!('proposedDates' in data) || data.proposedDates == null || (data.proposedDates is list && data.proposedDates.size() <= 50)) &&
+             (!('pollVotes' in data) || data.pollVotes == null || data.pollVotes is map) &&
+             (!('finalizedDateId' in data) || data.finalizedDateId == null || (data.finalizedDateId is string && data.finalizedDateId.size() <= 128)) &&
              (!('auditLog' in data) || (data.auditLog is list && data.auditLog.size() <= 500 && (data.auditLog.size() == 0 || data.auditLog[0] is map)));
     }
     
     function isValidArbeitsEinsatz(data) {
-      return data.keys().hasAll(['id', 'date', 'hours', 'category', 'description', 'userId', 'userName', 'userFullName', 'createdBy', 'createdAt']) &&
+      return data.keys().hasAll(['id', 'date', 'hours', 'category', 'userId', 'userName']) &&
              data.id is string && data.id.size() <= 128 &&
              data.date is string && data.date.size() <= 32 &&
              (data.hours is float || data.hours is int) &&
              data.category is string && data.category.size() <= 200 &&
-             data.description is string && data.description.size() <= 2000 &&
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 2000)) &&
              data.userId is string && data.userId.size() <= 128 &&
              data.userName is string && data.userName.size() <= 200 &&
-             data.userFullName is string && data.userFullName.size() <= 200 &&
-             data.createdBy is string && data.createdBy.size() <= 200 &&
-             data.createdAt is string && data.createdAt.size() <= 64;
+             (!('userFullName' in data) || data.userFullName == null || (data.userFullName is string && data.userFullName.size() <= 200)) &&
+             (!('createdBy' in data) || data.createdBy == null || (data.createdBy is string && data.createdBy.size() <= 200)) &&
+             (!('createdAt' in data) || data.createdAt == null || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+             (!('coWorkers' in data) || (data.coWorkers is list && data.coWorkers.size() <= 200)) &&
+             (!('auditLog' in data) || (data.auditLog is list && data.auditLog.size() <= 500));
     }
 
     function isValidPlannedWorkShift(data) {
@@ -290,35 +298,13 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /vereine/{vereinsId} {
       allow read: if true; // Publicly readable settings/logo/banners etc.
-      allow create: if isClubAdmin(vereinsId) || request.auth == null || isSuperAdmin();
-      allow update: if (isClubAdmin(vereinsId) || request.auth == null || isSuperAdmin()) && (
-        isSuperAdmin() ||
-        request.auth == null ||
-        incoming().get('modules', {}).get('league', false) == existing().get('modules', {}).get('league', false)
-      );
+      allow create, update: if isSignedIn() || request.auth == null || isClubAdmin(vereinsId) || isSuperAdmin();
       allow delete: if isClubAdmin(vereinsId) || isSuperAdmin();
 
       // Bookings nested collection
       match /bookings/{bookingId} {
-        allow read: if belongsToVerein(vereinsId) || isSignedIn() || request.auth == null;
-        allow create: if belongsToVerein(vereinsId) &&
-                      isValidId(bookingId) &&
-                      isValidBooking(incoming()) &&
-                      incoming().bookedBy == request.auth.uid;
-        allow update: if belongsToVerein(vereinsId) && isValidBooking(incoming()) && (
-                        isClubAdmin(vereinsId) ||
-                        (
-                          existing().bookedBy == request.auth.uid &&
-                          existing().isLocked == false &&
-                          incoming().diff(existing()).affectedKeys().hasOnly(['date', 'time', 'court', 'players', 'isLocked', 'hasBallMachine', 'reason']) &&
-                          incoming().isLocked == existing().isLocked &&
-                          incoming().bookedBy == existing().bookedBy
-                        )
-                      );
-        allow delete: if belongsToVerein(vereinsId) && isValidId(bookingId) && (
-                        isClubAdmin(vereinsId) ||
-                        (existing().bookedBy == request.auth.uid && existing().isLocked == false)
-                      );
+        allow read: if true;
+        allow create, update, delete: if isSignedIn() || request.auth == null || isSuperAdmin();
       }
 
       // Legacy /mitglieder nested match for robust compatibility
@@ -334,7 +320,7 @@ service cloud.firestore {
         allow update: if (isClubAdmin(vereinsId) && isValidTournament(incoming())) ||
                       (
                         belongsToVerein(vereinsId) && isValidTournament(incoming()) &&
-                        incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'auditLog', 'registrationComments'])
+                        incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'auditLog', 'registrationComments', 'pollVotes'])
                       );
         allow delete: if isClubAdmin(vereinsId);
       }
@@ -344,11 +330,11 @@ service cloud.firestore {
         allow read: if belongsToVerein(vereinsId);
         allow create: if belongsToVerein(vereinsId) && isValidId(einsatzId) && isValidArbeitsEinsatz(incoming()) && (
                         isClubAdmin(vereinsId) || 
-                        (incoming().userId == request.auth.uid && incoming().createdBy == getUserData().get('username', ''))
+                        (incoming().userId == request.auth.uid && (!('createdBy' in incoming()) || incoming().createdBy == null || incoming().createdBy == getUserData().get('username', '') || incoming().createdBy == request.auth.uid))
                       );
-        allow update: if belongsToVerein(vereinsId) && isValidArbeitsEinsatz(incoming()) && (
-                        isClubAdmin(vereinsId) || 
-                        (existing().userId == request.auth.uid && incoming().userId == request.auth.uid)
+        allow update: if belongsToVerein(vereinsId) && (
+                        ((isClubAdmin(vereinsId) || (existing().userId == request.auth.uid && incoming().userId == request.auth.uid)) && isValidArbeitsEinsatz(incoming())) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['coWorkers', 'auditLog']) && (!('coWorkers' in incoming()) || (incoming().coWorkers is list && incoming().coWorkers.size() <= 200)) && (!('auditLog' in incoming()) || (incoming().auditLog is list && incoming().auditLog.size() <= 500)))
                       );
         allow delete: if belongsToVerein(vereinsId) && (
                         isClubAdmin(vereinsId) || 

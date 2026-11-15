@@ -9,6 +9,7 @@ import { WorkletHeroBanner } from "./bento/WorkletHeroBanner";
 import {
   Calendar,
   ArrowRight,
+  ExternalLink,
 } from "lucide-react";
 
 interface LandingPageProps {
@@ -26,7 +27,6 @@ interface LandingPageProps {
   loginError?: string | null;
   isLoggingIn?: boolean;
   onOpenTokenSetup?: () => void;
-  onOpenHelp?: () => void;
   currentVereinsId?: string;
   courts?: string[];
   bookings?: Booking[];
@@ -50,7 +50,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   loginError,
   isLoggingIn = false,
   onOpenTokenSetup,
-  onOpenHelp,
   currentVereinsId = "",
   courts = ["Platz 1", "Platz 2"],
   bookings = [],
@@ -83,7 +82,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 className={`col-span-1 ${colSpanClass} ${
                   isHero
                     ? "bg-transparent p-0 border-0 shadow-none"
-                    : "bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 lg:p-7 flex flex-col justify-between"
+                    : "bg-white rounded-2xl border border-slate-200/80 ring-1 ring-slate-900/[0.03] shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05),0_2px_6px_-1px_rgba(0,0,0,0.02)] hover:shadow-[0_16px_36px_-6px_rgba(0,0,0,0.09),0_0_24px_-2px_rgba(16,185,129,0.12)] hover:border-slate-300/90 hover:-translate-y-0.5 transition-all duration-300 p-5 sm:p-6 lg:p-7 flex flex-col justify-between"
                 } min-w-0`}
               >
                 {item.type === "hero_banner" ? (
@@ -92,6 +91,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     primaryColor={primaryColor}
                     clubName={clubName}
                     onNavigateToBooking={onNavigateToBooking}
+                    onNavigateToEvents={onNavigateToEvents}
+                    onNavigateToChampionship={onNavigateToChampionship}
                   />
                 ) : item.type === "worklet_courts" ? (
                   <WorkletCourts
@@ -125,7 +126,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     clubCity={clubName}
                   />
                 ) : (
-                  <>
+                  <div className="flex flex-col flex-grow justify-between">
                     <div>
                       {item.title && (
                         <div className="pb-3 mb-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
@@ -137,13 +138,61 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         </div>
                       )}
 
+                      {/* Optional Image for rich_text with custom focal point & scale */}
+                      {item.image_url && (
+                        <div className="relative w-full h-44 sm:h-52 rounded-xl overflow-hidden mb-3.5 bg-slate-100 border border-slate-200/80 shadow-2xs">
+                          <img
+                            src={item.image_url}
+                            alt={item.title || "Grafik"}
+                            style={{
+                              objectPosition: `${item.image_position_x ?? 50}% ${item.image_position_y ?? 50}%`,
+                              transform: `scale(${(item.image_scale ?? 100) / 100})`,
+                            }}
+                            className="w-full h-full object-cover transition-transform duration-300"
+                          />
+                        </div>
+                      )}
+
                       <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5 sm:p-4 text-sm text-slate-600 leading-relaxed font-normal break-words shadow-2xs">
                         <RichTextRenderer text={item.content || ""} />
                       </div>
                     </div>
 
-                    {/* Subdued Footer if relevant for booking */}
-                    {currentUser && item.col_span >= 8 && (
+                    {/* Action Button & Link (if configured) */}
+                    {item.cta_text && item.cta_link && item.cta_link !== "none" ? (
+                      <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-end">
+                        {item.cta_link.startsWith("http://") || item.cta_link.startsWith("https://") ? (
+                          <a
+                            href={item.cta_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--color-primary)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                          >
+                            <span>{item.cta_text}</span>
+                            <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (item.cta_link === "tournaments" || item.cta_link === "events") {
+                                if (onNavigateToEvents) onNavigateToEvents();
+                                else if (onNavigateToBooking) onNavigateToBooking();
+                              } else if (item.cta_link === "championship" || item.cta_link === "meisterschaft") {
+                                if (onNavigateToChampionship) onNavigateToChampionship();
+                                else if (onNavigateToBooking) onNavigateToBooking();
+                              } else {
+                                if (onNavigateToBooking) onNavigateToBooking();
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--color-primary)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                          >
+                            <span>{item.cta_text}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ) : currentUser && item.col_span >= 8 ? (
                       <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-end">
                         <button
                           type="button"
@@ -155,8 +204,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                           <ArrowRight className="w-3 h-3" />
                         </button>
                       </div>
-                    )}
-                  </>
+                    ) : null}
+                  </div>
                 )}
               </div>
             );

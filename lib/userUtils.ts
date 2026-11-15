@@ -1,4 +1,5 @@
-import { User, Person, UserClub, Role } from '../types';
+import { Role } from '../types.ts';
+import type { User, Person, UserClub } from '../types.ts';
 
 /**
  * Standardizes club IDs to canonical formats to prevent duplicates and mismatched lookups.
@@ -7,9 +8,9 @@ import { User, Person, UserClub, Role } from '../types';
 export function getCanonicalClubId(id: any): string {
   if (!id) return '';
   const s = String(id).trim().toLowerCase().replace(/[\s\-_]/g, '');
-  if (s.includes('neuhausen')) return 'sv-neuhausen';
-  if (s.includes('furth')) return 'djk-furth';
-  if (s.includes('sportsgeist')) return 'tcsportsgeist';
+  if (s.includes('neuhausen') || s === 'svn' || s.startsWith('svn')) return 'sv-neuhausen';
+  if (s.includes('furth') || s.includes('djk') || s === 'djk' || s.startsWith('djk')) return 'djk-furth';
+  if (s.includes('sportsgeist') || s.includes('tcs') || s === 'tcs' || s.startsWith('tcs')) return 'tcsportsgeist';
   return s;
 }
 
@@ -145,10 +146,17 @@ export function getUserClubs(user: Partial<User | Person> | null | undefined, sy
         (typeof rawId === 'object' ? rawId.facilityPhotoUrl : undefined) ||
         sysMeta?.facilityPhotoUrl;
 
+      const isPrimaryClub = canonicalKey === getCanonicalClubId(user.vereinsId || (user as any).tenantId || (user as any).clubId || (user as any).vereinId);
+      const resolvedRole = 
+        role || 
+        (typeof rawId === 'object' ? rawId.role : undefined) ||
+        (isPrimaryClub ? user.role : undefined) ||
+        Role.MITGLIED;
+
       clubMap.set(canonicalKey, {
         vereinsId: canonicalKey,
         clubName: cleanName || canonicalKey,
-        role: role || (typeof rawId === 'object' ? rawId.role : undefined) || user.role || Role.MITGLIED,
+        role: resolvedRole,
         logoUrl: cleanLogo,
         facilityPhotoUrl: cleanFacilityPhoto,
         street: street || (typeof rawId === 'object' ? rawId.street : undefined) || sysMeta?.street || knownMeta?.street,
@@ -221,12 +229,15 @@ export function getUserClubs(user: Partial<User | Person> | null | undefined, sy
  */
 export function isSuperAdmin(user: Partial<User | Person> | null | undefined): boolean {
   if (!user) return false;
+  const username = ((user as any).username || user.name || "").toLowerCase().trim();
   return (
     user.role === Role.SUPER_ADMIN ||
     (user.role as any) === 'super-admin' ||
+    Boolean((user as any).isSuperAdmin) ||
     user.id === 'superadmin' ||
-    (user as any).username?.toLowerCase() === 'superadmin' ||
-    user.name?.toLowerCase() === 'superadmin' ||
+    user.id === 'super-admin' ||
+    username === 'superadmin' ||
+    username === 'super-admin' ||
     user.vereinsId === 'super-admin' ||
     (user as any).tenantId === 'system'
   );
@@ -252,27 +263,13 @@ export function isClubAdmin(
   const matchedClub = clubs.find(c => getCanonicalClubId(c.vereinsId || (c as any).id) === normTarget);
 
   if (matchedClub) {
-    return (
-      matchedClub.role === Role.ADMIN ||
-      (matchedClub.role as any) === 'admin' ||
-      user.role === Role.ADMIN ||
-      (user.role as any) === 'admin' ||
-      user.hauptAdmin === true
-    );
+    return matchedClub.role === Role.ADMIN || (matchedClub.role as any) === 'admin';
   }
 
   // Fallback: check if user's singular vereinsId matches target and role is admin
   const singularId = user.vereinsId || (user as any).tenantId || (user as any).clubId || (user as any).vereinId;
   if (singularId && getCanonicalClubId(singularId) === normTarget) {
     return user.role === Role.ADMIN || (user.role as any) === 'admin' || user.hauptAdmin === true;
-  }
-
-  // If user has top-level admin role
-  if (user.role === Role.ADMIN || (user.role as any) === 'admin' || user.hauptAdmin === true) {
-    if (!clubs || clubs.length === 0) return true;
-    if (clubs.some(c => getCanonicalClubId(c.vereinsId || (c as any).id) === normTarget)) return true;
-    // Direct club match on singular ID
-    if (!singularId || getCanonicalClubId(singularId) === normTarget) return true;
   }
 
   return false;

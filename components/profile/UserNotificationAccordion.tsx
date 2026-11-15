@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bell,
   ChevronDown,
@@ -31,6 +32,8 @@ interface UserNotificationAccordionProps {
 
 interface EventItemConfig {
   key: NotificationEventKey;
+  labelKey: string;
+  descKey: string;
   label: string;
   description: string;
 }
@@ -44,26 +47,36 @@ interface EventItemConfig {
 const ORDERED_EVENT_ITEMS: EventItemConfig[] = [
   {
     key: "RESERVATION_CONFIRMED",
+    labelKey: "notifications.events.reservationConfirmed.label",
+    descKey: "notifications.events.reservationConfirmed.desc",
     label: "Buchungsbestätigung",
     description: "E-Mail unmittelbar nach erfolgreicher Platzreservierung erhalten.",
   },
   {
     key: "RESERVATION_CANCELLED",
+    labelKey: "notifications.events.reservationCancelled.label",
+    descKey: "notifications.events.reservationCancelled.desc",
     label: "Buchungsstornierung",
     description: "Benachrichtigung per E-Mail, wenn eine Buchung storniert wird.",
   },
   {
     key: "RESERVATION_MODIFIED",
+    labelKey: "notifications.events.reservationModified.label",
+    descKey: "notifications.events.reservationModified.desc",
     label: "Buchungsänderung",
     description: "E-Mail bei Änderungen an bestehenden Buchungen (Uhrzeit, Platz, Mitspieler).",
   },
   {
     key: "HOBBYLIGA_NEW_POST",
+    labelKey: "notifications.events.hobbyligaNewPost.label",
+    descKey: "notifications.events.hobbyligaNewPost.desc",
     label: "Neuer Hobbyligabeitrag",
     description: "Benachrichtigung bei neuen Beiträgen auf der Pinnwand der Hobbyliga.",
   },
   {
     key: "MATCH_RESULT_SUBMITTED",
+    labelKey: "notifications.events.matchResultSubmitted.label",
+    descKey: "notifications.events.matchResultSubmitted.desc",
     label: "Matchergebnis eingetragen",
     description: "Ergebnismitteilung, wenn dein Spielpartner ein Matchergebnis erfasst hat.",
   },
@@ -74,6 +87,7 @@ export const UserNotificationAccordion: React.FC<UserNotificationAccordionProps>
   onChange,
   clubId = "sv-neuhausen",
 }) => {
+  const { t } = useTranslation();
   // Collapsed by default as requested
   const [isOpen, setIsOpen] = useState(false);
 
@@ -147,19 +161,19 @@ export const UserNotificationAccordion: React.FC<UserNotificationAccordionProps>
           </div>
           <div className="min-w-0">
             <span className="text-xs font-black uppercase tracking-wider text-slate-900 block truncate">
-              Benachrichtigungen
+              {t("notifications.title", "Benachrichtigungen")}
             </span>
             <span className="text-[10px] text-slate-500 block truncate">
               {isGlobalEmailPaused
-                ? "E-Mail-Versand klubweit pausiert"
-                : `${activeCount} von ${ORDERED_EVENT_ITEMS.length} E-Mailkategorien aktiv`}
+                ? t("notifications.pausedClubwide", "E-Mail-Versand klubweit pausiert")
+                : t("notifications.activeCount", "{{activeCount}} von {{total}} E-Mailkategorien aktiv", { activeCount, total: ORDERED_EVENT_ITEMS.length })}
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-            {isOpen ? "Zuklappen" : "Aufklappen"}
+            {isOpen ? t("notifications.collapse", "Zuklappen") : t("notifications.expand", "Aufklappen")}
           </span>
           <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
             {isOpen ? (
@@ -177,11 +191,11 @@ export const UserNotificationAccordion: React.FC<UserNotificationAccordionProps>
           {isGlobalEmailPaused ? (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-800 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-              <span>Der E-Mail-Versand ist vom Verein derzeit vollständig pausiert.</span>
+              <span>{t("notifications.pausedAlert", "Der E-Mail-Versand ist vom Verein derzeit vollständig pausiert.")}</span>
             </div>
           ) : (
             <p className="text-[11px] text-slate-500 leading-snug">
-              Wähle aus, für welche Ereignisse du E-Mails erhalten möchtest. Ist ein Typ vom Verein global deaktiviert, wird keine E-Mail versendet.
+              {t("notifications.description", "Wähle aus, für welche Ereignisse du E-Mails erhalten möchtest. Ist ein Typ vom Verein global deaktiviert, wird keine E-Mail versendet.")}
             </p>
           )}
 
@@ -223,32 +237,32 @@ export const UserNotificationAccordion: React.FC<UserNotificationAccordionProps>
                             isGloballyDisabled ? "text-slate-500 line-through" : "text-slate-900"
                           }`}
                         >
-                          {item.label}
+                          {t(item.labelKey, item.label)}
                         </span>
 
                         {/* Admin Global Warning Badge */}
                         {isGlobalEmailPaused ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.2 rounded-md">
                             <ShieldAlert className="w-3 h-3 text-red-600" />
-                            <span>(Der E-Mail-Versand ist vom Verein derzeit vollständig pausiert)</span>
+                            <span>{t("notifications.pausedBadge", "(Der E-Mail-Versand ist vom Verein derzeit vollständig pausiert)")}</span>
                           </span>
                         ) : isGloballyDisabled ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.2 rounded-md">
                             <ShieldAlert className="w-3 h-3 text-red-600" />
-                            <span>(Vom Verein derzeit global deaktiviert)</span>
+                            <span>{t("notifications.disabledBadge", "(Vom Verein derzeit global deaktiviert)")}</span>
                           </span>
                         ) : null}
 
                         {!isGloballyDisabled && isUserEnabled && (
                           <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded">
                             <Check className="w-2.5 h-2.5" />
-                            Aktiv
+                            {t("notifications.active", "Aktiv")}
                           </span>
                         )}
                       </div>
 
                       <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                        {item.description}
+                        {t(item.descKey, item.description)}
                       </p>
                     </div>
                   </div>

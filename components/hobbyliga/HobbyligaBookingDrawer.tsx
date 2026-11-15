@@ -33,6 +33,7 @@ interface HobbyligaBookingDrawerProps {
   activeLeagueId?: string;
   prefilledOpponent?: { userId: string; name?: string } | null;
   onSwitchClub?: (clubId: string) => void;
+  participatingClubs?: any[];
   onBook?: (
     date: string,
     startTime: string,
@@ -60,6 +61,7 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
   activeLeagueId = 'open_mixed',
   prefilledOpponent,
   onSwitchClub,
+  participatingClubs,
   onBook,
   onSuccess,
 }) => {
@@ -157,104 +159,113 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
     return () => unsub();
   }, []);
 
-  // Available clubs list - comprehensive list of all participating league/system clubs
+  // Available clubs list - exclusively clubs participating in the respective league
   const availableClubsList = useMemo(() => {
     const map = new Map<string, any>();
-    const sourceClubs: any[] = [];
 
-    const userClubList = userClubs && userClubs.length > 0 
-      ? userClubs 
-      : getUserClubs(currentUser, systemClubs);
+    const isClubLigaActive = (c: any): boolean => {
+      if (!c) return false;
+      const modules = c.modules || {};
+      if (
+        modules.liga === false ||
+        modules.league === false ||
+        c.isLigaActive === false ||
+        c.enableLeague === false ||
+        c.aktiv === false
+      ) {
+        return false;
+      }
+      return (
+        modules.liga === true ||
+        modules.league === true ||
+        c.isLigaActive === true ||
+        c.enableLeague === true ||
+        c.leagueSettings?.enabled === true
+      );
+    };
 
-    if (Array.isArray(userClubList)) sourceClubs.push(...userClubList);
-    if (Array.isArray(systemClubs)) sourceClubs.push(...systemClubs);
-    if (Array.isArray(propAllClubs)) sourceClubs.push(...propAllClubs);
-
-    // Seed with known clubs master data
-    Object.entries(KNOWN_CLUBS_STAMMDATEN).forEach(([kId, meta]) => {
-      sourceClubs.push({
-        id: kId,
-        vereinsId: kId,
-        clubName: meta.clubName,
-        name: meta.clubName,
-        city: meta.city,
-        street: meta.street,
-        zip: meta.zip,
-        logoUrl: meta.logoUrl,
-      });
-    });
+    let sourceClubs: any[] = [];
+    if (participatingClubs && Array.isArray(participatingClubs) && participatingClubs.length > 0) {
+      sourceClubs = participatingClubs;
+    } else if (systemClubs && systemClubs.length > 0) {
+      sourceClubs = systemClubs.filter(isClubLigaActive);
+    } else {
+      sourceClubs = [
+        { id: 'sv-neuhausen', vereinsId: 'sv-neuhausen', clubName: 'SV Neuhausen' },
+        { id: 'djk-furth', vereinsId: 'djk-furth', clubName: 'DJK Furth' },
+      ];
+    }
 
     sourceClubs.forEach((c) => {
-      const id = c.vereinsId || c.id;
-      if (id) {
-        const canonicalKey = getCanonicalClubId(id);
-        if (canonicalKey && !['super-admin', 'system'].includes(canonicalKey)) {
-          if (map.has(canonicalKey)) {
-            const existing = map.get(canonicalKey);
-            map.set(canonicalKey, {
-              ...existing,
-              street: existing.street || c.street,
-              zip: existing.zip || c.zip,
-              city: existing.city || c.city,
-              facilityPhotoUrl: existing.facilityPhotoUrl || c.facilityPhotoUrl,
-            });
-            return;
-          }
+      const rawId = c.vereinsId || c.id || c.clubName || c.name;
+      if (!rawId) return;
+      const canonicalKey = getCanonicalClubId(rawId);
+      if (!canonicalKey || ['super-admin', 'system'].includes(canonicalKey)) return;
 
-          const matchedSystemClub = (systemClubs || []).find((sc) => {
-            const scId = getCanonicalClubId(sc.vereinsId || sc.id || '');
-            return scId === canonicalKey;
-          });
-          const knownMeta = KNOWN_CLUBS_STAMMDATEN[canonicalKey];
+      const matchedSystemClub = (systemClubs || []).find((sc) => {
+        const scId = getCanonicalClubId(sc.vereinsId || sc.id || '');
+        return scId === canonicalKey;
+      });
+      const knownMeta = KNOWN_CLUBS_STAMMDATEN[canonicalKey];
 
-          // Resolve dynamic club name: prefer system master data, then knownMeta, then clean c.name/c.clubName
-          let cleanClubName = matchedSystemClub?.clubName || matchedSystemClub?.vereinsName || matchedSystemClub?.name;
-          if (!cleanClubName && knownMeta?.clubName) {
-            cleanClubName = knownMeta.clubName;
-          }
-          if (!cleanClubName) {
-            const raw = c.clubName || c.name;
-            if (raw && typeof raw === 'string') {
-              const trimmed = raw.trim();
-              const lower = trimmed.toLowerCase();
-              const isInvalid = ['api', 'system', 'super-admin', 'default', 'null', 'undefined', 'verein', 'tennis-club', 'tennis club', 'tennisclub'].includes(lower) || lower === canonicalKey;
-              if (!isInvalid) {
-                cleanClubName = trimmed;
-              }
-            }
-          }
-          if (!cleanClubName) {
-            if (canonicalKey.includes('neuhausen')) cleanClubName = 'SV Neuhausen';
-            else if (canonicalKey.includes('furth')) cleanClubName = 'DJK Furth';
-            else if (canonicalKey.includes('sportsgeist')) cleanClubName = 'TC Sportsgeist';
-            else cleanClubName = String(id);
-          }
+      let cleanClubName =
+        c.clubName ||
+        c.vereinsName ||
+        c.name ||
+        matchedSystemClub?.clubName ||
+        matchedSystemClub?.vereinsName ||
+        knownMeta?.clubName;
 
-          const resolvedLogo = 
-            matchedSystemClub?.customLogoUrl || 
-            matchedSystemClub?.logoUrl || 
-            matchedSystemClub?.customHeaderLogoUrl || 
-            matchedSystemClub?.headerLogoUrl || 
-            c.logoUrl || 
-            knownMeta?.logoUrl;
+      if (
+        !cleanClubName ||
+        ['api', 'system', 'super-admin', 'default', 'null', 'undefined', 'verein'].includes(
+          cleanClubName.toLowerCase()
+        )
+      ) {
+        if (canonicalKey === 'sv-neuhausen') cleanClubName = 'SV Neuhausen';
+        else if (canonicalKey === 'djk-furth') cleanClubName = 'DJK Furth';
+        else if (canonicalKey === 'tcsportsgeist') cleanClubName = 'TC Sportsgeist';
+        else cleanClubName = String(rawId);
+      }
 
-          map.set(canonicalKey, {
-            ...c,
-            id: canonicalKey,
-            vereinsId: canonicalKey,
-            clubName: cleanClubName,
-            name: cleanClubName,
-            logoUrl: resolvedLogo,
-            facilityPhotoUrl: matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
-            street: matchedSystemClub?.street || c.street || knownMeta?.street,
-            zip: matchedSystemClub?.zip || c.zip || knownMeta?.zip,
-            city: matchedSystemClub?.city || c.city || knownMeta?.city,
-          });
-        }
+      const resolvedLogo =
+        c.customLogoUrl ||
+        c.logoUrl ||
+        matchedSystemClub?.customLogoUrl ||
+        matchedSystemClub?.logoUrl ||
+        knownMeta?.logoUrl;
+
+      const street = c.street || matchedSystemClub?.street || knownMeta?.street;
+      const zip = c.zip || matchedSystemClub?.zip || knownMeta?.zip;
+      const city = c.city || matchedSystemClub?.city || knownMeta?.city;
+
+      if (!map.has(canonicalKey)) {
+        map.set(canonicalKey, {
+          ...c,
+          id: canonicalKey,
+          vereinsId: canonicalKey,
+          clubName: cleanClubName,
+          name: cleanClubName,
+          logoUrl: resolvedLogo,
+          facilityPhotoUrl: matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
+          street,
+          zip,
+          city,
+        });
+      } else {
+        const existing = map.get(canonicalKey);
+        map.set(canonicalKey, {
+          ...existing,
+          street: existing.street || street,
+          zip: existing.zip || zip,
+          city: existing.city || city,
+          logoUrl: existing.logoUrl || resolvedLogo,
+          facilityPhotoUrl:
+            existing.facilityPhotoUrl || matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
+        });
       }
     });
 
-    // Always ensure current club is present if map is empty
     const currentCanonical = getCanonicalClubId(clubId || 'sv-neuhausen');
     if (map.size === 0 && currentCanonical && !['super-admin', 'system'].includes(currentCanonical)) {
       const known = KNOWN_CLUBS_STAMMDATEN[currentCanonical];
@@ -268,7 +279,7 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
     }
 
     return Array.from(map.values());
-  }, [userClubs, currentUser, systemClubs, propAllClubs, clubId, settings]);
+  }, [participatingClubs, systemClubs, clubId, settings]);
 
   const hasMultipleClubs = availableClubsList.length > 1;
 
@@ -589,9 +600,10 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
     }
   }, [isOpen, slot, prefilledOpponent, users, facilityClosingIdx]);
 
-  // Lock body & html scroll when open
+  // Lock body & html scroll when open on mobile only
   useEffect(() => {
-    if (isOpen) {
+    const isDesktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches;
+    if (isOpen && !isDesktop) {
       document.documentElement.style.overflow = 'hidden';
       document.body.style.overflow = 'hidden';
     } else {
@@ -776,7 +788,10 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
             time: t,
             court: courtToBook,
             players,
-            userId: currentUser.id,
+            userId: auth.currentUser?.uid || currentUser.id,
+            bookedBy: auth.currentUser?.uid || currentUser.id,
+            isLocked: false,
+            hasBallMachine: false,
             comment: fullComment,
             isLeagueBooking: true,
             createdAt: new Date().toISOString(),
@@ -1173,7 +1188,7 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
                 <button
                   onClick={handleSubmit}
                   disabled={isSubmitting || !leagueOpponent || isSelectedCourtOccupied || !!playerCollision}
-                  className="flex-1 text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-black hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex-1 text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-semibold hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   style={{ backgroundColor: settings?.primaryColor || 'var(--color-primary)' }}
                 >
                   {isSubmitting ? (
@@ -1572,7 +1587,7 @@ export const HobbyligaBookingDrawer: React.FC<HobbyligaBookingDrawerProps> = ({
                 <button
                   onClick={handleSubmit}
                   disabled={isSubmitting || !leagueOpponent || isSelectedCourtOccupied || !!playerCollision}
-                  className="flex-1 max-w-[240px] text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-medium hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex-1 max-w-[240px] text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-semibold hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   style={{ backgroundColor: settings?.primaryColor || 'var(--color-primary)' }}
                 >
                   {isSubmitting ? (

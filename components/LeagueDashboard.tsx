@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, Person, LeaguePartnerSearch, LeagueMatch, Booking, UserClub } from '../types';
 import {
-  saveLeaguePartnerSearch,
-  renewLeaguePartnerSearch,
-  deleteLeaguePartnerSearch,
   cancelLeagueMatchResult,
 } from '../services/league';
 import { applyDecay } from '../services/leagueEngine';
@@ -11,7 +8,6 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { PlayerContactModal } from './PlayerContactModal';
 import { PointsHistoryModal } from './PointsHistoryModal';
-import { CreateAdModal } from './hobbyliga/CreateAdModal';
 import { LeagueResultDrawer } from './LeagueResultDrawer';
 import { PointsRankChart } from './PointsRankChart';
 import { LeaguePointsDetail } from './LeaguePointsDetail';
@@ -22,7 +18,6 @@ import {
   DEFAULT_BANNER_CREST_2,
   DEFAULT_BANNER_CREST_3,
 } from './hobbyliga/HobbyligaBanner';
-import { SpielpartnerBoerse } from './hobbyliga/SpielpartnerBoerse';
 import { HobbyligaMiniKalender } from './hobbyliga/HobbyligaMiniKalender';
 import { HobbyligaBookingDrawer } from './hobbyliga/HobbyligaBookingDrawer';
 import { HobbyligaKompaktRangliste } from './hobbyliga/HobbyligaKompaktRangliste';
@@ -33,13 +28,14 @@ import { HobbyligaNaechstesSpiel } from './hobbyliga/HobbyligaNaechstesSpiel';
 import { HobbyligaLetztesErgebnis } from './hobbyliga/HobbyligaLetztesErgebnis';
 import { HobbyligaCombinedMatchFeed } from './hobbyliga/HobbyligaCombinedMatchFeed';
 import { HobbyligaMatchHistorie } from './hobbyliga/HobbyligaMatchHistorie';
-import { ClubSettings, listenToClubs } from '../services/db';
+import { ClubSettings, listenToClubs, listenToGlobalSystemSettings, GlobalSystemSettings } from '../services/db';
 import { useLeagueData, defaultLeagueConfig } from '../hooks/useLeagueData';
 import {
   resolvePlayerDisplayName,
   isPlayerEligibleForLeague,
   calculateLeaguePlayerLivePoints,
 } from '../utils/playerHelper';
+import { getCanonicalClubId } from '../lib/userUtils';
 
 interface Props {
   currentUser: User;
@@ -94,6 +90,15 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
     return [];
   });
 
+  const [globalSettings, setGlobalSettings] = useState<GlobalSystemSettings | null>(null);
+
+  useEffect(() => {
+    const unsub = listenToGlobalSystemSettings((s) => {
+      if (s) setGlobalSettings(s);
+    });
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     if (allClubs && allClubs.length > 0) {
       setSystemClubs(allClubs);
@@ -143,12 +148,7 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
     const clubsMap = new Map<string, any>();
 
     const getCanonicalClubKey = (raw?: string): string => {
-      if (!raw) return '';
-      const clean = raw.toLowerCase().trim();
-      if (clean.includes('neuhausen')) return 'sv-neuhausen';
-      if (clean.includes('furth')) return 'djk-furth';
-      if (clean.includes('sportsgeist')) return 'tcsportsgeist';
-      return clean.replace(/[^a-z0-9]/g, '');
+      return getCanonicalClubId(raw);
     };
 
     // 1. Vereine aus systemClubs hinzufügen, NUR WENN das Liga-Modul aktiv ist
@@ -157,14 +157,18 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
         return;
       }
       const canonicalKey = getCanonicalClubKey(c.vereinsId || c.id || c.clubName);
-      if (canonicalKey) {
-        clubsMap.set(canonicalKey, c);
+      if (canonicalKey && !['super-admin', 'system'].includes(canonicalKey)) {
+        clubsMap.set(canonicalKey, {
+          ...c,
+          id: canonicalKey,
+          vereinsId: canonicalKey,
+        });
       }
     });
 
     // 2. Aktuelle Club-Einstellungen prüfen & mergen (oder entfernen, falls Liga deaktiviert)
     const currentCanonicalKey = getCanonicalClubKey(clubId || settings?.clubName || 'sv-neuhausen');
-    if (settings && currentCanonicalKey) {
+    if (settings && currentCanonicalKey && !['super-admin', 'system'].includes(currentCanonicalKey)) {
       const currentIsActive = isClubLigaActive({
         ...settings,
         vereinsId: clubId || currentCanonicalKey,
@@ -175,8 +179,11 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
         const existing = clubsMap.get(currentCanonicalKey);
         clubsMap.set(currentCanonicalKey, {
           ...(existing || {}),
-          vereinsId: clubId || currentCanonicalKey,
+          ...settings,
+          id: currentCanonicalKey,
+          vereinsId: currentCanonicalKey,
           clubName: settings.clubName || existing?.clubName || clubId,
+          name: settings.clubName || existing?.clubName || clubId,
           customLogoUrl: settings.customLogoUrl || existing?.customLogoUrl,
           logoUrl: settings.logoUrl || existing?.logoUrl,
           modules: settings.modules || existing?.modules,
@@ -190,15 +197,19 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
     // Vereine mit deaktiviertem Liga-Modul (wie TC Sportsgeist) werden hier NIEMALS hinzugefügt.
     if (clubsMap.size === 0) {
       clubsMap.set('sv-neuhausen', {
+        id: 'sv-neuhausen',
         vereinsId: 'sv-neuhausen',
         clubName: 'SV Neuhausen',
+        name: 'SV Neuhausen',
         customLogoUrl: DEFAULT_BANNER_CREST_1,
         modules: { league: true, liga: true },
         aktiv: true,
       });
       clubsMap.set('djk-furth', {
+        id: 'djk-furth',
         vereinsId: 'djk-furth',
         clubName: 'DJK Furth',
+        name: 'DJK Furth',
         customLogoUrl: DEFAULT_BANNER_CREST_2,
         modules: { league: true, liga: true },
         aktiv: true,
@@ -255,13 +266,19 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
       }
 
       return {
-        id: c.vereinsId || c.id || `club-${idx}`,
-        name: c.clubName || c.vereinsName || c.vereinsId || 'Verein',
+        ...c,
+        id: canonicalKey,
+        vereinsId: canonicalKey,
+        clubName: c.clubName || c.vereinsName || c.name || 'Verein',
+        name: c.clubName || c.vereinsName || c.name || 'Verein',
         logoUrl: logo,
         fallbackSrc,
         alt: `${c.clubName || c.vereinsId || 'Verein'} Wappen`,
         variant: (isNeuhausen ? 1 : isFurth ? 2 : 3) as 1 | 2 | 3,
         scale,
+        street: c.street,
+        zip: c.zip,
+        city: c.city,
       };
     });
   }, [systemClubs, settings, clubId]);
@@ -292,11 +309,9 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
   }, []);
 
   // Modal states
-  const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
   const [isResultDrawerOpen, setIsResultDrawerOpen] = useState(false);
   const [selectedMatchForEdit, setSelectedMatchForEdit] = useState<LeagueMatch | null>(null);
   const [selectedMatchForEntry, setSelectedMatchForEntry] = useState<LeagueMatch | null>(null);
-  const [searchToEdit, setSearchToEdit] = useState<LeaguePartnerSearch | null>(null);
   
   const [selectedContactUser, setSelectedContactUser] = useState<User | Person | null>(null);
   const [selectedContactRank, setSelectedContactRank] = useState<number | undefined>(undefined);
@@ -359,31 +374,6 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
     fetchMissingUsers().catch(console.error);
   }, [allProfiles, users, currentUser.id]);
 
-  async function handleSavePartnerSearch(availabilityText: string, expiresAt: string, showContactInfo: boolean) {
-    const userName = getUserName(currentUser.id);
-    const clubName = currentUser.vereinsId || clubId || 'Verein';
-    await saveLeaguePartnerSearch(currentUser.id, clubId, availabilityText, expiresAt, userName, clubName, showContactInfo);
-    await refreshPartnerSearches();
-  }
-
-  async function handleRenewPartnerSearch(userId: string) {
-    await renewLeaguePartnerSearch(userId, 14);
-    await refreshPartnerSearches();
-  }
-
-  async function handleDeletePartnerSearch(searchIdOrUserId: string) {
-    try {
-      await deleteLeaguePartnerSearch(searchIdOrUserId);
-      setPartnerSearches(prev => prev.filter(s => s.id !== searchIdOrUserId && s.userId !== searchIdOrUserId));
-      setSearchToEdit(null);
-      setIsPartnerModalOpen(false);
-      await refreshPartnerSearches();
-    } catch (e) {
-      console.error('Fehler beim Löschen der Spielanzeige:', e);
-      throw e;
-    }
-  }
-
   const handleEditMatch = (match: LeagueMatch) => {
     setSelectedMatchForEdit(match);
     setSelectedMatchForEntry(null);
@@ -411,47 +401,55 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
 
   function getUserObject(userId: string): User | null {
     if (!userId) return null;
-    const trimmed = userId.trim();
+    const trimmed = String(userId).trim();
+    const trimmedLower = trimmed.toLowerCase();
 
-    if (currentUser && (currentUser.id === trimmed || currentUser.name.toLowerCase() === trimmed.toLowerCase())) {
+    if (
+      currentUser &&
+      (currentUser.id === trimmed ||
+        (currentUser.name && currentUser.name.toLowerCase() === trimmedLower) ||
+        (currentUser.klarname && currentUser.klarname.toLowerCase() === trimmedLower))
+    ) {
       return currentUser;
     }
 
-    if (users[trimmed]) {
+    if (users && users[trimmed]) {
       return users[trimmed];
     }
     
-    if (extendedUsers[trimmed]) {
+    if (extendedUsers && extendedUsers[trimmed]) {
       return extendedUsers[trimmed];
     }
 
-    const foundInUsers = Object.values(users).find((u) => {
+    const foundInUsers = Object.values(users || {}).find((u) => {
+      if (!u) return false;
       const full = `${u.firstName || ""} ${u.lastName || ""}`.trim();
       const reverseFull = `${u.lastName || ""}, ${u.firstName || ""}`
         .trim()
         .replace(/^, |,$/, "");
       return (
         u.id === trimmed ||
-        u.name.toLowerCase() === trimmed.toLowerCase() ||
-        (u.klarname && u.klarname.toLowerCase() === trimmed.toLowerCase()) ||
-        (full && full.toLowerCase() === trimmed.toLowerCase()) ||
-        (reverseFull && reverseFull.toLowerCase() === trimmed.toLowerCase())
+        (u.name && u.name.toLowerCase() === trimmedLower) ||
+        (u.klarname && u.klarname.toLowerCase() === trimmedLower) ||
+        (full && full.toLowerCase() === trimmedLower) ||
+        (reverseFull && reverseFull.toLowerCase() === trimmedLower)
       );
     });
     
     if (foundInUsers) return foundInUsers;
     
-    const foundInExtended = Object.values(extendedUsers).find((u) => {
+    const foundInExtended = Object.values(extendedUsers || {}).find((u) => {
+      if (!u) return false;
       const full = `${u.firstName || ""} ${u.lastName || ""}`.trim();
       const reverseFull = `${u.lastName || ""}, ${u.firstName || ""}`
         .trim()
         .replace(/^, |,$/, "");
       return (
         u.id === trimmed ||
-        u.name.toLowerCase() === trimmed.toLowerCase() ||
-        (u.klarname && u.klarname.toLowerCase() === trimmed.toLowerCase()) ||
-        (full && full.toLowerCase() === trimmed.toLowerCase()) ||
-        (reverseFull && reverseFull.toLowerCase() === trimmed.toLowerCase())
+        (u.name && u.name.toLowerCase() === trimmedLower) ||
+        (u.klarname && u.klarname.toLowerCase() === trimmedLower) ||
+        (full && full.toLowerCase() === trimmedLower) ||
+        (reverseFull && reverseFull.toLowerCase() === trimmedLower)
       );
     });
 
@@ -560,15 +558,6 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
   const currentUserLivePoints = useMemo(() => {
     return getUserPoints(currentUser.id) ?? (profile ? calculateLeaguePlayerLivePoints(profile, effectiveConfig) : undefined);
   }, [getUserPoints, currentUser.id, profile, effectiveConfig]);
-
-  const currentUserSearch = partnerSearches.find(
-    s =>
-      s.userId === currentUser.id ||
-      s.id === currentUser.id ||
-      (currentUser.name && s.userId && currentUser.name.toLowerCase() === s.userId.toLowerCase()) ||
-      (currentUser.name && s.userName && currentUser.name.toLowerCase() === s.userName.toLowerCase()) ||
-      (currentUser.klarname && s.userName && currentUser.klarname.toLowerCase() === s.userName.toLowerCase())
-  );
 
   const isPlayerActive = (p: { active?: boolean } | null) => {
     if (!p) return false;
@@ -693,6 +682,9 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
       
       {/* 1. BANNER-HERO-HEADER */}
       <HobbyligaBanner
+        title={globalSettings?.leagueTitle || 'Hobbyliga'}
+        bannerUrl={globalSettings?.leagueBannerUrl}
+        bannerPosition={globalSettings?.leagueBannerPosition}
         pointsText={`${currentUserPoints.toFixed(1)} Pkt.`}
         rankText={currentUserRank ? `Rang #${currentUserRank}` : 'Unplatziert'}
         hasActiveScheduledMatch={!!activeScheduledMatch}
@@ -706,27 +698,10 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
 
       {/* 6. DASHBOARD BENTO-GRID LAYOUT */}
       
-      {/* OBERER ABSCHNITT: BÖRSE, MINI-KALENDER & STATUS-KARTEN */}
+      {/* OBERER ABSCHNITT: MINI-KALENDER & STATUS-KARTEN */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 sm:gap-4 items-stretch">
-        {/* LEFT COLUMN: Börse & Kalender */}
+        {/* LEFT COLUMN: Kalender */}
         <div className="lg:col-span-2 flex flex-col gap-3.5 sm:gap-4">
-          <SpielpartnerBoerse
-            currentUser={currentUser}
-            partnerSearches={partnerSearches}
-            currentUserSearch={currentUserSearch}
-            getUserObject={getUserObject}
-            getUserRank={getUserRank}
-            getUserPoints={getUserPoints}
-            currentUserPoints={currentUserLivePoints}
-            onOpenModal={(search) => {
-              setSearchToEdit(search);
-              setIsPartnerModalOpen(true);
-            }}
-            onRenew={handleRenewPartnerSearch}
-            onDelete={handleDeletePartnerSearch}
-            onChallenge={handleChallengePlayer}
-          />
-
           {/* MINI-KALENDER: SCHNELLVORSCHAU FREIE LIGA-SLOTS (2H+) */}
           <HobbyligaMiniKalender
             currentUser={currentUser}
@@ -739,6 +714,7 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
             pendingChallengedUser={pendingChallengedUser}
             onClearChallengedUser={() => setPendingChallengedUser(null)}
             onSelectSlot={handleSelectSlot}
+            participatingClubs={participatingClubs}
           />
         </div>
 
@@ -855,23 +831,6 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
         leagueId={activeLeagueId}
         primaryColor={settings?.primaryColor}
       />
-      {isPartnerModalOpen && (
-        <CreateAdModal
-          currentUser={currentUser}
-          userRank={getUserRank(currentUser.id)}
-          existingSearch={searchToEdit || currentUserSearch}
-          onClose={() => {
-            setIsPartnerModalOpen(false);
-            setSearchToEdit(null);
-          }}
-          onSave={handleSavePartnerSearch}
-          onDelete={() => {
-            const target = searchToEdit || currentUserSearch;
-            const targetId = target?.id || target?.userId || currentUser.id;
-            return handleDeletePartnerSearch(targetId);
-          }}
-        />
-      )}
       {selectedContactUser && (
         <PlayerContactModal
           targetUser={selectedContactUser}
@@ -912,6 +871,7 @@ export function LeagueDashboard({ currentUser, clubId, users, settings, bookings
           setSelectedSlotForBooking(null);
           setIsBookingDrawerOpen(false);
         }}
+        participatingClubs={participatingClubs}
       />
     </div>
   );

@@ -16,6 +16,7 @@ interface HobbyligaMiniKalenderProps {
   onSelectSlot: (date: string, court: string, startTime: string) => void;
   userClubs?: UserClub[];
   onSwitchClub?: (clubId: string) => void; // Keeping prop for backwards compatibility
+  participatingClubs?: any[];
 }
 
 export const HobbyligaMiniKalender: React.FC<HobbyligaMiniKalenderProps> = ({
@@ -28,6 +29,7 @@ export const HobbyligaMiniKalender: React.FC<HobbyligaMiniKalenderProps> = ({
   onClearChallengedUser,
   onSelectSlot,
   userClubs,
+  participatingClubs,
 }) => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -59,75 +61,113 @@ export const HobbyligaMiniKalender: React.FC<HobbyligaMiniKalenderProps> = ({
     return () => unsub();
   }, []);
 
-  // Deduplicate clubs strictly by id, filtering only by user's actual memberships
+  // Only clubs participating in the respective league may be shown in the facility dropdown
   const uniqueClubs = useMemo(() => {
     const map = new Map<string, any>();
-    const userClubList = userClubs && userClubs.length > 0 
-      ? userClubs 
-      : getUserClubs(currentUser, systemClubs);
 
-    // Filter by user's actual clubs
-    if (userClubList && Array.isArray(userClubList)) {
-      userClubList.forEach((c) => {
-        const id = c.vereinsId || c.id;
-        if (id) {
-          const canonicalKey = getCanonicalClubId(id);
-          if (canonicalKey && !['super-admin', 'system'].includes(canonicalKey)) {
-            // Find system club metadata (for logo, address, master data)
-            const matchedSystemClub = (systemClubs || []).find((sc) => {
-              const scId = getCanonicalClubId(sc.vereinsId || sc.id || '');
-              return scId === canonicalKey;
-            });
-            const knownMeta = KNOWN_CLUBS_STAMMDATEN[canonicalKey];
+    const isClubLigaActive = (c: any): boolean => {
+      if (!c) return false;
+      const modules = c.modules || {};
+      if (
+        modules.liga === false ||
+        modules.league === false ||
+        c.isLigaActive === false ||
+        c.enableLeague === false ||
+        c.aktiv === false
+      ) {
+        return false;
+      }
+      return (
+        modules.liga === true ||
+        modules.league === true ||
+        c.isLigaActive === true ||
+        c.enableLeague === true ||
+        c.leagueSettings?.enabled === true
+      );
+    };
 
-            // Resolve dynamic club name: prefer system master data, then knownMeta, then clean c.name/c.clubName
-            let cleanClubName = matchedSystemClub?.clubName || matchedSystemClub?.vereinsName || matchedSystemClub?.name;
-            if (!cleanClubName && knownMeta?.clubName) {
-              cleanClubName = knownMeta.clubName;
-            }
-            if (!cleanClubName) {
-              const raw = c.clubName || c.name;
-              if (raw && typeof raw === 'string') {
-                const trimmed = raw.trim();
-                const lower = trimmed.toLowerCase();
-                const isInvalid = ['api', 'system', 'super-admin', 'default', 'null', 'undefined', 'verein', 'tennis-club', 'tennis club', 'tennisclub'].includes(lower) || lower === canonicalKey;
-                if (!isInvalid) {
-                  cleanClubName = trimmed;
-                }
-              }
-            }
-            if (!cleanClubName) {
-              if (canonicalKey.includes('neuhausen')) cleanClubName = 'SV Neuhausen';
-              else if (canonicalKey.includes('furth')) cleanClubName = 'DJK Furth';
-              else if (canonicalKey.includes('sportsgeist')) cleanClubName = 'TC Sportsgeist';
-              else cleanClubName = String(id);
-            }
-
-            // Strictly resolve Wappen / Logo (prioritize login / loading screen logo)
-            const resolvedLogo = 
-              matchedSystemClub?.customLogoUrl || 
-              matchedSystemClub?.logoUrl || 
-              matchedSystemClub?.customHeaderLogoUrl || 
-              matchedSystemClub?.headerLogoUrl || 
-              c.logoUrl || 
-              knownMeta?.logoUrl;
-
-            map.set(canonicalKey, {
-              ...c,
-              id: canonicalKey,
-              vereinsId: canonicalKey,
-              clubName: cleanClubName,
-              name: cleanClubName,
-              logoUrl: resolvedLogo,
-              facilityPhotoUrl: matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
-              street: matchedSystemClub?.street || c.street || knownMeta?.street,
-              zip: matchedSystemClub?.zip || c.zip || knownMeta?.zip,
-              city: matchedSystemClub?.city || c.city || knownMeta?.city,
-            });
-          }
-        }
-      });
+    let sourceClubs: any[] = [];
+    if (participatingClubs && Array.isArray(participatingClubs) && participatingClubs.length > 0) {
+      sourceClubs = participatingClubs;
+    } else if (systemClubs && systemClubs.length > 0) {
+      sourceClubs = systemClubs.filter(isClubLigaActive);
+    } else {
+      sourceClubs = [
+        { id: 'sv-neuhausen', vereinsId: 'sv-neuhausen', clubName: 'SV Neuhausen' },
+        { id: 'djk-furth', vereinsId: 'djk-furth', clubName: 'DJK Furth' },
+      ];
     }
+
+    sourceClubs.forEach((c) => {
+      const rawId = c.vereinsId || c.id || c.clubName || c.name;
+      if (!rawId) return;
+      const canonicalKey = getCanonicalClubId(rawId);
+      if (!canonicalKey || ['super-admin', 'system'].includes(canonicalKey)) return;
+
+      // Find system club metadata (for logo, address, master data)
+      const matchedSystemClub = (systemClubs || []).find((sc) => {
+        const scId = getCanonicalClubId(sc.vereinsId || sc.id || '');
+        return scId === canonicalKey;
+      });
+      const knownMeta = KNOWN_CLUBS_STAMMDATEN[canonicalKey];
+
+      let cleanClubName =
+        c.clubName ||
+        c.vereinsName ||
+        c.name ||
+        matchedSystemClub?.clubName ||
+        matchedSystemClub?.vereinsName ||
+        knownMeta?.clubName;
+
+      if (
+        !cleanClubName ||
+        ['api', 'system', 'super-admin', 'default', 'null', 'undefined', 'verein'].includes(
+          cleanClubName.toLowerCase()
+        )
+      ) {
+        if (canonicalKey === 'sv-neuhausen') cleanClubName = 'SV Neuhausen';
+        else if (canonicalKey === 'djk-furth') cleanClubName = 'DJK Furth';
+        else if (canonicalKey === 'tcsportsgeist') cleanClubName = 'TC Sportsgeist';
+        else cleanClubName = String(rawId);
+      }
+
+      const resolvedLogo =
+        c.customLogoUrl ||
+        c.logoUrl ||
+        matchedSystemClub?.customLogoUrl ||
+        matchedSystemClub?.logoUrl ||
+        knownMeta?.logoUrl;
+
+      const street = c.street || matchedSystemClub?.street || knownMeta?.street;
+      const zip = c.zip || matchedSystemClub?.zip || knownMeta?.zip;
+      const city = c.city || matchedSystemClub?.city || knownMeta?.city;
+
+      if (!map.has(canonicalKey)) {
+        map.set(canonicalKey, {
+          ...c,
+          id: canonicalKey,
+          vereinsId: canonicalKey,
+          clubName: cleanClubName,
+          name: cleanClubName,
+          logoUrl: resolvedLogo,
+          facilityPhotoUrl: matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
+          street,
+          zip,
+          city,
+        });
+      } else {
+        const existing = map.get(canonicalKey);
+        map.set(canonicalKey, {
+          ...existing,
+          street: existing.street || street,
+          zip: existing.zip || zip,
+          city: existing.city || city,
+          logoUrl: existing.logoUrl || resolvedLogo,
+          facilityPhotoUrl:
+            existing.facilityPhotoUrl || matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
+        });
+      }
+    });
 
     // Always ensure current club is in the list if the map is empty
     const currentCanonical = getCanonicalClubId(clubId || 'sv-neuhausen');
@@ -143,7 +183,7 @@ export const HobbyligaMiniKalender: React.FC<HobbyligaMiniKalenderProps> = ({
     }
 
     return Array.from(map.values());
-  }, [userClubs, currentUser, systemClubs, clubId, settings]);
+  }, [participatingClubs, systemClubs, clubId, settings]);
 
   const currentClub = useMemo(() => {
     const normSelected = getCanonicalClubId(selectedMiniClubId || clubId || 'sv-neuhausen');

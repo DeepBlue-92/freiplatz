@@ -74,13 +74,6 @@ export const HobbyligaPlayerDrawer: React.FC<HobbyligaPlayerDrawerProps> = ({
 
     const originalHtmlOverflow = document.documentElement.style.overflow;
     const originalBodyOverflow = document.body.style.overflow;
-    const originalBodyPaddingRight = document.body.style.paddingRight;
-
-    // Compensate scrollbar width to prevent horizontal layout shift
-    const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
-    if (scrollBarWidth > 0) {
-      document.body.style.paddingRight = `${scrollBarWidth}px`;
-    }
 
     // Both documentElement and body must be locked because index.html defines html { overflow-y: scroll; }
     document.documentElement.style.overflow = 'hidden';
@@ -190,7 +183,6 @@ export const HobbyligaPlayerDrawer: React.FC<HobbyligaPlayerDrawerProps> = ({
     return () => {
       document.documentElement.style.overflow = originalHtmlOverflow;
       document.body.style.overflow = originalBodyOverflow;
-      document.body.style.paddingRight = originalBodyPaddingRight;
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);

@@ -4,7 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
-import { doc, getDoc, updateDoc, collection, getDocs, query, where, setDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, getDocs, query, where, setDoc, deleteDoc } from "firebase/firestore";
 import { db, ensureServerAuthenticated } from "./lib/firebase";
 import {
   sendNotificationMail,
@@ -20,21 +20,61 @@ import {
   bulkUpdateUserNotificationSettings,
   updateClubDefaultNotificationSettings,
   getClubDefaultNotificationSettings,
+  getNormalizedVereinsId,
+  deepCleanUndefined,
 } from "./services/db";
 import {
   broadcastHobbyligaNewPost,
   notifyMatchResultSubmitted,
   notifyBookingModified,
 } from "./services/notificationDispatcher";
+import {
+  runHourlyQuotaCheck,
+  getLatestQuotaSnapshot,
+} from "./services/quotaService";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3005;
 
   // Initialize server-side superadmin authentication in background
-  ensureServerAuthenticated().catch((authErr) => {
-    console.warn("Server-side superadmin auth initialization:", authErr);
-  });
+  ensureServerAuthenticated()
+    .catch((authErr) => {
+      console.warn("Server-side superadmin auth initialization:", authErr);
+    });
+
+  // Start hourly quota monitor for Firebase
+  runHourlyQuotaCheck()
+    .then((snap) => {
+      console.log(
+        `[QuotaService] Initialized: ${snap.storage.usedMb} MB used (${snap.storage.usedPercent}%), ${snap.reads.usedToday} reads, ${snap.writes.usedToday} writes.`
+      );
+    })
+    .catch((err) => {
+      console.warn("[QuotaService] Initial quota check error:", err);
+    });
+
+  // Schedule automated check strictly on the full hour (:00)
+  const scheduleQuotaCheckOnTheHour = () => {
+    const now = new Date();
+    const msToNextHour =
+      (60 - now.getMinutes()) * 60 * 1000 -
+      now.getSeconds() * 1000 -
+      now.getMilliseconds();
+
+    setTimeout(() => {
+      runHourlyQuotaCheck().catch((err) => {
+        console.warn("[QuotaService] Hourly quota check failed:", err);
+      });
+      // Repeat every 60 minutes thereafter
+      setInterval(() => {
+        runHourlyQuotaCheck().catch((err) => {
+          console.warn("[QuotaService] Hourly quota check failed:", err);
+        });
+      }, 60 * 60 * 1000);
+    }, Math.max(1000, msToNextHour));
+  };
+  scheduleQuotaCheckOnTheHour();
 
   // JSON parsing middleware
   app.use(express.json());
@@ -161,10 +201,31 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Firebase Quota Monitor routes for SuperAdmin
+  app.get("/api/superadmin/quota", async (req, res) => {
+    try {
+      const quota = await getLatestQuotaSnapshot();
+      res.json({ success: true, quota });
+    } catch (err: any) {
+      console.error("[Quota] Error fetching quota:", err);
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/superadmin/quota/refresh", async (req, res) => {
+    try {
+      const quota = await runHourlyQuotaCheck();
+      res.json({ success: true, quota });
+    } catch (err: any) {
+      console.error("[Quota] Error refreshing quota:", err);
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   // Assistant Chat endpoint grounded on public/tutorial
   app.post("/api/assistant/chat", async (req, res) => {
     try {
-      const { message, history } = req.body || {};
+      const { message, history, clubContext } = req.body || {};
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Missing message parameter" });
       }
@@ -210,6 +271,7 @@ async function startServer() {
       const combinedSystemInstruction = `${personalityInstruction || 'Du bist "Ace", der persönliche, intelligente Vereins- und Tennis-Assistent der DJK Fürth.'}
 
 ---
+${clubContext ? `AKTUELL GÜLTIGE VEREINSKONFIGURATION (ECHTZEIT-DATEN AUS DER DATENBANK):\n${clubContext}\n\n---\n` : ''}
 AUTORITATIVE WISSENSBASIS AUS DEM VEREINSHANDBUCH (public/tutorial):
 ${cachedTutorial}
 `;
@@ -228,16 +290,31 @@ ${cachedTutorial}
       }
       contents.push({ role: "user", parts: [{ text: message }] });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents,
-        config: {
-          systemInstruction: {
-            parts: [{ text: combinedSystemInstruction }]
-          },
-          temperature: 0.3,
-        }
-      });
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents,
+          config: {
+            systemInstruction: {
+              parts: [{ text: combinedSystemInstruction }]
+            },
+            temperature: 0.25,
+          }
+        });
+      } catch (genErr: any) {
+        console.warn("Retrying with gemini-1.5-flash fallback:", genErr?.message || genErr);
+        response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents,
+          config: {
+            systemInstruction: {
+              parts: [{ text: combinedSystemInstruction }]
+            },
+            temperature: 0.25,
+          }
+        });
+      }
 
       const reply = response.text || "";
       return res.json({ reply });
@@ -677,7 +754,7 @@ ${cachedTutorial}
       const sentAt = new Date().toISOString();
 
       // 2. Build secure activation URL
-      const host = req.get("host") || "localhost:3000";
+      const host = req.get("host") || `localhost:${PORT}`;
       const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
       const baseUrl = req.get("origin") || `${protocol}://${host}`;
       const activationLink = `${baseUrl}/#activate?token=${token}&userId=${encodeURIComponent(userData.id || rawUserId)}&clubId=${encodeURIComponent(vereinsId)}`;
@@ -782,7 +859,7 @@ ${cachedTutorial}
       const sentAt = new Date().toISOString();
 
       // 2. Build secure password reset URL
-      const host = req.get("host") || "localhost:3000";
+      const host = req.get("host") || `localhost:${PORT}`;
       const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
       const baseUrl = req.get("origin") || `${protocol}://${host}`;
       const passwordResetLink = `${baseUrl}/#reset-password?token=${token}&userId=${encodeURIComponent(userData.id || rawUserId)}&clubId=${encodeURIComponent(vereinsId)}`;
@@ -861,7 +938,7 @@ ${cachedTutorial}
         });
       }
 
-      const host = req.get("host") || "localhost:3000";
+      const host = req.get("host") || `localhost:${PORT}`;
       const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
       const baseUrl = req.get("origin") || `${protocol}://${host}`;
 
@@ -1103,6 +1180,160 @@ ${cachedTutorial}
         error: "SETUP_PASSWORD_FAILED",
         message: err.message || "Fehler beim Speichern des neuen Passworts.",
       });
+    }
+  });
+
+  // 14. ARBEITSEINSAETZE: Update Participation (Join/Leave shift)
+  app.post("/api/arbeitseinsaetze/participation", async (req: express.Request, res: express.Response) => {
+    try {
+      const { vereinsId, entryId, coWorkers, auditLog } = req.body || {};
+      if (!entryId) {
+        return res.status(400).json({ success: false, error: "MISSING_ENTRY_ID" });
+      }
+      const normalizedId = getNormalizedVereinsId(vereinsId);
+      await ensureServerAuthenticated();
+      const docRef = doc(db, "vereine", normalizedId, "arbeitseinsaetze", entryId);
+      await setDoc(docRef, {
+        coWorkers: deepCleanUndefined(coWorkers) || [],
+        auditLog: deepCleanUndefined(auditLog) || []
+      }, { merge: true });
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("Error updating arbeitseinsatz participation via backend:", err);
+      return res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 15. ARBEITSEINSAETZE: Save / Edit Einsatz
+  app.post("/api/arbeitseinsaetze/save", async (req: express.Request, res: express.Response) => {
+    try {
+      const { vereinsId, entry } = req.body || {};
+      if (!entry || !entry.id) {
+        return res.status(400).json({ success: false, error: "MISSING_ENTRY" });
+      }
+      const normalizedId = getNormalizedVereinsId(vereinsId);
+      await ensureServerAuthenticated();
+      const docRef = doc(db, "vereine", normalizedId, "arbeitseinsaetze", entry.id);
+      const cleanEntry = deepCleanUndefined(entry);
+      await setDoc(docRef, cleanEntry, { merge: true });
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("Error saving arbeitseinsatz via backend:", err);
+      return res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 16. ARBEITSEINSAETZE: Delete Einsatz
+  app.post("/api/arbeitseinsaetze/delete", async (req: express.Request, res: express.Response) => {
+    try {
+      const { vereinsId, entryId } = req.body || {};
+      if (!entryId) {
+        return res.status(400).json({ success: false, error: "MISSING_ENTRY_ID" });
+      }
+      const normalizedId = getNormalizedVereinsId(vereinsId);
+      await ensureServerAuthenticated();
+      const docRef = doc(db, "vereine", normalizedId, "arbeitseinsaetze", entryId);
+      await deleteDoc(docRef);
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("Error deleting arbeitseinsatz via backend:", err);
+      return res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 17. ADMIN: Delete or detach user
+  app.post("/api/admin/delete-user", async (req: express.Request, res: express.Response) => {
+    try {
+      const { vereinsId, username, userId } = req.body || {};
+      const normalizedId = getNormalizedVereinsId(vereinsId || "sv-neuhausen");
+      const normalizedUsername = (username || "").toLowerCase().replace(/\s/g, "");
+
+      await ensureServerAuthenticated();
+
+      let targetDocRef: any = null;
+      let targetUser: any = null;
+
+      // 1. Resolve by direct userId if provided
+      if (userId) {
+        const uRef = doc(db, "users", userId);
+        const uSnap = await getDoc(uRef);
+        if (uSnap.exists()) {
+          targetDocRef = uRef;
+          targetUser = { id: uSnap.id, ...uSnap.data() };
+        }
+      }
+
+      // 2. Fallback: Query by username and match tenantId / clubs
+      if (!targetDocRef && normalizedUsername) {
+        const q = query(collection(db, "users"), where("username", "==", normalizedUsername));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const matched = snap.docs.find((d) => {
+            const data = d.data();
+            return (
+              data.tenantId === normalizedId ||
+              (data.clubIds && data.clubIds.includes(normalizedId)) ||
+              (data.clubs && data.clubs.some((c: any) => (c.vereinsId || c.id) === normalizedId))
+            );
+          }) || snap.docs[0];
+          targetDocRef = doc(db, "users", matched.id);
+          targetUser = { id: matched.id, ...matched.data() };
+        }
+      }
+
+      // 3. Fallback: Check if username is doc ID directly
+      if (!targetDocRef && normalizedUsername) {
+        const uRef = doc(db, "users", normalizedUsername);
+        const uSnap = await getDoc(uRef);
+        if (uSnap.exists()) {
+          targetDocRef = uRef;
+          targetUser = { id: uSnap.id, ...uSnap.data() };
+        }
+      }
+
+      if (!targetDocRef || !targetUser) {
+        return res.json({ success: true, message: "Benutzer existiert nicht mehr." });
+      }
+
+      // Safeguard: Do not allow deleting hauptAdmin
+      if (targetUser.hauptAdmin === true) {
+        return res.status(403).json({
+          success: false,
+          error: "Der Haupt-Administrator des Vereins kann nicht gelöscht werden.",
+        });
+      }
+
+      // Multi-Club check: If user belongs to multiple clubs, detach from this club instead of deleting
+      const userClubs = Array.isArray(targetUser.clubs) ? targetUser.clubs : [];
+      const remainingClubs = userClubs.filter((c: any) => {
+        const cid = String(c.vereinsId || c.id || c).toLowerCase().replace(/\s/g, "");
+        return cid !== normalizedId;
+      });
+
+      if (remainingClubs.length > 0) {
+        const remainingIds = remainingClubs.map((c: any) =>
+          String(c.vereinsId || c.id || c).toLowerCase().replace(/\s/g, "")
+        );
+        const newPrimaryTenant =
+          targetUser.tenantId === normalizedId ? remainingIds[0] : targetUser.tenantId;
+
+        await setDoc(
+          targetDocRef,
+          {
+            clubs: remainingClubs,
+            clubIds: remainingIds,
+            tenantId: newPrimaryTenant,
+          },
+          { merge: true }
+        );
+      } else {
+        await deleteDoc(targetDocRef);
+      }
+
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("Error deleting user via backend:", err);
+      return res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   });
 

@@ -43,6 +43,11 @@ const AdminRankings: React.FC<AdminRankingsProps> = ({
 
   const [isEditingRules, setIsEditingRules] = useState(false);
   const [editedRulesText, setEditedRulesText] = useState(rules);
+  const [rankingToDelete, setRankingToDelete] = useState<{
+    id: string;
+    name: string;
+    entriesCount: number;
+  } | null>(null);
 
   const userList = useMemo(
     () =>
@@ -129,14 +134,12 @@ const AdminRankings: React.FC<AdminRankingsProps> = ({
     setShowNewPlayerSuggestions(false);
   };
 
-  const handleDeleteCategory = (id: string) => {
-    if (
-      confirm(
-        "Möchtest du diese Rangliste und alle ihre Platzierungen wirklich löschen?",
-      )
-    ) {
-      handleUpdate(categories.filter((c) => c.id !== id));
-    }
+  const handleDeleteCategory = (cat: { id: string; name: string; entries: any[] }) => {
+    setRankingToDelete({
+      id: cat.id,
+      name: cat.name,
+      entriesCount: cat.entries.length,
+    });
   };
 
   const moveCategory = (idx: number, direction: "up" | "down") => {
@@ -201,9 +204,14 @@ const AdminRankings: React.FC<AdminRankingsProps> = ({
   );
 
   const getFullName = (u: User) => {
-    if (u.klarname) return u.klarname;
-    if (u.firstName || u.lastName) {
-      return `${u.firstName || ""} ${u.lastName || ""}`.trim();
+    const fullName = `${u.firstName || ""} ${u.lastName || ""}`.trim();
+    if (fullName) return fullName;
+    if (
+      u.klarname &&
+      u.klarname.trim().toLowerCase() !== (u.name || "").toLowerCase() &&
+      u.klarname.trim().toLowerCase() !== ((u as any).username || "").toLowerCase()
+    ) {
+      return u.klarname;
     }
     return u.name;
   };
@@ -211,23 +219,61 @@ const AdminRankings: React.FC<AdminRankingsProps> = ({
   const getUserDisplayName = (rawName: string): string => {
     if (!rawName) return "";
     const trimmed = rawName.trim();
+    const lower = trimmed.toLowerCase();
     if (users[trimmed]) {
       const u = users[trimmed];
-      return u.klarname || `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.name;
+      const fullName = `${u.firstName || ""} ${u.lastName || ""}`.trim();
+      if (fullName) return fullName;
+      if (
+        u.klarname &&
+        u.klarname.trim().toLowerCase() !== (u.name || "").toLowerCase() &&
+        u.klarname.trim().toLowerCase() !== ((u as any).username || "").toLowerCase()
+      ) {
+        return u.klarname;
+      }
+      return u.name;
+    }
+    if (users[lower]) {
+      const u = users[lower];
+      const fullName = `${u.firstName || ""} ${u.lastName || ""}`.trim();
+      if (fullName) return fullName;
+      if (
+        u.klarname &&
+        u.klarname.trim().toLowerCase() !== (u.name || "").toLowerCase() &&
+        u.klarname.trim().toLowerCase() !== ((u as any).username || "").toLowerCase()
+      ) {
+        return u.klarname;
+      }
+      return u.name;
     }
     const foundUser = (Object.values(users) as User[]).find((u) => {
+      if (!u) return false;
       const full = `${u.firstName || ""} ${u.lastName || ""}`.trim();
       const reverseFull = `${u.lastName || ""}, ${u.firstName || ""}`.trim().replace(/^, |,$/, "");
+      const uName = (u.name || "").toLowerCase();
+      const uUsername = ((u as any).username || "").toLowerCase();
+      const uKlarname = (u.klarname || "").toLowerCase();
+      const uId = (u.id || "").toLowerCase();
       return (
-        u.id === trimmed ||
-        u.name.toLowerCase() === trimmed.toLowerCase() ||
-        (u.klarname && u.klarname.toLowerCase() === trimmed.toLowerCase()) ||
-        (full && full.toLowerCase() === trimmed.toLowerCase()) ||
-        (reverseFull && reverseFull.toLowerCase() === trimmed.toLowerCase())
+        uId === lower ||
+        uName === lower ||
+        uUsername === lower ||
+        uKlarname === lower ||
+        (full && full.toLowerCase() === lower) ||
+        (reverseFull && reverseFull.toLowerCase() === lower)
       );
     });
     if (foundUser) {
-      return foundUser.klarname || `${foundUser.firstName || ""} ${foundUser.lastName || ""}`.trim() || foundUser.name;
+      const fullName = `${foundUser.firstName || ""} ${foundUser.lastName || ""}`.trim();
+      if (fullName) return fullName;
+      if (
+        foundUser.klarname &&
+        foundUser.klarname.trim().toLowerCase() !== (foundUser.name || "").toLowerCase() &&
+        foundUser.klarname.trim().toLowerCase() !== ((foundUser as any).username || "").toLowerCase()
+      ) {
+        return foundUser.klarname;
+      }
+      return foundUser.name;
     }
     return rawName;
   };
@@ -422,7 +468,7 @@ const AdminRankings: React.FC<AdminRankingsProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDeleteCategory(cat.id);
+                      handleDeleteCategory(cat);
                     }}
                     className="w-7 h-7 rounded-lg text-slate-400 hover:text-red-500 active:scale-90 flex items-center justify-center cursor-pointer"
                   >
@@ -705,6 +751,58 @@ const AdminRankings: React.FC<AdminRankingsProps> = ({
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal Window */}
+      {rankingToDelete && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 text-xl shrink-0">
+                <i className="fa-solid fa-triangle-exclamation"></i>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-black text-slate-900 tracking-tight">
+                  Rangliste löschen
+                </h3>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1">
+                  Möchtest du die Rangliste <strong className="text-slate-800">„{rankingToDelete.name}“</strong> und alle ihre Platzierungen wirklich löschen?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1">
+              <div className="flex justify-between">
+                <span>Enthaltene Platzierungen:</span>
+                <span className="font-bold text-slate-800">{rankingToDelete.entriesCount} Spieler</span>
+              </div>
+              <p className="text-[11px] text-rose-600 font-medium mt-1">
+                ⚠️ Diese Aktion kann nicht rückgängig gemacht werden.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRankingToDelete(null)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleUpdate(categories.filter((c) => c.id !== rankingToDelete.id));
+                  setRankingToDelete(null);
+                }}
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-trash-can text-xs"></i>
+                <span>Rangliste löschen</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

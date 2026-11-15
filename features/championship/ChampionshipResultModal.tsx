@@ -730,7 +730,7 @@ export const ChampionshipResultModal: React.FC<ChampionshipResultModalProps> = (
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 bg-[var(--color-primary)] hover:opacity-90 active:scale-95 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2.5 bg-[var(--color-primary)] hover:opacity-90 active:scale-95 text-white font-semibold text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
               <span>{saving ? 'Speichern...' : 'Ergebnis speichern'}</span>

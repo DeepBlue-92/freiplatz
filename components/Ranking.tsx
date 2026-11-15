@@ -24,23 +24,34 @@ const getUserObject = (
 ): User | null => {
   if (!rawName) return null;
   const trimmed = rawName.trim();
+  const lower = trimmed.toLowerCase();
 
   if (users[trimmed]) {
     return users[trimmed];
   }
+  if (users[lower]) {
+    return users[lower];
+  }
 
   return (
     Object.values(users).find((u) => {
+      if (!u) return false;
       const full = `${u.firstName || ""} ${u.lastName || ""}`.trim();
       const reverseFull = `${u.lastName || ""}, ${u.firstName || ""}`
         .trim()
         .replace(/^, |,$/, "");
+      const uName = (u.name || "").toLowerCase();
+      const uUsername = ((u as any).username || "").toLowerCase();
+      const uKlarname = (u.klarname || "").toLowerCase();
+      const uId = (u.id || "").toLowerCase();
+
       return (
-        u.id === trimmed ||
-        u.name.toLowerCase() === trimmed.toLowerCase() ||
-        (u.klarname && u.klarname.toLowerCase() === trimmed.toLowerCase()) ||
-        (full && full.toLowerCase() === trimmed.toLowerCase()) ||
-        (reverseFull && reverseFull.toLowerCase() === trimmed.toLowerCase())
+        uId === lower ||
+        uName === lower ||
+        uUsername === lower ||
+        uKlarname === lower ||
+        (full && full.toLowerCase() === lower) ||
+        (reverseFull && reverseFull.toLowerCase() === lower)
       );
     }) || null
   );
@@ -52,11 +63,16 @@ const getUserDisplayName = (
 ): string => {
   const u = getUserObject(rawName, users);
   if (u) {
-    return (
-      u.klarname ||
-      `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
-      u.name
-    );
+    const fullName = `${u.firstName || ""} ${u.lastName || ""}`.trim();
+    if (fullName) return fullName;
+    if (
+      u.klarname &&
+      u.klarname.trim().toLowerCase() !== (u.name || "").toLowerCase() &&
+      u.klarname.trim().toLowerCase() !== ((u as any).username || "").toLowerCase()
+    ) {
+      return u.klarname;
+    }
+    return u.klarname || u.name;
   }
   return rawName;
 };
@@ -369,6 +385,19 @@ const RankingView: React.FC<RankingProps> = ({
 
       {/* 2. MAIN CONTENT CARD (Pyramid or List - strictly Light Mode) */}
       <div className="bg-white pt-6 pb-6 sm:pt-8 sm:pb-8 px-4 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden flex flex-col items-center w-full min-h-[300px]">
+        {/* Active Ranking Name Badge (links oben: grüne Feldfarbe, weiße Schriftfarbe) */}
+        {currentCategory?.name && (
+          <div className="self-start mb-4 sm:mb-0 sm:absolute sm:top-6 sm:left-6 z-20">
+            <span
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-black text-xs uppercase tracking-wider text-white shadow-xs select-none"
+              style={{ backgroundColor: settings?.primaryColor || "var(--color-primary, #1b4332)" }}
+            >
+              <i className="fa-solid fa-trophy text-[11px] text-white/90" />
+              <span>{currentCategory.name}</span>
+            </span>
+          </div>
+        )}
+
         <AnimatePresence mode="wait">
           <motion.div
             key={`${activeCategory}-${viewLayout}`}

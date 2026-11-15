@@ -211,9 +211,6 @@ export const OnboardingBentoCards: React.FC<OnboardingBentoCardsProps> = ({
               <KeyRound className="w-3.5 h-3.5 text-slate-500" />
               <span>Passwort festlegen (Optional)</span>
             </div>
-            <span className="text-[9px] text-slate-400 font-normal">
-              Nur bei Bedarf ausfüllen
-            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -226,7 +223,7 @@ export const OnboardingBentoCards: React.FC<OnboardingBentoCardsProps> = ({
                   type={showPassword ? "text" : "password"}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Mindestens 8 Zeichen"
+                  placeholder="Passwort"
                   className="w-full h-8.5 px-3 pr-8 py-1.5 rounded-lg bg-slate-50 border border-slate-300 focus:bg-white focus:border-[var(--color-primary)] outline-none text-xs text-slate-900 font-mono transition-all"
                 />
                 <button
@@ -241,9 +238,6 @@ export const OnboardingBentoCards: React.FC<OnboardingBentoCardsProps> = ({
                   )}
                 </button>
               </div>
-              <p className="mt-1 text-[9px] text-slate-500 font-medium">
-                Mindestens 8 Zeichen empfohlen.
-              </p>
             </div>
 
             <div>
@@ -315,6 +309,7 @@ export const OnboardingBentoCards: React.FC<OnboardingBentoCardsProps> = ({
               avatarColor={avatarColor}
               hideTitle={true}
               compact={true}
+              inlineIcons={true}
               onChange={({ avatarUrl: newUrl, avatarIcon: newIcon, avatarColor: newColor }) => {
                 if (newUrl !== undefined) {
                   setAvatarUrl(newUrl);

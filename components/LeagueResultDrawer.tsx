@@ -907,7 +907,7 @@ export function LeagueResultDrawer({
                 form="resultForm"
                 disabled={isSubmitting}
                 style={completionType === 'regular' ? { backgroundColor: primaryColor || 'var(--color-primary)' } : undefined}
-                className={`flex-1 h-10 px-3 py-1.5 font-black text-xs uppercase tracking-wider rounded-xl transition shadow-sm disabled:opacity-70 flex items-center justify-center gap-2 text-white ${
+                className={`flex-1 h-10 px-3 py-1.5 font-semibold text-xs uppercase tracking-wider rounded-xl transition shadow-sm disabled:opacity-70 flex items-center justify-center gap-2 text-white ${
                   completionType === 'aborted'
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : completionType === 'retired'

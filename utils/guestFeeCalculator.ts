@@ -1,4 +1,4 @@
-import {
+import type {
   ClubFeeSettings,
   AdvancedRule,
   ConditionRow,
@@ -6,13 +6,14 @@ import {
   BookingFeeContext,
   BookingFeeCalculationResult,
   FeeCalculationMode
-} from '../types';
+} from '../types.ts';
 
 export const CONDITION_FIELDS: { id: ConditionRow['field']; label: string; sentenceLabel: string; unit: string }[] = [
-  { id: 'anzahl_gaeste', label: 'Anzahl Gäste', sentenceLabel: 'Anzahl der Gäste', unit: '' },
-  { id: 'anzahl_mitglieder', label: 'Anzahl Mitglieder', sentenceLabel: 'Anzahl der Mitglieder', unit: '' },
+  { id: 'anzahl_gaeste', label: 'Gesamtzahl Gäste', sentenceLabel: 'Gesamtzahl der Gäste', unit: '' },
   { id: 'anzahl_gesamt', label: 'Gesamtzahl Spieler', sentenceLabel: 'Gesamtzahl der Spieler', unit: '' },
-  { id: 'dauer_minuten', label: 'Spieldauer (Minuten)', sentenceLabel: 'Spieldauer', unit: ' Min.' },
+  { id: 'anzahl_erwachsene_gaeste', label: 'Anzahl erwachsene Gäste', sentenceLabel: 'Anzahl der erwachsenen Gäste', unit: '' },
+  { id: 'anzahl_jugendliche_gaeste', label: 'Anzahl jugendliche Gäste', sentenceLabel: 'Anzahl der jugendlichen Gäste', unit: '' },
+  { id: 'anzahl_slots', label: 'Spieldauer in Stunden', sentenceLabel: 'Spieldauer in Stunden', unit: ' Std.' },
 ];
 
 export const CONDITION_OPERATORS: { id: ConditionRow['operator']; symbol: string; label: string; sentenceLabel: string }[] = [
@@ -30,6 +31,94 @@ export const ACTION_TYPES: { id: RuleAction['type']; label: string; unitLabel: s
   { id: 'PER_GUEST_HOUR', label: 'Pro Gast und Stunde', unitLabel: 'pro Gast und Stunde' },
   { id: 'FREE', label: 'Kostenlos (0,00 €)', unitLabel: 'kostenlos' },
 ];
+
+export interface ActiveGuestCategory {
+  id: 'general' | 'adult' | 'youth';
+  key: 'guestCount' | 'adultGuestCount' | 'youthGuestCount';
+  label: string;
+  icon: string;
+}
+
+/**
+ * Returns the active guest categories to display in booking sliders based on club fee settings.
+ * If youth rules are active, returns separate categories for adults and youth/children (with dynamic age limit).
+ * Otherwise, returns a single generic "Gastspieler" category.
+ */
+export function getActiveGuestCategories(
+  settings?: ClubFeeSettings,
+  t?: (key: string, defaultText?: string) => string
+): ActiveGuestCategory[] {
+  const translate = (key: string, def: string) => (t ? t(key, def) : def);
+  const youthActive = hasYouthRules(settings);
+
+  if (!youthActive) {
+    return [
+      {
+        id: 'general',
+        key: 'guestCount',
+        label: translate('dashboard.guestPlayers', 'Gastspieler'),
+        icon: 'fa-solid fa-user-tag',
+      },
+    ];
+  }
+
+  const threshold = settings?.youth_age_threshold ?? 18;
+  const adultLabelTemplate = translate('dashboard.adultGuestsDynamic', 'Gäste (ab {age} J.)');
+  const adultLabel = adultLabelTemplate.replace('{age}', String(threshold));
+  const youthLabelTemplate = translate('dashboard.youthGuestsDynamic', 'Kinder / Jugendliche (U{age})');
+  const youthLabel = youthLabelTemplate.replace('{age}', String(threshold));
+
+  return [
+    {
+      id: 'adult',
+      key: 'adultGuestCount',
+      label: adultLabel,
+      icon: 'fa-solid fa-user',
+    },
+    {
+      id: 'youth',
+      key: 'youthGuestCount',
+      label: youthLabel,
+      icon: 'fa-solid fa-child',
+    },
+  ];
+}
+
+/**
+ * Checks if the given fee settings have active rules checking for youth / age or separate youth rates.
+ */
+export function hasYouthRules(settings?: ClubFeeSettings): boolean {
+  if (!settings) return false;
+  
+  if (settings.fee_calculation_mode === 'SIMPLE') {
+    return (
+      settings.simple_config?.youth_amount_cents !== undefined &&
+      settings.simple_config?.youth_amount_cents !== null &&
+      settings.simple_config.youth_amount_cents >= 0
+    );
+  }
+
+  const rules = settings.advanced_config?.rules || [];
+  const hasCondition = rules.some((rule) =>
+    (rule.conditions || []).some(
+      (c) =>
+        c.field === 'anzahl_jugendliche_gaeste' ||
+        c.field === 'anzahl_jugendliche_gesamt'
+    )
+  );
+  const hasYouthAction = rules.some(
+    (rule) =>
+      rule.action?.youth_amount_cents !== undefined &&
+      rule.action?.youth_amount_cents !== null &&
+      rule.action.youth_amount_cents >= 0
+  );
+  const hasDefaultYouthAction =
+    settings.advanced_config?.default_rule?.youth_amount_cents !== undefined &&
+    settings.advanced_config?.default_rule?.youth_amount_cents !== null &&
+    settings.advanced_config.default_rule.youth_amount_cents >= 0;
+
+  return hasCondition || hasYouthAction || hasDefaultYouthAction;
+}
 
 /**
  * Returns default ClubFeeSettings based on legacy reservation rules or defaults.
@@ -63,7 +152,13 @@ export function evaluateCondition(condition: ConditionRow, context: BookingFeeCo
   if (condition.value === null || condition.value === undefined || isNaN(condition.value)) {
     return false;
   }
-  const contextVal = context[condition.field];
+  let contextVal = context[condition.field];
+  if (condition.field === 'anzahl_slots') {
+    contextVal = context.anzahl_slots !== undefined ? context.anzahl_slots : Math.max(1, Math.round(context.dauer_minuten / 60));
+  } else if (condition.field === 'dauer_minuten' && contextVal === undefined) {
+    contextVal = context.dauer_minuten;
+  }
+
   if (contextVal === undefined || contextVal === null) {
     return false;
   }
@@ -126,12 +221,32 @@ export function computeActionFee(action: RuleAction, context: BookingFeeContext)
 
   const hours = Math.max(0, context.dauer_minuten / 60);
 
+  const adultGuests = context.anzahl_erwachsene_gaeste !== undefined
+    ? context.anzahl_erwachsene_gaeste
+    : Math.max(0, context.anzahl_gaeste - (context.anzahl_jugendliche_gaeste || 0));
+  const youthGuests = context.anzahl_jugendliche_gaeste !== undefined
+    ? context.anzahl_jugendliche_gaeste
+    : 0;
+
+  const hasSplitRate =
+    action.youth_amount_cents !== undefined &&
+    action.youth_amount_cents !== null &&
+    action.youth_amount_cents >= 0;
+
   switch (action.type) {
     case 'PER_COURT_HOUR':
       return Math.round(action.amount_cents * hours);
+    case 'PER_COURT':
+      return Math.round(action.amount_cents);
     case 'PER_GUEST':
+      if (hasSplitRate) {
+        return Math.round(adultGuests * action.amount_cents + youthGuests * (action.youth_amount_cents as number));
+      }
       return Math.round(action.amount_cents * Math.max(0, context.anzahl_gaeste));
     case 'PER_GUEST_HOUR':
+      if (hasSplitRate) {
+        return Math.round((adultGuests * action.amount_cents + youthGuests * (action.youth_amount_cents as number)) * hours);
+      }
       return Math.round(action.amount_cents * Math.max(0, context.anzahl_gaeste) * hours);
     default:
       return 0;
@@ -168,6 +283,7 @@ export function calculateBookingFee(
         ratePerUnitEuro: 0,
         unitLabel: 'kostenlos',
         description: 'Keine Gäste eingetragen (kostenfrei)',
+        ruleSentence: 'Keine Gäste eingetragen — die Platzbuchung ist kostenlos.',
       };
     }
 
@@ -176,6 +292,7 @@ export function calculateBookingFee(
       action = {
         type: effectiveSettings.simple_config.rate_type,
         amount_cents: effectiveSettings.simple_config.amount_cents,
+        youth_amount_cents: effectiveSettings.simple_config.youth_amount_cents,
       };
     } else {
       const legacyAmount = legacyReservationRules?.guestFeePerHour ?? 2.5;
@@ -191,6 +308,7 @@ export function calculateBookingFee(
     const totalCents = computeActionFee(action, context);
     const unitLabel = getActionUnitLabel(action.type);
     const rateEuro = action.amount_cents / 100;
+    const appliedRateText = formatAppliedRate(action);
 
     return {
       action,
@@ -199,7 +317,9 @@ export function calculateBookingFee(
       mode: 'SIMPLE',
       ratePerUnitEuro: rateEuro,
       unitLabel,
-      description: `${rateEuro.toFixed(2).replace('.', ',')} € ${unitLabel}`,
+      description: appliedRateText,
+      appliedRateText,
+      ruleSentence: `${appliedRateText}.`,
     };
   }
 
@@ -218,6 +338,7 @@ export function calculateBookingFee(
       const totalCents = computeActionFee(rule.action, context);
       const unitLabel = getActionUnitLabel(rule.action.type);
       const rateEuro = rule.action.amount_cents / 100;
+      const appliedRateText = formatAppliedRate(rule.action);
 
       return {
         action: rule.action,
@@ -228,27 +349,32 @@ export function calculateBookingFee(
         mode: 'ADVANCED',
         ratePerUnitEuro: rateEuro,
         unitLabel,
-        description: `Regel "${rule.name}": ${rateEuro.toFixed(2).replace('.', ',')} € ${unitLabel}`,
+        description: `${rule.name}: ${appliedRateText}`,
+        appliedRateText,
+        ruleSentence: generateRuleSentence(rule),
       };
     }
   }
 
-  // Standard-Regel (Greift, wenn keine obige Regel zutrifft)
+  // Standardregel (Greift, wenn keine obige Regel zutrifft)
   const fallbackAction = advancedConfig.default_rule || { type: 'PER_GUEST_HOUR', amount_cents: 250 };
   const fallbackTotalCents = computeActionFee(fallbackAction, context);
   const fallbackUnitLabel = getActionUnitLabel(fallbackAction.type);
   const fallbackRateEuro = fallbackAction.amount_cents / 100;
+  const appliedRateText = formatAppliedRate(fallbackAction);
 
   return {
     action: fallbackAction,
     matchedRuleId: 'DEFAULT_RULE',
-    matchedRuleName: 'Standard-Regel',
+    matchedRuleName: 'Standardregel',
     totalCents: fallbackTotalCents,
     totalEuro: fallbackTotalCents / 100,
     mode: 'ADVANCED',
     ratePerUnitEuro: fallbackRateEuro,
     unitLabel: fallbackUnitLabel,
-    description: `Standard-Regel: ${fallbackRateEuro.toFixed(2).replace('.', ',')} € ${fallbackUnitLabel}`,
+    description: appliedRateText,
+    appliedRateText,
+    ruleSentence: `${appliedRateText}.`,
   };
 }
 
@@ -261,11 +387,26 @@ export function buildBookingFeeContext(params: {
   time?: string;
   endTime?: string;
   guestCount?: number;
+  adultGuestCount?: number;
+  youthGuestCount?: number;
+  membersList?: { id?: string; name?: string; birthDate?: string | null }[];
+  youthAgeThreshold?: number;
 }): BookingFeeContext {
-  const { players = [], durationMinutes, time, endTime, guestCount } = params;
+  const {
+    players = [],
+    durationMinutes,
+    time,
+    endTime,
+    guestCount,
+    adultGuestCount,
+    youthGuestCount,
+    membersList = [],
+    youthAgeThreshold = 18,
+  } = params;
 
   let calculatedGuests = 0;
   let calculatedMembers = 0;
+  let calculatedYouthMembers = 0;
 
   players.forEach((p) => {
     const trimmed = (p || '').trim().toLowerCase();
@@ -274,12 +415,47 @@ export function buildBookingFeeContext(params: {
       calculatedGuests++;
     } else {
       calculatedMembers++;
+      // Check if member is youth (< youthAgeThreshold years old, default 18)
+      if (membersList && membersList.length > 0) {
+        const found = membersList.find(
+          (m) =>
+            (m.name && m.name.trim().toLowerCase() === trimmed) ||
+            (m.id && m.id.toLowerCase() === trimmed)
+        );
+        if (found?.birthDate) {
+          try {
+            const birthYear = new Date(found.birthDate).getFullYear();
+            const currentYear = new Date().getFullYear();
+            const age = currentYear - birthYear;
+            if (age < youthAgeThreshold) {
+              calculatedYouthMembers++;
+            }
+          } catch {
+            // Ignore invalid date
+          }
+        }
+      }
     }
   });
 
-  // If explicit guestCount was supplied and is higher, respect it
-  const finalGuests = Math.max(calculatedGuests, guestCount || 0);
+  // Calculate guests breakdown
+  let finalAdultGuests = 0;
+  let finalYouthGuests = 0;
+
+  if (typeof adultGuestCount === 'number' || typeof youthGuestCount === 'number') {
+    finalAdultGuests = Math.max(0, adultGuestCount || 0);
+    finalYouthGuests = Math.max(0, youthGuestCount || 0);
+  } else {
+    // If not differentiated, treat all guests as adult guests
+    const totalExplicit = Math.max(calculatedGuests, guestCount || 0);
+    finalAdultGuests = totalExplicit;
+    finalYouthGuests = 0;
+  }
+
+  const finalGuests = Math.max(calculatedGuests, finalAdultGuests + finalYouthGuests, guestCount || 0);
   const totalPlayers = Math.max(players.length, finalGuests + calculatedMembers);
+  const finalMembers = Math.max(0, totalPlayers - finalGuests);
+  const totalYouth = finalYouthGuests + calculatedYouthMembers;
 
   let finalDurationMinutes = 60; // default 60 min
   if (typeof durationMinutes === 'number' && durationMinutes > 0) {
@@ -295,10 +471,58 @@ export function buildBookingFeeContext(params: {
 
   return {
     anzahl_gaeste: finalGuests,
-    anzahl_mitglieder: Math.max(0, totalPlayers - finalGuests),
+    anzahl_erwachsene_gaeste: finalAdultGuests,
+    anzahl_jugendliche_gaeste: finalYouthGuests,
+    anzahl_jugendliche_mitglieder: calculatedYouthMembers,
+    anzahl_jugendliche_gesamt: totalYouth,
+    anzahl_mitglieder: finalMembers,
     anzahl_gesamt: totalPlayers,
     dauer_minuten: finalDurationMinutes,
+    anzahl_slots: Math.max(1, Math.round(finalDurationMinutes / 60)),
   };
+}
+
+/**
+ * Formats a clean rate description without "berechne" or "Regel:" prefixes.
+ * Examples:
+ * - "2,50 € pro Gast und Stunde"
+ * - "5,00 € pro Erw. / 2,50 € pro Jugendl. pro Stunde"
+ * - "10,00 € pauschal pro Platzstunde"
+ * - "5,00 € pro Gast"
+ * - "Kostenlos"
+ */
+export function formatAppliedRate(action: RuleAction): string {
+  if (action.type === 'FREE') {
+    return 'Kostenlos';
+  }
+  const euro = (action.amount_cents / 100).toFixed(2).replace('.', ',');
+  const hasSplitRate =
+    action.youth_amount_cents !== undefined &&
+    action.youth_amount_cents !== null &&
+    action.youth_amount_cents >= 0;
+
+  if (hasSplitRate) {
+    const youthEuro = ((action.youth_amount_cents as number) / 100).toFixed(2).replace('.', ',');
+    if (action.type === 'PER_GUEST_HOUR') {
+      return `${euro} € pro Erw. / ${youthEuro} € pro Jugendl. pro Stunde`;
+    }
+    if (action.type === 'PER_GUEST') {
+      return `${euro} € pro Erw. / ${youthEuro} € pro Jugendl. (einmalig)`;
+    }
+  }
+
+  switch (action.type) {
+    case 'PER_COURT_HOUR':
+      return `${euro} € pauschal pro Platzstunde`;
+    case 'PER_COURT':
+      return `${euro} € pauschal pro Platz`;
+    case 'PER_GUEST':
+      return `${euro} € pro Gast`;
+    case 'PER_GUEST_HOUR':
+      return `${euro} € pro Gast und Stunde`;
+    default:
+      return `${euro} €`;
+  }
 }
 
 /**
@@ -309,9 +533,26 @@ export function describeAction(action: RuleAction): string {
     return 'ist die Buchung kostenlos';
   }
   const euro = (action.amount_cents / 100).toFixed(2).replace('.', ',');
+  const hasSplitRate =
+    action.youth_amount_cents !== undefined &&
+    action.youth_amount_cents !== null &&
+    action.youth_amount_cents >= 0;
+
+  if (hasSplitRate) {
+    const youthEuro = ((action.youth_amount_cents as number) / 100).toFixed(2).replace('.', ',');
+    if (action.type === 'PER_GUEST_HOUR') {
+      return `berechne ${euro} € pro erwachsenem Gast und ${youthEuro} € pro jugendlichem Gast pro Stunde`;
+    }
+    if (action.type === 'PER_GUEST') {
+      return `berechne ${euro} € pro erwachsenem Gast und ${youthEuro} € pro jugendlichem Gast (einmalig)`;
+    }
+  }
+
   switch (action.type) {
     case 'PER_COURT_HOUR':
       return `berechne ${euro} € pauschal pro Platzstunde`;
+    case 'PER_COURT':
+      return `berechne ${euro} € pauschal pro Platz`;
     case 'PER_GUEST':
       return `berechne ${euro} € pro Gast`;
     case 'PER_GUEST_HOUR':
@@ -323,7 +564,7 @@ export function describeAction(action: RuleAction): string {
 
 /**
  * Generates the Workday-style live business sentence preview in natural German.
- * Example: "WENN Anzahl der Gäste mindestens 1 UND Spieldauer höchstens 60 Min., DANN berechne 12,00 € pauschal pro Platzstunde."
+ * Example: "WENN Anzahl der Gäste mindestens 1 UND Spieldauer höchstens 1 Slot(s), DANN berechne 12,00 € pauschal pro Platzstunde."
  */
 export function generateRuleSentence(rule: AdvancedRule): string {
   if (!rule.conditions || rule.conditions.length === 0) {
@@ -338,7 +579,12 @@ export function generateRuleSentence(rule: AdvancedRule): string {
     const fieldLabel = fieldItem ? fieldItem.sentenceLabel : c.field;
     const opLabel = opItem ? opItem.sentenceLabel : c.operator;
     const valStr = c.value !== null && c.value !== undefined && !isNaN(c.value) ? c.value : '___';
-    const unit = c.field === 'dauer_minuten' ? ' Min.' : '';
+    let unit = '';
+    if (c.field === 'anzahl_slots') {
+      unit = ' Std.';
+    } else if (c.field === 'dauer_minuten') {
+      unit = ' Min.';
+    }
 
     const condPhrase = `${fieldLabel} ${opLabel} ${valStr}${unit}`;
 
@@ -373,6 +619,9 @@ export function validateFeeSettings(settings: ClubFeeSettings): {
       if (settings.simple_config.amount_cents === null || isNaN(settings.simple_config.amount_cents) || settings.simple_config.amount_cents < 0) {
         errors['simple_amount'] = 'Bitte einen gültigen Betrag ab 0,00 € angeben.';
       }
+      if (settings.simple_config.youth_amount_cents !== undefined && settings.simple_config.youth_amount_cents !== null && settings.simple_config.youth_amount_cents < 0) {
+        errors['simple_youth_amount'] = 'Jugendtarif darf nicht negativ sein.';
+      }
       if (!settings.simple_config.rate_type) {
         errors['simple_rate_type'] = 'Bitte ein Abrechnungsmodell auswählen.';
       }
@@ -384,9 +633,9 @@ export function validateFeeSettings(settings: ClubFeeSettings): {
       return { isValid: false, errors };
     }
 
-    // Validate default rule (Standard-Regel)
+    // Validate default rule (Standardregel)
     if (!advanced.default_rule) {
-      errors['default_rule'] = 'Die Standard-Regel ist erforderlich.';
+      errors['default_rule'] = 'Die Standardregel ist erforderlich.';
     } else {
       if (advanced.default_rule.type !== 'FREE') {
         if (
@@ -394,7 +643,14 @@ export function validateFeeSettings(settings: ClubFeeSettings): {
           isNaN(advanced.default_rule.amount_cents) ||
           advanced.default_rule.amount_cents < 0
         ) {
-          errors['default_rule_amount'] = 'Bitte einen gültigen Betrag ab 0,00 € für die Standard-Regel angeben.';
+          errors['default_rule_amount'] = 'Bitte einen gültigen Betrag ab 0,00 € für die Standardregel angeben.';
+        }
+        if (
+          advanced.default_rule.youth_amount_cents !== undefined &&
+          advanced.default_rule.youth_amount_cents !== null &&
+          advanced.default_rule.youth_amount_cents < 0
+        ) {
+          errors['default_rule_youth_amount'] = 'Jugendtarif darf nicht negativ sein.';
         }
       }
     }
@@ -430,6 +686,13 @@ export function validateFeeSettings(settings: ClubFeeSettings): {
       } else if (rule.action.type !== 'FREE') {
         if (rule.action.amount_cents === null || isNaN(rule.action.amount_cents) || rule.action.amount_cents < 0) {
           errors[`${rulePrefix}_amount`] = 'Bitte einen gültigen Betrag ab 0,00 € angeben.';
+        }
+        if (
+          rule.action.youth_amount_cents !== undefined &&
+          rule.action.youth_amount_cents !== null &&
+          rule.action.youth_amount_cents < 0
+        ) {
+          errors[`${rulePrefix}_youth_amount`] = 'Jugendtarif darf nicht negativ sein.';
         }
       }
     });

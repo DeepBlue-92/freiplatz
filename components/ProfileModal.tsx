@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { updateEmail, updatePassword } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { saveUser, isUsernameTakenGlobally, updateUserAiAssistant, ClubSettings, DEFAULT_ONBOARDING_SETTINGS } from "../services/db";
@@ -33,7 +34,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   settings,
   isGlobalChatbotEnabled = true,
 }) => {
+  const { t, i18n } = useTranslation();
   const [username, setUsername] = useState(currentUser.name);
+  const [language, setLanguage] = useState<"de" | "en">(
+    currentUser.language || settings?.i18n?.defaultLanguage || "de"
+  );
   const [firstName, setFirstName] = useState(() => {
     if (currentUser.firstName) return currentUser.firstName;
     const parts = (currentUser.name || "").trim().split(/\s+/);
@@ -148,7 +153,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
     const normalizedNewUsername = username.trim();
     if (!normalizedNewUsername) {
-      setError("Der Benutzername darf nicht leer sein.");
+      setError(t("profile.usernameEmpty", "Der Benutzername darf nicht leer sein."));
       return;
     }
 
@@ -166,11 +171,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
     if (newPassword) {
       if (newPassword.length < 4) {
-        setError("Das neue Passwort muss mindestens 4 Zeichen lang sein.");
+        setError(t("profile.passwordTooShort", "Das neue Passwort muss mindestens 4 Zeichen lang sein."));
         return;
       }
       if (newPassword !== confirmPassword) {
-        setError("Die Passwörter stimmen nicht überein.");
+        setError(t("profile.passwordsDoNotMatch", "Die Passwörter stimmen nicht überein."));
         return;
       }
     }
@@ -185,14 +190,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
           u.name.toLowerCase() === normalizedNewUsername.toLowerCase()
       );
       if (isTakenLocally) {
-        setError("Dieser Benutzername ist in diesem Verein bereits vergeben.");
+        setError(t("profile.usernameTakenClub", "Dieser Benutzername ist in diesem Verein bereits vergeben."));
         return;
       }
 
       try {
         const isTakenGlobally = await isUsernameTakenGlobally(normalizedNewUsername, currentUser.id);
         if (isTakenGlobally) {
-          setError("Dieser Benutzername ist systemweit bereits vergeben.");
+          setError(t("profile.usernameTakenGlobal", "Dieser Benutzername ist systemweit bereits vergeben."));
           return;
         }
       } catch (checkErr) {
@@ -248,6 +253,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         phone: phone.trim(),
         gender,
         birthDate: birthDate ? birthDate.trim() : null,
+        language,
         showContactInfo,
         showAiAssistant,
         avatarUrl: avatarUrl || null,
@@ -260,18 +266,20 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
       };
 
       await saveUser(effectiveVereinsId, updatedUser);
+      i18n.changeLanguage(language);
+      localStorage.setItem("app_language", language);
       onSuccess(updatedUser);
-      setSuccessMessage("Erfolgreich gespeichert!");
+      setSuccessMessage(t("profile.saveSuccess", "Profil erfolgreich gespeichert!"));
       setTimeout(() => {
         handleClose();
       }, 500);
     } catch (err: any) {
       console.error("Profile update error:", err);
       setSuccessMessage("");
-      let errMsg = "Fehler beim Speichern des Profils.";
+      let errMsg = t("profile.saveError", "Fehler beim Speichern des Profils.");
       if (err.code === "auth/requires-recent-login") {
         errMsg =
-          "Aus Sicherheitsgründen musst du dein Passwort oder deine Logindaten ändern, indem du dich kurz aus- und wieder einloggst.";
+          t("profile.reauthRequired", "Aus Sicherheitsgründen musst du dein Passwort oder deine Logindaten ändern, indem du dich kurz aus- und wieder einloggst.");
       } else if (err.message) {
         errMsg = err.message;
       }
@@ -308,16 +316,16 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         >
           <h3 className="text-white font-black tracking-widest uppercase text-xs flex items-center gap-2">
             <i className="fa-solid fa-user-pen text-sm"></i>
-            Profil bearbeiten
+            {t("profile.editProfile", "Profil bearbeiten")}
           </h3>
 
           <button
             type="button"
             onClick={handleClose}
-            className="h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 active:scale-90 transition-all flex items-center gap-1.5 font-black uppercase text-[9px] tracking-wider cursor-pointer outline-none border border-white/15 text-white"
-            title="Schließen"
+            className="text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm shrink-0 relative z-10 text-sm font-medium cursor-pointer"
+            title={t("common.close", "Schließen")}
           >
-            <i className="fa-solid fa-xmark text-[9px]"></i> Schließen
+            <i className="fa-solid fa-xmark text-base"></i>
           </button>
         </div>
 
@@ -369,14 +377,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div className="space-y-4">
                   <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-100 pb-1.5 flex items-center gap-1.5">
                     <i className="fa-solid fa-address-card text-[11px]"></i>
-                    Persönliche Daten {fieldNamePermission !== "HIDDEN" ? "(Pflichtfelder)" : ""}
+                    {t("profile.personalData", "Persönliche Daten")} {fieldNamePermission !== "HIDDEN" ? `(${t("common.required", "Pflichtfelder")})` : ""}
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
                     {fieldNamePermission !== "HIDDEN" && (
                       <>
                         <div>
                           <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                            Vorname <span className="text-red-500">*</span>
+                            {t("common.firstName", "Vorname")} <span className="text-red-500">*</span>
                           </label>
                           <input 
                             type="text"
@@ -393,7 +401,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                         </div>
                         <div>
                           <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                            Nachname <span className="text-red-500">*</span>
+                            {t("common.lastName", "Nachname")} <span className="text-red-500">*</span>
                           </label>
                           <input 
                             type="text"
@@ -413,7 +421,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                     {fieldGenderPermission !== "HIDDEN" && (
                       <div>
                         <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                          Geschlecht
+                          {t("profile.gender", "Geschlecht")}
                         </label>
                         <select
                           value={gender}
@@ -421,15 +429,15 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                           disabled={isGenderDisabled}
                           className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] outline-none transition-all text-sm disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer font-sans font-medium"
                         >
-                          <option value="m">männlich</option>
-                          <option value="w">weiblich</option>
+                          <option value="m">{t("profile.male", "männlich")}</option>
+                          <option value="w">{t("profile.female", "weiblich")}</option>
                         </select>
                       </div>
                     )}
                     {fieldBirthdatePermission !== "HIDDEN" && (
                       <div>
                         <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                          Geburtsdatum
+                          {t("profile.birthdate", "Geburtsdatum")}
                         </label>
                         <input 
                           type="date"
@@ -447,11 +455,42 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                         />
                       </div>
                     )}
+                    <div className="col-span-2">
+                      <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                        {t("profile.language", "Sprache")}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setLanguage("de")}
+                          className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 transition-all cursor-pointer font-sans text-xs font-semibold ${
+                            language === "de"
+                              ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-slate-900 shadow-xs"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                          }`}
+                        >
+                          <span className="text-base leading-none">🇩🇪</span>
+                          <span>Deutsch (DE)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLanguage("en")}
+                          className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 transition-all cursor-pointer font-sans text-xs font-semibold ${
+                            language === "en"
+                              ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-slate-900 shadow-xs"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                          }`}
+                        >
+                          <span className="text-base leading-none">🇬🇧</span>
+                          <span>English (EN)</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   {showAdminNotice && (
                     <div className="mt-2 text-[10px] text-slate-400 font-medium px-1 flex items-start gap-1.5">
                       <i className="fa-solid fa-circle-info mt-0.5 text-blue-400"></i>
-                      Stammdaten zur Ligazuordnung. Änderungen bitte über den Administrator anfragen.
+                      {t("profile.adminNotice", "Stammdaten zur Ligazuordnung. Änderungen bitte über den Administrator anfragen.")}
                     </div>
                   )}
                 </div>
@@ -461,12 +500,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               <div className="space-y-4 pt-1">
                 <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-100 pb-1.5 flex items-center gap-1.5">
                   <i className="fa-solid fa-address-book text-[11px]"></i>
-                  Kontaktinformationen (Optional)
+                  {t("profile.contactInfoOptional", "Kontaktinformationen (Optional)")}
                 </h4>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                      E-Mail Adresse
+                      {t("profile.email", "E-Mail-Adresse")}
                     </label>
                     <input 
                       type="email"
@@ -478,7 +517,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
                   <div>
                     <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                      TELEFONNUMMER
+                      {t("profile.phone", "Telefonnummer")}
                     </label>
                     <input 
                       type="tel"
@@ -495,18 +534,18 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               <div className="space-y-4 pt-1">
                 <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-100 pb-1.5 flex items-center gap-1.5">
                   <i className="fa-solid fa-key text-[11px]"></i>
-                  Zugangsdaten & Passwort
+                  {t("profile.credentialsSection", "Zugangsdaten & Passwort")}
                 </h4>
 
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    Benutzername (Login)
+                    {t("profile.usernameLogin", "Benutzername (Login)")}
                   </label>
                   <input 
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Benutzername"
+                    placeholder={t("common.username", "Benutzername")}
                     className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] outline-none transition-all text-sm placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
                   />
                 </div>
@@ -514,7 +553,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="relative">
                     <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                      Neues Passwort
+                      {t("profile.newPassword", "Neues Passwort")}
                     </label>
                     <div className="relative">
                       <input 
@@ -535,7 +574,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
                   <div>
                     <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                      Bestätigen
+                      {t("profile.confirmPassword", "Bestätigen")}
                     </label>
                     <input 
                       type={showPassword ? "text" : "password"}
@@ -552,7 +591,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               <div className="space-y-3 pt-2">
                 <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-100 pb-1.5 flex items-center gap-1.5">
                   <i className="fa-solid fa-sliders text-[11px]"></i>
-                  Privatsphäre & App-Anzeige
+                  {t("profile.privacySection", "Privatsphäre & App-Anzeige")}
                 </h4>
                 {isGlobalChatbotEnabled !== false && (
                   <label className="flex items-center gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
@@ -563,7 +602,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                       className="w-4 h-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
                     />
                     <div>
-                      <span className="text-xs font-bold text-slate-800 block">Assistent "Ace" aktivieren</span>
+                      <span className="text-xs font-bold text-slate-800 block">{t("profile.enableAceAssistant", 'Assistent "Ace" aktivieren')}</span>
                     </div>
                   </label>
                 )}
@@ -575,7 +614,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                     className="w-4 h-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                   />
                   <div>
-                    <span className="text-xs font-bold text-slate-800 block">E-Mail und Telefonnummer für andere Spieler anzeigen</span>
+                    <span className="text-xs font-bold text-slate-800 block">{t("profile.showContactInfo", "E-Mail und Telefonnummer für andere Spieler anzeigen")}</span>
                   </div>
                 </label>
               </div>
@@ -614,17 +653,17 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               {isSaving ? (
                 <>
                   <i className="fa-solid fa-circle-notch animate-spin text-sm"></i>
-                  <span>Wird gespeichert...</span>
+                  <span>{t("profile.saving", "Wird gespeichert...")}</span>
                 </>
               ) : successMessage ? (
                 <>
                   <i className="fa-solid fa-check text-sm"></i>
-                  <span>Erfolgreich gespeichert</span>
+                  <span>{t("profile.saveSuccess", "Erfolgreich gespeichert")}</span>
                 </>
               ) : (
                 <>
                   <i className="fa-solid fa-floppy-disk text-sm"></i>
-                  <span>Profil speichern</span>
+                  <span>{t("profile.saveProfile", "Profil speichern")}</span>
                 </>
               )}
             </button>

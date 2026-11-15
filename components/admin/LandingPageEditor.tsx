@@ -29,6 +29,7 @@ import {
   Link as LinkIcon,
   Image as ImageIcon,
   Palette,
+  ArrowRight,
 } from "lucide-react";
 import { RichTextRenderer } from "../RichText";
 import { WorkletCourts } from "../bento/WorkletCourts";
@@ -36,6 +37,7 @@ import { WorkletEvents } from "../bento/WorkletEvents";
 import { WorkletChampionship } from "../bento/WorkletChampionship";
 import { WorkletWeather } from "../bento/WorkletWeather";
 import { WorkletHeroBanner } from "../bento/WorkletHeroBanner";
+import { ImageFocalPointAdjuster } from "./ImageFocalPointAdjuster";
 
 interface LandingPageEditorProps {
   vereinsId: string;
@@ -381,11 +383,6 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                     <span className="text-sm font-semibold text-slate-900 truncate min-w-0">
                       {item.title || "Unbenannte Kachel"}
                     </span>
-
-                    {/* Width Badge */}
-                    <span className="text-[11px] font-medium text-slate-500 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-md shrink-0 hidden sm:inline">
-                      {item.col_span === 4 ? "1/3 Schmal" : item.col_span === 8 ? "2/3 Breit" : "Vollbild (3/3)"}
-                    </span>
                   </div>
 
                   {/* Right Action Controls */}
@@ -497,11 +494,32 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                               clubCity={item.city || clubName}
                             />
                           ) : (
-                            <div className="space-y-2">
+                            <div className="space-y-3">
+                              {item.image_url && (
+                                <div className="relative w-full h-40 sm:h-48 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-2xs">
+                                  <img
+                                    src={item.image_url}
+                                    alt={item.title || "Vorschau"}
+                                    style={{
+                                      objectPosition: `${item.image_position_x ?? 50}% ${item.image_position_y ?? 50}%`,
+                                      transform: `scale(${(item.image_scale ?? 100) / 100})`,
+                                    }}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              )}
                               {item.title && <h3 className="text-lg font-bold text-slate-900">{item.title}</h3>}
                               <div className="text-sm text-slate-700 leading-relaxed">
                                 <RichTextRenderer text={item.content || ""} />
                               </div>
+                              {item.cta_text && item.cta_link && item.cta_link !== "none" && (
+                                <div className="pt-2 flex justify-end">
+                                  <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-xs">
+                                    <span>{item.cta_text}</span>
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -629,6 +647,20 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                             </div>
                           </div>
 
+                          {/* Interactive Image Focal Point & Zoom/Scale Adjuster for Hero Banner */}
+                          {item.image_url && (
+                            <div className="pt-2">
+                              <ImageFocalPointAdjuster
+                                imageUrl={item.image_url}
+                                positionX={item.image_position_x}
+                                positionY={item.image_position_y}
+                                scale={item.image_scale}
+                                aspectRatio="banner"
+                                onChange={(updates) => handleUpdateItem(item.id, updates)}
+                              />
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                             <div className="space-y-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
@@ -645,19 +677,50 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
 
                             <div className="space-y-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Button-Ziel
+                                Verlinkungs-Ziel
                               </label>
                               <select
-                                value={item.cta_link || "reservation"}
-                                onChange={(e) => handleUpdateItem(item.id, { cta_link: e.target.value })}
+                                value={
+                                  !item.cta_link || item.cta_link === "none"
+                                    ? "none"
+                                    : item.cta_link === "reservation" || item.cta_link === "tournaments" || item.cta_link === "championship"
+                                    ? item.cta_link
+                                    : "custom"
+                                }
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === "custom") {
+                                    handleUpdateItem(item.id, { cta_link: "https://" });
+                                  } else {
+                                    handleUpdateItem(item.id, { cta_link: val });
+                                  }
+                                }}
                                 className="w-full h-8 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none cursor-pointer"
                               >
                                 <option value="reservation">Platzbuchung (Intern)</option>
                                 <option value="tournaments">Veranstaltungen & Turniere</option>
                                 <option value="championship">Vereinsmeisterschaft</option>
+                                <option value="custom">Eigener Web-Link / URL</option>
+                                <option value="none">Kein Link (Kachel nicht klickbar)</option>
                               </select>
                             </div>
                           </div>
+
+                          {/* Custom URL input if custom link selected */}
+                          {item.cta_link && item.cta_link !== "reservation" && item.cta_link !== "tournaments" && item.cta_link !== "championship" && item.cta_link !== "none" && (
+                            <div className="space-y-1 pt-1">
+                              <label className="block text-[10.5px] font-semibold text-slate-600">
+                                Eigene Web-Adresse (URL)
+                              </label>
+                              <input
+                                type="url"
+                                value={item.cta_link}
+                                onChange={(e) => handleUpdateItem(item.id, { cta_link: e.target.value })}
+                                placeholder="https://..."
+                                className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -729,6 +792,131 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                               className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none font-mono"
                             />
                           </div>
+                        </div>
+                      )}
+
+                      {/* Graphic / Image Settings for rich_text */}
+                      {item.type === "rich_text" && (
+                        <div className="p-4 bg-white rounded-xl border border-slate-200/80 space-y-3">
+                          <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Grafik / Beitragsbild (optional)</span>
+                            </div>
+                            {item.image_url && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateItem(item.id, {
+                                    image_url: undefined,
+                                    image_position_x: undefined,
+                                    image_position_y: undefined,
+                                    image_scale: undefined,
+                                  })
+                                }
+                                className="text-[10.5px] font-bold text-rose-600 hover:underline cursor-pointer"
+                              >
+                                Grafik entfernen
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[10.5px] font-semibold text-slate-600">
+                              Bild-URL (Web-Adresse)
+                            </label>
+                            <input
+                              type="text"
+                              value={item.image_url || ""}
+                              onChange={(e) => handleUpdateItem(item.id, { image_url: e.target.value })}
+                              placeholder="https://images.unsplash.com/... oder eigene Bild-URL"
+                              className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                            />
+                          </div>
+
+                          {item.image_url && (
+                            <div className="pt-1">
+                              <ImageFocalPointAdjuster
+                                imageUrl={item.image_url}
+                                positionX={item.image_position_x}
+                                positionY={item.image_position_y}
+                                scale={item.image_scale}
+                                aspectRatio="card"
+                                onChange={(updates) => handleUpdateItem(item.id, updates)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Button & Link Settings for rich_text */}
+                      {item.type === "rich_text" && (
+                        <div className="p-4 bg-white rounded-xl border border-slate-200/80 space-y-3">
+                          <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <LinkIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Aktions-Button & Verlinkung (optional)</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="block text-[10.5px] font-semibold text-slate-600">
+                                Button-Beschriftung
+                              </label>
+                              <input
+                                type="text"
+                                value={item.cta_text || ""}
+                                onChange={(e) => handleUpdateItem(item.id, { cta_text: e.target.value })}
+                                placeholder="z. B. Mehr erfahren / Jetzt anmelden"
+                                className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-[10.5px] font-semibold text-slate-600">
+                                Verlinkungs-Ziel
+                              </label>
+                              <select
+                                value={
+                                  !item.cta_link || item.cta_link === "none"
+                                    ? "none"
+                                    : item.cta_link === "reservation" || item.cta_link === "tournaments" || item.cta_link === "championship"
+                                    ? item.cta_link
+                                    : "custom"
+                                }
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === "custom") {
+                                    handleUpdateItem(item.id, { cta_link: "https://" });
+                                  } else {
+                                    handleUpdateItem(item.id, { cta_link: val });
+                                  }
+                                }}
+                                className="w-full h-8 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none cursor-pointer"
+                              >
+                                <option value="none">Kein Button / Keine Verlinkung</option>
+                                <option value="reservation">Platzbuchung (Intern)</option>
+                                <option value="tournaments">Veranstaltungen & Turniere</option>
+                                <option value="championship">Vereinsmeisterschaft</option>
+                                <option value="custom">Eigener Web-Link / URL</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Custom URL input if custom link selected */}
+                          {item.cta_link && item.cta_link !== "reservation" && item.cta_link !== "tournaments" && item.cta_link !== "championship" && item.cta_link !== "none" && (
+                            <div className="space-y-1 pt-1">
+                              <label className="block text-[10.5px] font-semibold text-slate-600">
+                                Eigene Web-Adresse (URL)
+                              </label>
+                              <input
+                                type="url"
+                                value={item.cta_link}
+                                onChange={(e) => handleUpdateItem(item.id, { cta_link: e.target.value })}
+                                placeholder="https://..."
+                                className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
 

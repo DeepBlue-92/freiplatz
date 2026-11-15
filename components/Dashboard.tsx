@@ -19,6 +19,14 @@ import { createLeagueMatch, listenToDynamicLeagues, isLeagueActiveDoc } from "..
 import { checkPlayerCollisionAsync } from "../services/collisionService";
 import { getWaterfallAssignedLeague, isPlayerEligibleForLeague } from "../utils/playerHelper";
 import { DEFAULT_DYNAMIC_LEAGUES } from "../services/db";
+import { hasYouthRules, getActiveGuestCategories, buildBookingFeeContext, calculateBookingFee, formatAppliedRate } from "../utils/guestFeeCalculator";
+import { getRecommendedPartners } from "../utils/partnerRecommender";
+import { isClubAdmin, isSuperAdmin } from "../lib/userUtils";
+import { useTranslation } from "react-i18next";
+import { getTenantTranslation } from "../services/tenantTranslations";
+import { EquipmentSelector } from "./booking/EquipmentSelector";
+import { GuestCountStepper } from "./booking/GuestCountStepper";
+import { EquipmentResource } from "../types";
 
 const FIRST_NAMES_DB = [
   "marcandreterstegen",
@@ -283,17 +291,20 @@ interface DashboardProps {
     deleteId?: string,
     comment?: string,
     sendEditNotification?: boolean,
+    adultGuestCount?: number,
+    youthGuestCount?: number,
+    selectedResourceIds?: string[],
   ) => Promise<string | null> | string | null;
-  onCancel: (id: string) => Promise<string | null> | string | null;
+  onCancel: (idOrIds: string | string[]) => Promise<string | null> | string | null;
   onLockRange: (
     date: string,
     startTime: string,
     endTime: string,
-    court: string,
+    court: string | string[],
     reason: string,
     recurring: boolean,
     recurringUntil?: string,
-  ) => void;
+  ) => Promise<void> | void;
   settings?: ClubSettings;
   mobileViewType?: "day" | "week";
   onMobileViewTypeChange?: (v: "day" | "week") => void;
@@ -329,12 +340,23 @@ const Dashboard: React.FC<DashboardProps> = ({
   isPublicWochenplan = false,
   onPublicLoginSuccess,
   userClubs,
-  allClubs: propAllClubs,
+  allClubs,
   onSwitchClub,
   initialBookingSlot,
   onClearInitialBookingSlot,
 }) => {
+  const { t, i18n } = useTranslation();
+  const dateLocale = i18n.language === "en" ? "en-US" : "de-DE";
   const [leagueUsers, setLeagueUsers] = useState<User[]>([]);
+
+  const translateCourt = useCallback(
+    (courtName: string) => getTenantTranslation(courtName, "courts", settings, i18n.language),
+    [settings, i18n.language]
+  );
+  const translateLockReason = useCallback(
+    (reason?: string | null) => (reason ? getTenantTranslation(reason, "lockReasons", settings, i18n.language) : ""),
+    [settings, i18n.language]
+  );
 
   const formatPlayerName = useCallback((name: string): string => {
     const trimmed = name.trim();
@@ -698,13 +720,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const isAdmin = useMemo(() => {
-    return (
-      currentUser?.role === Role.ADMIN ||
-      currentUser?.role === Role.SUPER_ADMIN ||
-      (currentUser as any)?.role === "super-admin" ||
-      (currentUser as any)?.hauptAdmin === true
-    );
-  }, [currentUser]);
+    if (!currentUser) return false;
+    if (isSuperAdmin(currentUser)) return true;
+    return isClubAdmin(currentUser, settings?.id, allClubs);
+  }, [currentUser, settings?.id, allClubs]);
 
   const isPastAllowed = useMemo(() => {
     return isAdmin || (reservationRules?.allowPastBookings ?? true);
@@ -776,7 +795,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [comment, setComment] = useState("");
   const [hasBallMachine, setHasBallMachine] = useState(false);
+  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [guestCount, setGuestCount] = useState<number>(0);
+  const [adultGuestCount, setAdultGuestCount] = useState<number>(0);
+  const [youthGuestCount, setYouthGuestCount] = useState<number>(0);
+  const [showFeeInfoModal, setShowFeeInfoModal] = useState<boolean>(false);
+  const [showGuestPriceRules, setShowGuestPriceRules] = useState<boolean>(false);
   const [sendEditNotification, setSendEditNotification] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [modalStartTime, setModalStartTime] = useState("");
@@ -785,6 +809,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [hoveredTime, setHoveredTime] = useState<string | null>(null);
 
   const [selectedCourtInModal, setSelectedCourtInModal] = useState<string>('');
+  const [selectedCourtsForLock, setSelectedCourtsForLock] = useState<string[]>([]);
+  const [editingLockIds, setEditingLockIds] = useState<string[]>([]);
 
   const handleSwitchFacility = (newClubId: string) => {
     setSelectedFacilityClubId(newClubId);
@@ -810,98 +836,183 @@ const Dashboard: React.FC<DashboardProps> = ({
     return () => unsub();
   }, []);
 
-  // Available clubs list - comprehensive list of all participating league/system clubs
+  // Dynamic equipment resources from settings or default fallback
+  const availableEquipmentResources: EquipmentResource[] = useMemo(() => {
+    if (
+      settings?.equipmentList &&
+      Array.isArray(settings.equipmentList) &&
+      settings.equipmentList.length > 0
+    ) {
+      return settings.equipmentList.map((item, idx) => {
+        const translated = getTenantTranslation(item, "equipment", settings, i18n.language);
+        return {
+          id: `eq_${idx}_${item.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+          name: translated,
+          nameKey: item,
+        };
+      });
+    }
+
+    if (
+      (reservationRules as any)?.equipmentResources &&
+      Array.isArray((reservationRules as any).equipmentResources) &&
+      (reservationRules as any).equipmentResources.length > 0
+    ) {
+      return (reservationRules as any).equipmentResources;
+    }
+
+    const maxMachines = reservationRules?.availableBallMachines ?? 1;
+    const list: EquipmentResource[] = [];
+    if (maxMachines === 1) {
+      list.push({ id: "ballmachine_1", name: t("equipment.ballMachine"), nameKey: "equipment.ballMachine" });
+    } else if (maxMachines > 1) {
+      for (let i = 1; i <= maxMachines; i++) {
+        list.push({ id: `ballmachine_${i}`, name: `${t("equipment.ballMachine")} ${i}`, nameKey: `equipment.ballMachine${i}` });
+      }
+    }
+    list.push({ id: "ball_basket", name: t("equipment.ballBasket"), nameKey: "equipment.ballBasket" });
+    return list;
+  }, [
+    settings?.equipmentList,
+    settings?.i18n,
+    i18n.language,
+    reservationRules?.availableBallMachines,
+    (reservationRules as any)?.equipmentResources,
+    t,
+  ]);
+
+  // Track resources currently in use during the selected slot on other courts
+  const bookedResourceIdsForSlot: string[] = useMemo(() => {
+    if (!selectedSlot) return [];
+    const inUse = new Set<string>();
+    const courtToCheck = selectedCourtInModal || selectedSlot.court;
+    bookings.forEach((b) => {
+      if (
+        b.id !== selectedSlot.editingId &&
+        b.date === selectedSlot.date &&
+        b.time === modalStartTime &&
+        b.court !== courtToCheck
+      ) {
+        if (b.selectedResourceIds && Array.isArray(b.selectedResourceIds)) {
+          b.selectedResourceIds.forEach((id) => inUse.add(id));
+        }
+        if (b.hasBallMachine) {
+          inUse.add("ballmachine_1");
+          inUse.add("ballmachine");
+          const firstBm = availableEquipmentResources.find(
+            (r) =>
+              r.nameKey.toLowerCase().includes("ballmachine") ||
+              r.id.toLowerCase().includes("ballmachine"),
+          );
+          if (firstBm) inUse.add(firstBm.id);
+        }
+      }
+    });
+    return Array.from(inUse);
+  }, [bookings, selectedSlot, modalStartTime, selectedCourtInModal, availableEquipmentResources]);
+
+  // Available clubs list - exclusively clubs participating in the league
   const availableClubsList = useMemo(() => {
     const map = new Map<string, any>();
-    const sourceClubs: any[] = [];
 
-    const userClubList = userClubs && userClubs.length > 0 
-      ? userClubs 
-      : getUserClubs(currentUser, systemClubs);
+    const isClubLigaActive = (c: any): boolean => {
+      if (!c) return false;
+      const modules = c.modules || {};
+      if (
+        modules.liga === false ||
+        modules.league === false ||
+        c.isLigaActive === false ||
+        c.enableLeague === false ||
+        c.aktiv === false
+      ) {
+        return false;
+      }
+      return (
+        modules.liga === true ||
+        modules.league === true ||
+        c.isLigaActive === true ||
+        c.enableLeague === true ||
+        c.leagueSettings?.enabled === true
+      );
+    };
 
-    if (Array.isArray(userClubList)) sourceClubs.push(...userClubList);
-    if (Array.isArray(systemClubs)) sourceClubs.push(...systemClubs);
-
-    // Seed with known clubs master data
-    Object.entries(KNOWN_CLUBS_STAMMDATEN).forEach(([kId, meta]) => {
-      sourceClubs.push({
-        id: kId,
-        vereinsId: kId,
-        clubName: meta.clubName,
-        name: meta.clubName,
-        city: meta.city,
-        street: meta.street,
-        zip: meta.zip,
-        logoUrl: meta.logoUrl,
-      });
-    });
+    let sourceClubs: any[] = [];
+    if (systemClubs && systemClubs.length > 0) {
+      sourceClubs = systemClubs.filter(isClubLigaActive);
+    } else {
+      sourceClubs = [
+        { id: 'sv-neuhausen', vereinsId: 'sv-neuhausen', clubName: 'SV Neuhausen' },
+        { id: 'djk-furth', vereinsId: 'djk-furth', clubName: 'DJK Furth' },
+      ];
+    }
 
     sourceClubs.forEach((c) => {
-      const id = c.vereinsId || c.id;
-      if (id) {
-        const canonicalKey = getCanonicalClubId(id);
-        if (canonicalKey && !['super-admin', 'system'].includes(canonicalKey)) {
-          if (map.has(canonicalKey)) {
-            const existing = map.get(canonicalKey);
-            map.set(canonicalKey, {
-              ...existing,
-              street: existing.street || c.street,
-              zip: existing.zip || c.zip,
-              city: existing.city || c.city,
-              facilityPhotoUrl: existing.facilityPhotoUrl || c.facilityPhotoUrl,
-            });
-            return;
-          }
+      const rawId = c.vereinsId || c.id || c.clubName || c.name;
+      if (!rawId) return;
+      const canonicalKey = getCanonicalClubId(rawId);
+      if (!canonicalKey || ['super-admin', 'system'].includes(canonicalKey)) return;
 
-          const matchedSystemClub = (systemClubs || []).find((sc) => {
-            const scId = getCanonicalClubId(sc.vereinsId || sc.id || '');
-            return scId === canonicalKey;
-          });
-          const knownMeta = KNOWN_CLUBS_STAMMDATEN[canonicalKey];
+      const matchedSystemClub = (systemClubs || []).find((sc) => {
+        const scId = getCanonicalClubId(sc.vereinsId || sc.id || '');
+        return scId === canonicalKey;
+      });
+      const knownMeta = KNOWN_CLUBS_STAMMDATEN[canonicalKey];
 
-          let cleanClubName = matchedSystemClub?.clubName || matchedSystemClub?.vereinsName || matchedSystemClub?.name;
-          if (!cleanClubName && knownMeta?.clubName) {
-            cleanClubName = knownMeta.clubName;
-          }
-          if (!cleanClubName) {
-            const raw = c.clubName || c.name;
-            if (raw && typeof raw === 'string') {
-              const trimmed = raw.trim();
-              const lower = trimmed.toLowerCase();
-              const isInvalid = ['api', 'system', 'super-admin', 'default', 'null', 'undefined', 'verein', 'tennis-club', 'tennis club', 'tennisclub'].includes(lower) || lower === canonicalKey;
-              if (!isInvalid) {
-                cleanClubName = trimmed;
-              }
-            }
-          }
-          if (!cleanClubName) {
-            if (canonicalKey.includes('neuhausen')) cleanClubName = 'SV Neuhausen';
-            else if (canonicalKey.includes('furth')) cleanClubName = 'DJK Furth';
-            else if (canonicalKey.includes('sportsgeist')) cleanClubName = 'TC Sportsgeist';
-            else cleanClubName = String(id);
-          }
+      let cleanClubName =
+        c.clubName ||
+        c.vereinsName ||
+        c.name ||
+        matchedSystemClub?.clubName ||
+        matchedSystemClub?.vereinsName ||
+        knownMeta?.clubName;
 
-          const resolvedLogo = 
-            matchedSystemClub?.customLogoUrl || 
-            matchedSystemClub?.logoUrl || 
-            matchedSystemClub?.customHeaderLogoUrl || 
-            matchedSystemClub?.headerLogoUrl || 
-            c.logoUrl || 
-            knownMeta?.logoUrl;
+      if (
+        !cleanClubName ||
+        ['api', 'system', 'super-admin', 'default', 'null', 'undefined', 'verein'].includes(
+          cleanClubName.toLowerCase()
+        )
+      ) {
+        if (canonicalKey === 'sv-neuhausen') cleanClubName = 'SV Neuhausen';
+        else if (canonicalKey === 'djk-furth') cleanClubName = 'DJK Furth';
+        else if (canonicalKey === 'tcsportsgeist') cleanClubName = 'TC Sportsgeist';
+        else cleanClubName = String(rawId);
+      }
 
-          map.set(canonicalKey, {
-            ...c,
-            id: canonicalKey,
-            vereinsId: canonicalKey,
-            clubName: cleanClubName,
-            name: cleanClubName,
-            logoUrl: resolvedLogo,
-            facilityPhotoUrl: matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
-            street: matchedSystemClub?.street || c.street || knownMeta?.street,
-            zip: matchedSystemClub?.zip || c.zip || knownMeta?.zip,
-            city: matchedSystemClub?.city || c.city || knownMeta?.city,
-          });
-        }
+      const resolvedLogo =
+        c.customLogoUrl ||
+        c.logoUrl ||
+        matchedSystemClub?.customLogoUrl ||
+        matchedSystemClub?.logoUrl ||
+        knownMeta?.logoUrl;
+
+      const street = c.street || matchedSystemClub?.street || knownMeta?.street;
+      const zip = c.zip || matchedSystemClub?.zip || knownMeta?.zip;
+      const city = c.city || matchedSystemClub?.city || knownMeta?.city;
+
+      if (!map.has(canonicalKey)) {
+        map.set(canonicalKey, {
+          ...c,
+          id: canonicalKey,
+          vereinsId: canonicalKey,
+          clubName: cleanClubName,
+          name: cleanClubName,
+          logoUrl: resolvedLogo,
+          facilityPhotoUrl: matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
+          street,
+          zip,
+          city,
+        });
+      } else {
+        const existing = map.get(canonicalKey);
+        map.set(canonicalKey, {
+          ...existing,
+          street: existing.street || street,
+          zip: existing.zip || zip,
+          city: existing.city || city,
+          logoUrl: existing.logoUrl || resolvedLogo,
+          facilityPhotoUrl:
+            existing.facilityPhotoUrl || matchedSystemClub?.facilityPhotoUrl || c.facilityPhotoUrl,
+        });
       }
     });
 
@@ -918,7 +1029,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
 
     return Array.from(map.values());
-  }, [userClubs, currentUser, systemClubs, settings?.vereinsId, settings?.clubName, settings?.headerLogoUrl, settings?.logoUrl]);
+  }, [systemClubs, settings?.vereinsId, settings?.clubName, settings?.headerLogoUrl, settings?.logoUrl]);
 
   const currentFacilitySelectValue = useMemo(() => {
     const norm = getCanonicalClubId(selectedFacilityClubId);
@@ -1370,7 +1481,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [showCustomCalendar]);
 
   useEffect(() => {
-    if (isModalOpen) {
+    // Only lock scroll on mobile viewports (< 1024px) where scrollbars are overlay/do not take layout width.
+    // On desktop (>= 1024px), hiding the scrollbar causes the entire dashboard/plan to jump to the left/right.
+    const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+    if (isModalOpen && !isDesktop) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -1484,12 +1598,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [bookingTab, modalStartTime, endTime, getDurationInHours]);
 
   const bookingOptions = [];
-  bookingOptions.push({ id: "normal", label: "Freies Spiel" });
+  bookingOptions.push({ id: "normal", label: t("dashboard.freePlay", "Freies Spiel") });
   if (isLeagueEnabledInClub) {
-    bookingOptions.push({ id: "league", label: userLeagueObj?.name || "Ligaspiel" });
+    bookingOptions.push({ id: "league", label: userLeagueObj?.name || t("dashboard.league", "Ligaspiel") });
   }
   if (currentUser?.role === Role.ADMIN) {
-    bookingOptions.push({ id: "lock", label: "Platz sperren" });
+    bookingOptions.push({ id: "lock", label: t("dashboard.lockCourtTab", "Platz sperren") });
   }
   const activeMode = isLockMode ? "lock" : bookingTab === "league" ? "league" : "normal";
 
@@ -1580,16 +1694,40 @@ const Dashboard: React.FC<DashboardProps> = ({
     return bookings.find(b => b.id === selectedSlot.editingId);
   }, [selectedSlot?.editingId, bookings]);
 
+  const isCreator = useMemo(() => {
+    if (!editingBooking || !currentUser) return false;
+    const p0 = editingBooking.players?.[0];
+    return Boolean(
+      (editingBooking.userId && currentUser.id && editingBooking.userId === currentUser.id) ||
+      (editingBooking.bookedBy && (editingBooking.bookedBy === currentUser.name || editingBooking.bookedBy === currentUserFullName || editingBooking.bookedBy === currentUser.id)) ||
+      (editingBooking.createdBy && (editingBooking.createdBy === currentUser.name || editingBooking.createdBy === currentUserFullName || editingBooking.createdBy === currentUser.id)) ||
+      (p0 && (p0 === currentUser.name || p0 === currentUserFullName))
+    );
+  }, [editingBooking, currentUser, currentUserFullName]);
+
+  const isParticipant = useMemo(() => {
+    if (!editingBooking || !currentUser || isCreator) return false;
+    const participants = editingBooking.players?.slice(1) || [];
+    return participants.some(
+      (p) => p === currentUser.name || p === currentUserFullName
+    );
+  }, [editingBooking, currentUser, currentUserFullName, isCreator]);
+
   const isUserAuthorizedToEdit = useMemo(() => {
     if (!currentUser) return false;
     if (isAdmin) return true;
     if (!editingBooking) return true;
     if (editingBooking.isLocked) return false;
-    return (
-      editingBooking.players.includes(currentUser.name) ||
-      editingBooking.players.includes(currentUserFullName)
-    );
-  }, [currentUser, isAdmin, editingBooking, currentUserFullName]);
+
+    // Ersteller darf immer bearbeiten
+    if (isCreator) return true;
+
+    // Mitspieler dürfen bearbeiten, wenn in den Buchungsregeln aktiviert
+    const allowParticipants = reservationRules?.allowParticipantsToEdit ?? false;
+    if (allowParticipants && isParticipant) return true;
+
+    return false;
+  }, [currentUser, isAdmin, editingBooking, isCreator, isParticipant, reservationRules]);
 
   const spieler1Name = useMemo(() => {
     if (editingBooking && editingBooking.players && editingBooking.players.length > 0) {
@@ -1725,19 +1863,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     return dates;
   }, [selectedDate]);
 
-  // Find range locks that overlap with currently displayed dates
-  const activePeriodRangeLocks = useMemo(() => {
-    const rangeLocks = settings?.rangeLocks || [];
-    if (rangeLocks.length === 0) return [];
-
-    const displayedDates = viewType === "day" ? [selectedDate] : weekDates;
-    return rangeLocks.filter((lock) => {
-      // Return true if any displayed date lies within the lock period
-      return displayedDates.some(
-        (date) => lock.startDate <= date && date <= lock.endDate,
-      );
-    });
-  }, [settings?.rangeLocks, viewType, selectedDate, weekDates]);
 
   const getBooking = (
     date: string,
@@ -1988,35 +2113,74 @@ const Dashboard: React.FC<DashboardProps> = ({
           const reason = (booking.reason || "GESPERRT").trim();
           const reasonLower = reason.toLowerCase();
 
-          // 1. Find max width we can grow to the right (courts in same row tIdx)
-          // NO HORIZONTAL SPANNING ALLOWED AS PER PROMPT
-          let maxCIdx = cIdx;
-
-          // 2. Find max height we can grow down (rows of times)
+          // 1. Find max height we can grow down (rows of times) on this court
           let maxTIdx = tIdx;
           let canGrowDown = true;
           while (canGrowDown && maxTIdx + 1 < activeTimes.length) {
             const checkTime = activeTimes[maxTIdx + 1];
-            // All courts in the span [cIdx, maxCIdx] must be locked with the same reason at checkTime
-            for (let col = cIdx; col <= maxCIdx; col++) {
-              const checkCourt = activeCourts[col];
-              if (visited[maxTIdx + 1][col]) {
-                canGrowDown = false;
-                break;
-              }
-              const checkBooking = getBooking(dateStr, checkTime, checkCourt);
-              if (
-                !checkBooking ||
-                !checkBooking.isLocked ||
-                (checkBooking.reason || "GESPERRT").trim().toLowerCase() !==
-                  reasonLower
-              ) {
-                canGrowDown = false;
-                break;
-              }
+            if (visited[maxTIdx + 1][cIdx]) {
+              canGrowDown = false;
+              break;
+            }
+            const checkBooking = getBooking(dateStr, checkTime, court);
+            if (
+              !checkBooking ||
+              !checkBooking.isLocked ||
+              (checkBooking.reason || "GESPERRT").trim().toLowerCase() !== reasonLower
+            ) {
+              canGrowDown = false;
+              break;
             }
             if (canGrowDown) {
               maxTIdx++;
+            }
+          }
+
+          // 2. Find max width we can grow to the right across adjacent courts with identical lock duration
+          let maxCIdx = cIdx;
+          while (maxCIdx + 1 < activeCourts.length) {
+            const nextCourt = activeCourts[maxCIdx + 1];
+            let courtMatches = true;
+            for (let r = tIdx; r <= maxTIdx; r++) {
+              if (visited[r][maxCIdx + 1]) {
+                courtMatches = false;
+                break;
+              }
+              const rTime = activeTimes[r];
+              const rBooking = getBooking(dateStr, rTime, nextCourt);
+              if (
+                !rBooking ||
+                !rBooking.isLocked ||
+                (rBooking.reason || "GESPERRT").trim().toLowerCase() !== reasonLower
+              ) {
+                courtMatches = false;
+                break;
+              }
+            }
+            if (courtMatches && maxTIdx + 1 < activeTimes.length) {
+              const afterBooking = getBooking(dateStr, activeTimes[maxTIdx + 1], nextCourt);
+              if (
+                afterBooking &&
+                afterBooking.isLocked &&
+                (afterBooking.reason || "GESPERRT").trim().toLowerCase() === reasonLower
+              ) {
+                courtMatches = false;
+              }
+            }
+            if (courtMatches && tIdx > 0) {
+              const beforeBooking = getBooking(dateStr, activeTimes[tIdx - 1], nextCourt);
+              if (
+                beforeBooking &&
+                beforeBooking.isLocked &&
+                (beforeBooking.reason || "GESPERRT").trim().toLowerCase() === reasonLower
+              ) {
+                courtMatches = false;
+              }
+            }
+            if (courtMatches) {
+              maxCIdx++;
+            } else {
+              break;
             }
           }
 
@@ -2167,31 +2331,115 @@ const Dashboard: React.FC<DashboardProps> = ({
       return;
 
     let blockStartTime = time;
-    let blockEndTime = TIME_SLOTS[TIME_SLOTS.indexOf(time) + 1];
+    let blockEndTime = TIME_SLOTS[TIME_SLOTS.indexOf(time) + 1] || "22:00";
+    let courtsToLock = [court];
+    let matchedLockIds: string[] = activeBooking?.id ? [activeBooking.id] : [];
+    let detectedFullDay = false;
 
-    if (activeBooking && activeBooking.group_token) {
-      const groupBookings = bookings.filter(
-        (b) =>
-          b.group_token === activeBooking.group_token &&
-          b.date === date &&
-          b.court === court,
-      );
-      if (groupBookings.length > 0) {
-        const times = groupBookings.map((b) => b.time);
-        const indices = times
-          .map((t) => TIME_SLOTS.indexOf(t))
-          .filter((idx) => idx !== -1);
-        if (indices.length > 0) {
-          const minIdx = Math.min(...indices);
-          const maxIdx = Math.max(...indices);
-          blockStartTime = TIME_SLOTS[minIdx];
-          blockEndTime = TIME_SLOTS[maxIdx + 1] || TIME_SLOTS[TIME_SLOTS.length - 1];
+    if (activeBooking) {
+      if (activeBooking.lockGroupId) {
+        const groupLocks = bookings.filter(
+          (b) => b.lockGroupId === activeBooking.lockGroupId && b.date === date,
+        );
+        if (groupLocks.length > 0) {
+          const tList = groupLocks.map((b) => b.time);
+          const indices = tList
+            .map((t) => TIME_SLOTS.indexOf(t))
+            .filter((idx) => idx !== -1);
+          if (indices.length > 0) {
+            const minIdx = Math.min(...indices);
+            const maxIdx = Math.max(...indices);
+            blockStartTime = TIME_SLOTS[minIdx];
+            blockEndTime = TIME_SLOTS[maxIdx + 1] || TIME_SLOTS[TIME_SLOTS.length - 1];
+            if (minIdx === 0 && maxIdx >= TIME_SLOTS.length - 2) {
+              detectedFullDay = true;
+            }
+          }
+          const uniqueCourts = Array.from(new Set(groupLocks.map((b) => b.court)));
+          if (uniqueCourts.length > 0) {
+            courtsToLock = uniqueCourts;
+          }
+          matchedLockIds = groupLocks.map((b) => b.id).filter(Boolean);
+        }
+      } else if (activeBooking.isLocked) {
+        // Collect related locks on this date by matching reason
+        const lockReason = (activeBooking.reason || "GESPERRT").trim().toLowerCase();
+        const sameReasonLocks = bookings.filter(
+          (b) =>
+            b.isLocked &&
+            b.date === date &&
+            (b.reason || "GESPERRT").trim().toLowerCase() === lockReason,
+        );
+        if (sameReasonLocks.length > 0) {
+          const tList = sameReasonLocks.map((b) => b.time);
+          const indices = tList
+            .map((t) => TIME_SLOTS.indexOf(t))
+            .filter((idx) => idx !== -1);
+          if (indices.length > 0) {
+            const minIdx = Math.min(...indices);
+            const maxIdx = Math.max(...indices);
+            blockStartTime = TIME_SLOTS[minIdx];
+            blockEndTime = TIME_SLOTS[maxIdx + 1] || TIME_SLOTS[TIME_SLOTS.length - 1];
+            if (minIdx === 0 && maxIdx >= TIME_SLOTS.length - 2) {
+              detectedFullDay = true;
+            }
+          }
+          const uniqueCourts = Array.from(new Set(sameReasonLocks.map((b) => b.court)));
+          if (uniqueCourts.length > 0) {
+            courtsToLock = uniqueCourts;
+          }
+          matchedLockIds = sameReasonLocks.map((b) => b.id).filter(Boolean);
+        } else {
+          matchedLockIds = activeBooking.id ? [activeBooking.id] : [];
+        }
+      } else if (activeBooking.group_token) {
+        const groupBookings = bookings.filter(
+          (b) =>
+            b.group_token === activeBooking.group_token &&
+            b.date === date &&
+            b.court === court,
+        );
+        if (groupBookings.length > 0) {
+          const times = groupBookings.map((b) => b.time);
+          const indices = times
+            .map((t) => TIME_SLOTS.indexOf(t))
+            .filter((idx) => idx !== -1);
+          if (indices.length > 0) {
+            const minIdx = Math.min(...indices);
+            const maxIdx = Math.max(...indices);
+            blockStartTime = TIME_SLOTS[minIdx];
+            blockEndTime = TIME_SLOTS[maxIdx + 1] || TIME_SLOTS[TIME_SLOTS.length - 1];
+          }
+        }
+      } else {
+        // Multi-hour regular booking without group_token
+        const courtEvts = getContinuousEvents(date, court, startTimes);
+        const clickedIdx = startTimes.indexOf(time);
+        const matchedEvt = courtEvts.find(
+          (e) =>
+            !e.booking.isLocked &&
+            e.startIdx <= clickedIdx &&
+            clickedIdx < e.startIdx + e.span,
+        );
+        if (matchedEvt && matchedEvt.span > 1) {
+          const sIdx = matchedEvt.startIdx;
+          const eIdx = matchedEvt.startIdx + matchedEvt.span;
+          blockStartTime = startTimes[sIdx];
+          if (eIdx < startTimes.length) {
+            blockEndTime = startTimes[eIdx];
+          } else {
+            const lastTime = startTimes[startTimes.length - 1];
+            const nextSlotIdx = TIME_SLOTS.indexOf(lastTime) + 1;
+            blockEndTime = TIME_SLOTS[nextSlotIdx] || "22:00";
+          }
         }
       }
     }
 
     setSelectedSlot({ date, court, editingId: activeBooking?.id });
     setSelectedCourtInModal(court);
+    setSelectedCourtsForLock(courtsToLock);
+    setEditingLockIds(matchedLockIds);
     setModalStartTime(blockStartTime);
     setPlayerQuery("");
     setShowSuggestions(false);
@@ -2204,7 +2452,18 @@ const Dashboard: React.FC<DashboardProps> = ({
       setAdditionalPlayers(others);
 
       setHasBallMachine(activeBooking.hasBallMachine);
-      setGuestCount(activeBooking.guestCount || 0);
+      if (activeBooking.selectedResourceIds && Array.isArray(activeBooking.selectedResourceIds) && activeBooking.selectedResourceIds.length > 0) {
+        setSelectedResourceIds(activeBooking.selectedResourceIds);
+      } else if (activeBooking.hasBallMachine) {
+        setSelectedResourceIds(["ballmachine_1"]);
+      } else {
+        setSelectedResourceIds([]);
+      }
+      const adult = activeBooking.adultGuestCount ?? activeBooking.guestCount ?? 0;
+      const youth = activeBooking.youthGuestCount ?? 0;
+      setAdultGuestCount(adult);
+      setYouthGuestCount(youth);
+      setGuestCount(activeBooking.guestCount ?? (adult + youth));
       setComment(activeBooking.comment || "");
       setEndTime(blockEndTime);
     } else {
@@ -2212,14 +2471,18 @@ const Dashboard: React.FC<DashboardProps> = ({
       setReason("Training");
       setAdditionalPlayers([]);
       setHasBallMachine(false);
+      setSelectedResourceIds([]);
+      setAdultGuestCount(0);
+      setYouthGuestCount(0);
       setGuestCount(0);
       setComment("");
       setEndTime(blockEndTime);
     }
 
     setError(null);
+    setShowGuestPriceRules(false);
     handleOpenModal();
-    setIsFullDay(false);
+    setIsFullDay(detectedFullDay);
   };
 
   // Auto-open booking modal when navigated from landing page with a prefilled slot
@@ -2245,28 +2508,72 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (isLockMode) {
       const start = isFullDay ? TIME_SLOTS[0] : modalStartTime;
       const end = isFullDay ? TIME_SLOTS[TIME_SLOTS.length - 1] : endTime;
-      if (selectedSlot.editingId) await onCancel(selectedSlot.editingId);
-      onLockRange(
-        selectedSlot.date,
-        start,
-        end,
-        courtToBook,
-        reason,
-        false,
-        undefined,
-      );
+      const courtsToLock = selectedCourtsForLock.length > 0 ? selectedCourtsForLock : [courtToBook];
+
+      try {
+        const idsToCancel = editingLockIds.length > 0
+          ? [...editingLockIds]
+          : (selectedSlot.editingId ? [selectedSlot.editingId] : []);
+
+        // If full-day, also clean up any remaining lock IDs on that date and courts
+        // that belong to this lock group or have matching reason
+        if (isFullDay) {
+          const originalBooking = selectedSlot.editingId
+            ? bookings.find((b) => b.id === selectedSlot.editingId)
+            : undefined;
+          const origGroupId = originalBooking?.lockGroupId;
+          const lockReason = (reason || "GESPERRT").trim().toLowerCase();
+          const leftoverLocks = bookings.filter(
+            (b) =>
+              b.isLocked &&
+              b.date === selectedSlot.date &&
+              courtsToLock.includes(b.court) &&
+              ((origGroupId && b.lockGroupId === origGroupId) ||
+                (b.reason || "GESPERRT").trim().toLowerCase() === lockReason)
+          );
+          for (const b of leftoverLocks) {
+            if (b.id && !idsToCancel.includes(b.id)) {
+              idsToCancel.push(b.id);
+            }
+          }
+        }
+
+        if (idsToCancel.length > 0) {
+          await onCancel(idsToCancel);
+        }
+
+        await onLockRange(
+          selectedSlot.date,
+          start,
+          end,
+          courtsToLock,
+          reason,
+          false,
+          undefined,
+        );
+      } catch (err: any) {
+        setError(err.message || "Fehler beim Speichern der Sperre.");
+        return;
+      }
+      handleCloseModal();
+      return;
     } else {
       const isUserAdmin =
         currentUser?.role === Role.ADMIN ||
         currentUser?.role === Role.SUPER_ADMIN ||
         (currentUser as any)?.hauptAdmin === true;
+      const isYouthRulesActive = hasYouthRules(settings?.feeSettings);
+      const effectiveAdultGuests = isYouthRulesActive ? adultGuestCount : guestCount;
+      const effectiveYouthGuests = isYouthRulesActive ? youthGuestCount : 0;
+      const effectiveGuestCount = isYouthRulesActive ? (adultGuestCount + youthGuestCount) : guestCount;
+
       if (reservationRules?.requireCoplayer && !isUserAdmin) {
         const hasCoplayer = additionalPlayers.length > 0;
-        const hasGuest = guestCount && guestCount > 0;
-        const hasMachine = hasBallMachine === true;
+        const hasGuest = effectiveGuestCount && effectiveGuestCount > 0;
+        const hasMachine = hasBallMachine === true || selectedResourceIds.length > 0;
         if (!hasCoplayer && !hasGuest && !hasMachine) {
           setError(
-            "Buchungsregel: Du musst mindestens einen Mitspieler (Partner), einen Gast oder die Ballmaschine auswählen.",
+            "Buchungsregel: Du musst mindestens einen Mitspieler (Partner), einen Gast oder Ausrüstung auswählen.",
           );
           return;
         }
@@ -2292,6 +2599,10 @@ const Dashboard: React.FC<DashboardProps> = ({
           return;
         }
 
+        const effectiveHasBallMachine =
+          hasBallMachine ||
+          selectedResourceIds.some((id) => id.includes("ballmachine") || id === "ballmachine");
+
         if (isCurrentClub) {
           const result = await onBook(
             selectedSlot.date,
@@ -2299,11 +2610,14 @@ const Dashboard: React.FC<DashboardProps> = ({
             endTime,
             courtToBook,
             players,
-            hasBallMachine,
-            guestCount,
+            effectiveHasBallMachine,
+            effectiveGuestCount,
             selectedSlot.editingId,
             comment,
             sendEditNotification,
+            effectiveAdultGuests,
+            effectiveYouthGuests,
+            selectedResourceIds,
           );
           if (result) {
             setError(result);
@@ -2322,10 +2636,15 @@ const Dashboard: React.FC<DashboardProps> = ({
               time: t,
               court: courtToBook,
               players,
-              userId: currentUser?.id || 'guest',
+              userId: auth.currentUser?.uid || currentUser?.id || 'guest',
+              bookedBy: auth.currentUser?.uid || currentUser?.id || 'guest',
+              isLocked: false,
               comment: comment || '',
-              hasBallMachine: hasBallMachine || false,
-              guestCount: guestCount || 0,
+              hasBallMachine: effectiveHasBallMachine,
+              selectedResourceIds: selectedResourceIds,
+              guestCount: effectiveGuestCount || 0,
+              adultGuestCount: effectiveAdultGuests,
+              youthGuestCount: effectiveYouthGuests,
               createdAt: new Date().toISOString(),
             };
             await saveBooking(selectedFacilityClubId, bookingData);
@@ -2417,7 +2736,9 @@ const Dashboard: React.FC<DashboardProps> = ({
             time: t,
             court: courtToBook,
             players,
-            userId: currentUser?.id || 'guest',
+            userId: auth.currentUser?.uid || currentUser?.id || 'guest',
+            bookedBy: auth.currentUser?.uid || currentUser?.id || 'guest',
+            isLocked: false,
             comment: comment ? `[Ligaspiel] ${comment}` : "[Ligaspiel]",
             hasBallMachine: false,
             guestCount: 0,
@@ -2461,6 +2782,125 @@ const Dashboard: React.FC<DashboardProps> = ({
     handleCloseModal();
   };
 
+  const isYouthRulesActive = hasYouthRules(settings?.feeSettings);
+  const activeGuestCategories = useMemo(() => {
+    return getActiveGuestCategories(settings?.feeSettings, t);
+  }, [settings?.feeSettings, t]);
+
+  const effectiveModalGuestCount = isYouthRulesActive ? (adultGuestCount + youthGuestCount) : guestCount;
+  const effectiveModalAdultGuests = isYouthRulesActive ? adultGuestCount : guestCount;
+  const effectiveModalYouthGuests = isYouthRulesActive ? youthGuestCount : 0;
+
+  const getCategoryMax = (key: 'guestCount' | 'adultGuestCount' | 'youthGuestCount') => {
+    const currentMemberCount = 1 + additionalPlayers.filter((p) => p && p.trim() !== "").length;
+    const maxAllowedGuests = Math.max(0, 4 - currentMemberCount);
+    if (key === 'guestCount') {
+      return maxAllowedGuests;
+    }
+    if (key === 'adultGuestCount') {
+      return Math.max(0, maxAllowedGuests - youthGuestCount);
+    }
+    if (key === 'youthGuestCount') {
+      return Math.max(0, maxAllowedGuests - adultGuestCount);
+    }
+    return 4;
+  };
+
+  const handleGuestCategoryChange = (key: 'guestCount' | 'adultGuestCount' | 'youthGuestCount', newVal: number) => {
+    if (key === 'guestCount') {
+      setGuestCount(newVal);
+      setAdultGuestCount(newVal);
+      setYouthGuestCount(0);
+    } else if (key === 'adultGuestCount') {
+      setAdultGuestCount(newVal);
+      setGuestCount(newVal + youthGuestCount);
+    } else if (key === 'youthGuestCount') {
+      setYouthGuestCount(newVal);
+      setGuestCount(adultGuestCount + newVal);
+    }
+  };
+
+  useEffect(() => {
+    const currentMemberCount = 1 + additionalPlayers.filter((p) => p && p.trim() !== "").length;
+    const maxAllowed = Math.max(0, 4 - currentMemberCount);
+    const totalCurrentGuests = isYouthRulesActive ? (adultGuestCount + youthGuestCount) : guestCount;
+    if (totalCurrentGuests > maxAllowed) {
+      if (isYouthRulesActive) {
+        let excess = (adultGuestCount + youthGuestCount) - maxAllowed;
+        let newYouth = youthGuestCount;
+        let newAdult = adultGuestCount;
+        if (excess > 0 && newYouth > 0) {
+          const reduceYouth = Math.min(newYouth, excess);
+          newYouth -= reduceYouth;
+          excess -= reduceYouth;
+        }
+        if (excess > 0 && newAdult > 0) {
+          newAdult = Math.max(0, newAdult - excess);
+        }
+        setAdultGuestCount(newAdult);
+        setYouthGuestCount(newYouth);
+        setGuestCount(newAdult + newYouth);
+      } else {
+        setGuestCount(maxAllowed);
+        setAdultGuestCount(maxAllowed);
+        setYouthGuestCount(0);
+      }
+    }
+  }, [additionalPlayers, isYouthRulesActive]);
+
+  const liveFeeResult = useMemo(() => {
+    if (effectiveModalGuestCount <= 0 || !selectedSlot) return null;
+    let durationMinutes = 60;
+    const sIdx = TIME_SLOTS.indexOf(modalStartTime);
+    const eIdx = TIME_SLOTS.indexOf(endTime);
+    if (sIdx !== -1 && eIdx !== -1 && eIdx > sIdx) {
+      durationMinutes = (eIdx - sIdx) * 60;
+    }
+
+    const context = buildBookingFeeContext({
+      court: selectedCourtInModal || selectedSlot.court || "Platz 1",
+      players: [spieler1Name, ...additionalPlayers].filter(Boolean),
+      guestCount: effectiveModalGuestCount,
+      adultGuestCount: effectiveModalAdultGuests,
+      youthGuestCount: effectiveModalYouthGuests,
+      date: selectedSlot.date,
+      time: modalStartTime || "12:00",
+      durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
+      allUsers: users,
+      youthAgeThreshold: settings?.feeSettings?.youth_age_threshold ?? 18,
+    });
+
+    return calculateBookingFee(context, settings?.feeSettings, settings?.reservationRules);
+  }, [
+    effectiveModalGuestCount,
+    effectiveModalAdultGuests,
+    effectiveModalYouthGuests,
+    selectedSlot,
+    selectedCourtInModal,
+    spieler1Name,
+    additionalPlayers,
+    modalStartTime,
+    endTime,
+    users,
+    settings?.feeSettings,
+    settings?.reservationRules,
+  ]);
+
+  const recommendedPartnersMobile = useMemo(() => {
+    return getRecommendedPartners(currentUser, users, additionalPlayers, 3);
+  }, [currentUser, users, additionalPlayers]);
+
+  const recommendedPartnersDesktop = useMemo(() => {
+    return getRecommendedPartners(currentUser, users, additionalPlayers, 5);
+  }, [currentUser, users, additionalPlayers]);
+
+  const handleAddRecommendedPartner = (partnerDisplayName: string) => {
+    if (additionalPlayers.length >= 3) return;
+    setAdditionalPlayers((prev) => [...prev, partnerDisplayName]);
+    setPlayerQuery("");
+    setShowSuggestions(false);
+  };
+
   const MobileDailyView = () => (
     <div className="space-y-6 pb-4 animate-in fade-in duration-300">
       <div
@@ -2472,7 +2912,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         {courts.map((court) => (
           <div key={court} className="flex flex-col gap-2">
             <h4 className="text-center text-base font-semibold text-[var(--color-primary)] uppercase tracking-widest bg-slate-200 py-1.5 sm:py-2 rounded-xl border-2 border-slate-300 shadow-sm">
-              {court}
+              {translateCourt(court)}
             </h4>
             <div className="space-y-1 sm:space-y-1.5">
               {startTimes.map((time, idx) => {
@@ -2576,12 +3016,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                                   ></i>
                                 )}
                                 <span
-                                  className={`text-xs font-black truncate leading-none ${booking.isEvent ? `${mStyles?.textSaturated || "text-emerald-800"} break-normal hyphens-auto` : "uppercase text-slate-700"}`}
+                                  className={`text-xs font-black truncate leading-none ${booking.isEvent ? `${mStyles?.textSaturated || "text-emerald-800"} break-normal hyphens-auto` : "text-slate-800"}`}
                                   style={dynamicProps ? { color: dynamicProps.color } : {}}
                                 >
                                   {booking.isEvent
-                                    ? formatEventTitle(booking.reason || "SERIENTERMIN")
-                                    : `GESPERRT ${booking.reason ? ": " + booking.reason : ""}`}
+                                    ? formatEventTitle(translateLockReason(booking.reason) || "SERIENTERMIN")
+                                    : `${t("dashboard.locked") || "Gesperrt"}${booking.reason ? ": " + formatEventTitle(translateLockReason(booking.reason)) : ""}`}
                                 </span>
                               </div>
                             ) : null;
@@ -2684,7 +3124,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           {times.map((time, tIdx) => {
             const isPassed = isSlotPassed(date, time);
             const slotStatus = getSlotStatus(date, time);
-            const isAdmin = currentUser?.role === Role.ADMIN || currentUser?.role === Role.SUPER_ADMIN || (currentUser as any)?.hauptAdmin;
             const isGenuinelyClosed = slotStatus.type === "closed" || slotStatus.type === "outside_hours";
             
             let bgClass = "bg-transparent";
@@ -2729,28 +3168,43 @@ const Dashboard: React.FC<DashboardProps> = ({
         {events.map((evt, idx) => {
           const { startIdx, span, booking } = evt;
           const isPassed = isSlotPassed(date, times[startIdx]);
-          const isAdmin = currentUser?.role === Role.ADMIN || currentUser?.role === Role.SUPER_ADMIN || (currentUser as any)?.hauptAdmin;
 
           const isEvent = booking.isEvent;
+          const isGenericLock = booking.isLocked && !booking.isEvent;
           
           let colSpan = 1;
           let shouldSkipRender = false;
           
-          if (isEvent) {
+          if (isEvent || isGenericLock) {
             const courtIdx = courts.indexOf(court);
             if (courtIdx !== -1) {
-              // 1. Calculate how many consecutive courts have this identical event
+              const isMatchingBlock = (otherEvt: ContinuousEvent) => {
+                if (otherEvt.startIdx !== startIdx || otherEvt.span !== span) return false;
+                if (isEvent) {
+                  return (
+                    otherEvt.booking.isEvent &&
+                    (otherEvt.booking.reason || "").trim().toLowerCase() ===
+                      (booking.reason || "").trim().toLowerCase()
+                  );
+                }
+                if (isGenericLock) {
+                  const currentReason = (booking.reason || "SPERRE").trim().toLowerCase();
+                  const otherReason = (otherEvt.booking.reason || "SPERRE").trim().toLowerCase();
+                  return (
+                    otherEvt.booking.isLocked &&
+                    !otherEvt.booking.isEvent &&
+                    otherReason === currentReason
+                  );
+                }
+                return false;
+              };
+
+              // 1. Calculate how many consecutive courts have this identical event or lock
               let consecutiveMatches = 0;
               for (let nextIdx = courtIdx + 1; nextIdx < courts.length; nextIdx++) {
                 const nextCourt = courts[nextIdx];
                 const nextCourtEvents = getContinuousEvents(date, nextCourt, times);
-                const matchingEvent = nextCourtEvents.find(
-                  otherEvt =>
-                    otherEvt.booking.isEvent &&
-                    otherEvt.startIdx === startIdx &&
-                    otherEvt.span === span &&
-                    (otherEvt.booking.reason || "").trim().toLowerCase() === (booking.reason || "").trim().toLowerCase()
-                );
+                const matchingEvent = nextCourtEvents.find(isMatchingBlock);
                 if (matchingEvent) {
                   consecutiveMatches++;
                 } else {
@@ -2759,17 +3213,11 @@ const Dashboard: React.FC<DashboardProps> = ({
               }
               colSpan = 1 + consecutiveMatches;
 
-              // 2. Determine if we should skip rendering on this court because it's already covered by a spanned event on a previous court
+              // 2. Determine if we should skip rendering on this court because it's already covered by a spanned block on a previous court
               if (courtIdx > 0) {
                 const prevCourt = courts[courtIdx - 1];
                 const prevCourtEvents = getContinuousEvents(date, prevCourt, times);
-                const hasPrevMatch = prevCourtEvents.some(
-                  otherEvt =>
-                    otherEvt.booking.isEvent &&
-                    otherEvt.startIdx === startIdx &&
-                    otherEvt.span === span &&
-                    (otherEvt.booking.reason || "").trim().toLowerCase() === (booking.reason || "").trim().toLowerCase()
-                );
+                const hasPrevMatch = prevCourtEvents.some(isMatchingBlock);
                 if (hasPrevMatch) {
                   shouldSkipRender = true;
                 }
@@ -2811,13 +3259,15 @@ const Dashboard: React.FC<DashboardProps> = ({
             >
               {booking.isLocked && !booking.isEvent ? (
                 // Locked Generic
-                <div className="w-full h-full flex flex-col items-center justify-center p-0.5 select-none hover:bg-slate-200 transition-colors bg-slate-100 rounded border border-slate-300 shadow-sm overflow-hidden">
-                   <div className="border-none outline-none bg-white/95 -300 shadow-sm rounded-md px-1.5 py-0.5 flex items-center gap-1 max-w-full">
-                     <i className="fa-solid fa-lock text-slate-500 text-[8px]"></i>
-                     <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wide truncate text-slate-700">
-                       {booking.reason || "Sperre"}
-                     </span>
-                   </div>
+                <div
+                  className={`w-full h-full rounded-md border border-slate-300 bg-slate-100 flex flex-col justify-start items-start ${colSpan > 1 ? "px-2.5" : "px-1.5"} py-1 shadow-[0_2px_4px_rgba(0,0,0,0.05)] select-none hover:bg-slate-200 transition-colors overflow-hidden`}
+                >
+                  <div className="flex items-center gap-1 w-full text-slate-700 leading-tight">
+                    <i className="fa-solid fa-lock text-[8px] sm:text-[9px] text-slate-500 shrink-0"></i>
+                    <span className="text-[10px] sm:text-[10px] md:text-[11px] font-black leading-tight truncate text-slate-800 text-left">
+                      {formatEventTitle(translateLockReason(booking.reason) || "Sperre")}
+                    </span>
+                  </div>
                 </div>
               ) : booking.isEvent ? (
                 // Event (Training, etc)
@@ -2835,7 +3285,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     className={`block text-left text-[11px] font-black leading-tight whitespace-normal break-normal hyphens-auto ${evtStyles?.textSaturated}`}
                     style={dynamicProps ? { color: dynamicProps.color } : {}}
                   >
-                    {formatEventTitle(booking.reason || "EVENT")}
+                    {formatEventTitle(translateLockReason(booking.reason) || "EVENT")}
                   </span>
                 </div>
               ) : (
@@ -2890,8 +3340,8 @@ const Dashboard: React.FC<DashboardProps> = ({
 
     const formatDateForPill = (dateStr: string) => {
       const d = new Date(dateStr);
-      const weekday = d.toLocaleDateString("de-DE", { weekday: "short" }); // e.g., "Di."
-      const dateVal = d.toLocaleDateString("de-DE", {
+      const weekday = d.toLocaleDateString(dateLocale, { weekday: "short" }); // e.g., "Di." / "Tue"
+      const dateVal = d.toLocaleDateString(dateLocale, {
         day: "2-digit",
         month: "2-digit",
       }); // e.g. "02.06."
@@ -2911,7 +3361,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       : null;
 
     const activeDateFormatted = new Date(selectedDate).toLocaleDateString(
-      "de-DE",
+      dateLocale,
       {
         weekday: "long",
         day: "2-digit",
@@ -2965,7 +3415,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         className="p-1.5 text-center text-xs font-black uppercase text-[var(--color-primary)] tracking-wider border-l border-slate-200 truncate sticky top-0 bg-slate-50 z-40"
                         style={{ width: `${78 / mobileCourts.length}%` }}
                       >
-                        {court}
+                        {translateCourt(court)}
                       </th>
                     ))}
                   </tr>
@@ -3047,30 +3497,24 @@ const Dashboard: React.FC<DashboardProps> = ({
                                               className={`block text-left text-[11px] font-black break-normal hyphens-auto ${evtStyles?.textSaturated}`}
                                               style={dynamicProps ? { color: dynamicProps.color } : {}}
                                             >
-                                              {formatEventTitle(region.reason || "SERIENTERMIN")}
+                                              {formatEventTitle(translateLockReason(region.reason) || "SERIENTERMIN")}
                                             </span>
                                           ) : (
                                             <span
                                               className={`block text-left text-[11px] font-black leading-tight break-normal hyphens-auto ${evtStyles?.textSaturated}`}
                                               style={dynamicProps ? { color: dynamicProps.color } : {}}
                                             >
-                                              {formatEventTitle(region.reason || "EVENT")}
+                                              {formatEventTitle(translateLockReason(region.reason) || "EVENT")}
                                             </span>
                                           )}
                                         </div>
                                       </div>
                                     ) : (
-                                      <div className="flex items-start justify-center w-full h-full min-h-[28px] pt-2 select-none pointer-events-none">
-                                        <div
-                                          className={`bg-white/95 border border-slate-355 shadow-md rounded-xl px-2 py-1 flex items-center gap-1.5 max-w-full`}
-                                        >
-                                          <i
-                                            className={`fa-solid fa-lock text-slate-500 text-[9px]`}
-                                          ></i>
-                                          <span
-                                            className={`text-[9px] font-black uppercase tracking-wide truncate max-w-[124px] text-slate-700`}
-                                          >
-                                            {region.reason || "Sperre"}
+                                      <div className="flex items-start justify-start w-full h-full min-h-[28px] pt-2 pl-2 pr-1.5 select-none pointer-events-none">
+                                        <div className="flex items-center gap-1 w-full text-slate-700 leading-tight">
+                                          <i className="fa-solid fa-lock text-slate-500 text-[9px] shrink-0"></i>
+                                          <span className="text-[10px] sm:text-[11px] font-black leading-tight truncate text-slate-800 text-left">
+                                            {formatEventTitle(translateLockReason(region.reason) || "Sperre")}
                                           </span>
                                         </div>
                                       </div>
@@ -3109,10 +3553,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                               !booking.isLocked &&
                               (booking.players.includes(currentUserFullName) ||
                                 booking.players.includes(currentUser.name));
-                            const isAdmin =
-                              currentUser?.role === Role.ADMIN ||
-                              currentUser?.role === Role.SUPER_ADMIN ||
-                              (currentUser as any)?.hauptAdmin === true;
 
                             let cellBgClassStr = "";
                             if (booking) {
@@ -3194,12 +3634,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                                           ></i>
                                         )}
                                         <span
-                                          className={`font-black w-full text-left ${booking.isEvent ? "text-[11px] leading-tight break-normal hyphens-auto text-emerald-950 whitespace-normal text-left" : "uppercase text-[10px] sm:text-xs leading-tight truncate text-slate-700"}`}
+                                          className={`font-black w-full text-left ${booking.isEvent ? "text-[11px] leading-tight break-normal hyphens-auto text-emerald-950 whitespace-normal text-left" : "text-[10px] sm:text-[11px] leading-tight truncate text-slate-800"}`}
                                           style={dynamicProps ? { color: dynamicProps.color } : {}}
                                         >
                                           {booking.isEvent
-                                            ? formatEventTitle(booking.reason || "EVENT")
-                                            : (booking.reason || "SPERRE")}
+                                            ? formatEventTitle(translateLockReason(booking.reason) || "EVENT")
+                                            : formatEventTitle(translateLockReason(booking.reason) || "Sperre")}
                                         </span>
                                       </div>
                                     ) : (
@@ -3281,15 +3721,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                   const isToday = dateStr === todayStr;
                   const isPastDate = dateStr < todayStr;
 
-                  const weekdayLong = d.toLocaleDateString("de-DE", {
+                  const weekdayLong = d.toLocaleDateString(dateLocale, {
                     weekday: "long",
                   });
-                  const dateCompact = d.toLocaleDateString("de-DE", {
+                  const dateCompact = d.toLocaleDateString(dateLocale, {
                     day: "2-digit",
                     month: "2-digit",
                   });
                   const dateLabel = d
-                    .toLocaleDateString("de-DE", { weekday: "short" })
+                    .toLocaleDateString(dateLocale, { weekday: "short" })
                     .replace(".", "");
 
                   // Count status
@@ -3420,7 +3860,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         settings?.primaryColor || "var(--color-primary)",
                     }}
                   />
-                  <span>Alle frei</span>
+                  <span>{t("dashboard.allAvailable", "Alle frei")}</span>
                 </div>
 
                 {/* Gelb/Amber: Teilweise belegt (nur einblenden falls courts >= 2) */}
@@ -3429,8 +3869,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-600 shadow-sm" />
                     <span>
                       {mobileCourts.length === 2
-                        ? "1 Platz frei"
-                        : "Mind. 1 Platz frei"}
+                        ? t("dashboard.oneCourtFree", "1 Platz frei")
+                        : t("dashboard.minOneCourtFree", "Mind. 1 Platz frei")}
                     </span>
                   </div>
                 )}
@@ -3438,7 +3878,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {/* Rot: Ausgebucht */}
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-red-600 shadow-sm" />
-                  <span>Ausgebucht</span>
+                  <span>{t("dashboard.fullyBooked", "Ausgebucht")}</span>
                 </div>
               </div>
             </motion.div>
@@ -3456,12 +3896,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div>
                     <h3 className="text-xl font-bold uppercase tracking-tight">
                       {selectedSlot.editingId && isUserAuthorizedToEdit
-                        ? "Bearbeiten"
-                        : selectedSlot.court}
+                        ? (isLockMode ? t("dashboard.lockCourtTab", "Platz sperren") : t("common.edit", "Bearbeiten"))
+                        : translateCourt(selectedCourtInModal || selectedSlot.court)}
                     </h3>
                     <p className="text-[10px] font-bold text-white mt-0.5 flex items-center gap-1.5">
                       <i className="fa-solid fa-calendar-day"></i>
-                      {new Date(selectedSlot.date).toLocaleDateString("de-DE", {
+                      {new Date(selectedSlot.date).toLocaleDateString(dateLocale, {
                         weekday: "long",
                         day: "2-digit",
                         month: "long",
@@ -3499,6 +3939,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                              if (option.id === "lock") {
                                setIsLockMode(true);
                                setBookingTab("normal");
+                               if (selectedCourtsForLock.length === 0) {
+                                 setSelectedCourtsForLock([selectedCourtInModal || selectedSlot?.court || "Platz 1"]);
+                               }
                              } else if (option.id === "league") {
                                setIsLockMode(false);
                                setBookingTab("league");
@@ -3518,32 +3961,88 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {/* Normal Booking Tab Content */}
                 <div style={{ display: bookingTab === "normal" ? "flex" : "none", flexDirection: "column", flex: 1, overflow: "hidden" }}>
                   <div className="bg-slate-50 p-4 pb-4 space-y-4 overflow-y-auto flex-1 text-slate-700">
-                    {/* Platz wählen */}
-                    <div className="bg-white p-3 rounded-xl border border-slate-200 shrink-0 shadow-sm">
-                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
-                        Platz wählen
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={selectedCourtInModal}
-                          disabled={!isUserAuthorizedToEdit}
-                          onChange={(e) => setSelectedCourtInModal(e.target.value)}
-                          className="w-full h-8 px-3 py-1 pr-8 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer text-slate-800 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
-                        >
-                          {currentModalCourtOptions.map(({ name, isAvailable }) => (
-                            <option
-                              key={name}
-                              value={name}
-                              disabled={!isAvailable && name !== selectedCourtInModal}
-                              className={!isAvailable ? 'text-slate-400 bg-slate-100' : 'text-slate-800'}
-                            >
-                              {name} {!isAvailable ? '(belegt)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[10px]"></i>
+                    {/* Platz wählen / Bei Sperren: Mehrfachauswahl */}
+                    {isLockMode ? (
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shrink-0 shadow-sm space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider">
+                            {t("admin.closures.affectedCourts", "Betroffene Plätze")}
+                          </label>
+                          <button
+                            type="button"
+                            disabled={!isUserAuthorizedToEdit}
+                            onClick={() => {
+                              const all = (settings?.courts && settings.courts.length > 0) ? settings.courts : ["Platz 1", "Platz 2"];
+                              if (selectedCourtsForLock.length === all.length) {
+                                setSelectedCourtsForLock([selectedCourtInModal || all[0]]);
+                              } else {
+                                setSelectedCourtsForLock([...all]);
+                              }
+                            }}
+                            className="text-[10px] font-bold text-[var(--color-primary)] hover:underline cursor-pointer disabled:opacity-50"
+                          >
+                            {selectedCourtsForLock.length === ((settings?.courts && settings.courts.length > 0) ? settings.courts.length : 2)
+                              ? t("common.deselectAll", "Alle abwählen")
+                              : t("dashboard.allCourts", "Alle Plätze")}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {((settings?.courts && settings.courts.length > 0) ? settings.courts : ["Platz 1", "Platz 2"]).map((c) => {
+                            const isSelected = selectedCourtsForLock.includes(c);
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                disabled={!isUserAuthorizedToEdit}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    if (selectedCourtsForLock.length > 1) {
+                                      setSelectedCourtsForLock(selectedCourtsForLock.filter((x) => x !== c));
+                                    }
+                                  } else {
+                                    setSelectedCourtsForLock([...selectedCourtsForLock, c]);
+                                  }
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                                  isSelected
+                                    ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)] shadow-xs"
+                                    : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                }`}
+                              >
+                                <i className={`fa-solid ${isSelected ? "fa-circle-check" : "fa-circle text-slate-300"} text-[10px]`}></i>
+                                {translateCourt(c)}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shrink-0 shadow-sm">
+                        <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
+                          {t("dashboard.selectCourt")}
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedCourtInModal}
+                            disabled={!isUserAuthorizedToEdit}
+                            onChange={(e) => setSelectedCourtInModal(e.target.value)}
+                            className="w-full h-8 px-3 py-1 pr-8 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer text-slate-800 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
+                          >
+                            {currentModalCourtOptions.map(({ name, isAvailable }) => (
+                              <option
+                                key={name}
+                                value={name}
+                                disabled={!isAvailable && name !== selectedCourtInModal}
+                                className={!isAvailable ? 'text-slate-400 bg-slate-100' : 'text-slate-800'}
+                              >
+                                {translateCourt(name)} {!isAvailable ? ` (${t("dashboard.occupiedSlot", "belegt").replace(/^\(|\)$/g, '')})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[10px]"></i>
+                        </div>
+                      </div>
+                    )}
 
                   {error && (
                     <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl flex items-center gap-2 animate-pulse text-[10px] font-bold">
@@ -3551,94 +4050,101 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <span>{error}</span>
                     </div>
                   )}
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-2 gap-3 shrink-0">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-500 uppercase mb-0.5">
-                        Ab
-                      </label>
-                      <select 
-                        value={modalStartTime}
-                        disabled={!isUserAuthorizedToEdit}
-                        onChange={(e) => {
-                          const newStart = e.target.value;
-                          setModalStartTime(newStart);
-                          const startIdx = TIME_SLOTS.indexOf(newStart);
-                          if (TIME_SLOTS.indexOf(endTime) <= startIdx) {
-                            setEndTime(TIME_SLOTS[startIdx + 1]);
-                          }
-                        }}
-                        className="w-full h-8 px-3 py-1 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-accent)] transition-colors disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
-                      >
-                        {TIME_SLOTS.slice(0, -1).map((t) => (
-                          <option key={t} value={t}>
-                            {t} Uhr
-                          </option>
-                        ))}
-                      </select>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 shrink-0 space-y-2.5">
+                    <div className={`grid grid-cols-2 gap-3 transition-opacity duration-200 ${
+                      isFullDay && isLockMode ? "opacity-40 pointer-events-none select-none" : "opacity-100"
+                    }`}>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-500 uppercase mb-0.5">
+                          {t("common.from")}
+                        </label>
+                        <select 
+                          value={isFullDay && isLockMode ? TIME_SLOTS[0] : modalStartTime}
+                          disabled={!isUserAuthorizedToEdit || (isLockMode && isFullDay)}
+                          onChange={(e) => {
+                            const newStart = e.target.value;
+                            setModalStartTime(newStart);
+                            const startIdx = TIME_SLOTS.indexOf(newStart);
+                            if (TIME_SLOTS.indexOf(endTime) <= startIdx) {
+                              setEndTime(TIME_SLOTS[startIdx + 1]);
+                            }
+                          }}
+                          className="w-full h-8 px-3 py-1 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-accent)] transition-colors disabled:opacity-75 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
+                        >
+                          {TIME_SLOTS.slice(0, -1).map((tSlot) => (
+                            <option key={tSlot} value={tSlot}>
+                              {tSlot} {currentLang === "de" ? "Uhr" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-500 uppercase mb-0.5">
+                          {t("common.to")}
+                        </label>
+                        <select 
+                          value={isFullDay && isLockMode ? TIME_SLOTS[TIME_SLOTS.length - 1] : endTime}
+                          disabled={!isUserAuthorizedToEdit || (isLockMode && isFullDay)}
+                          onChange={(e) => setEndTime(e.target.value)}
+                          className="w-full h-8 px-3 py-1 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-accent)] transition-colors text-slate-900 disabled:opacity-75 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
+                        >
+                          {TIME_SLOTS.slice(
+                            TIME_SLOTS.indexOf(isFullDay && isLockMode ? TIME_SLOTS[0] : modalStartTime) + 1,
+                          ).map((tSlot) => (
+                            <option key={tSlot} value={tSlot}>
+                              {tSlot} {currentLang === "de" ? "Uhr" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-500 uppercase mb-0.5">
-                        Bis
-                      </label>
-                      <select 
-                        value={endTime}
-                        disabled={!isUserAuthorizedToEdit}
-                        onChange={(e) => setEndTime(e.target.value)}
-                        className="w-full h-8 px-3 py-1 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-accent)] transition-colors text-slate-900 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
-                      >
-                        {TIME_SLOTS.slice(
-                          TIME_SLOTS.indexOf(modalStartTime) + 1,
-                        ).map((t) => (
-                          <option key={t} value={t}>
-                            {t} Uhr
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+
+                    {isLockMode && (
+                      <div className="pt-2 border-t border-slate-200">
+                        <label className={`flex items-center gap-2 text-[10px] font-bold text-slate-800 cursor-pointer select-none hover:text-slate-900 transition-colors ${!isUserAuthorizedToEdit ? "opacity-60 cursor-not-allowed" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={isFullDay}
+                            disabled={!isUserAuthorizedToEdit}
+                            onChange={(e) => setIsFullDay(e.target.checked)}
+                            className="w-4 h-4 rounded accent-slate-800 cursor-pointer"
+                          />
+                          <span>{t("dashboard.fullDayLock", "GANZTÄGIG SPERREN")}</span>
+                        </label>
+                      </div>
+                    )}
                   </div>
                   {isLockMode ? (
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <label className="block text-[9px] font-bold text-slate-500 uppercase">
-                        Grund der Sperrung
+                        {t("dashboard.lockReason")}
                       </label>
                       <input 
                         type="text"
                         value={reason}
                         disabled={!isUserAuthorizedToEdit}
                         onChange={(e) => setReason(e.target.value)}
-                        className="w-full px-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:border-slate-800 bg-slate-50 transition-colors py-2 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                        placeholder="z.B. Medenspiel, Training..."
+                        className="w-full px-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:border-slate-800 bg-white transition-colors py-2 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400 shadow-2xs"
+                        placeholder={t("dashboard.lockReasonPlaceholder")}
                       />
-                      <div className="flex flex-wrap items-center gap-4 pt-1">
-                        <label className={`flex items-center gap-2 text-[9px] font-bold text-slate-800 cursor-pointer ${!isUserAuthorizedToEdit ? "opacity-60 cursor-not-allowed" : ""}`}>
-                          <input
-                            type="checkbox"
-                            checked={isFullDay}
-                            disabled={!isUserAuthorizedToEdit}
-                            onChange={(e) => setIsFullDay(e.target.checked)}
-                            className="w-4 h-4 accent-slate-800 font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                          />
-                          <span>GANZTÄGIG</span>
-                        </label>
-                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="bg-slate-50 h-8 px-3 py-1 rounded-lg border border-slate-200 font-sans font-medium">
+                      <div className="pt-3.5 mt-3.5 border-t border-slate-100">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                        <i className="fa-solid fa-users text-slate-400 text-xs shrink-0"></i>
+                        <span>{t("dashboard.players", "Spieler")}</span>
+                      </label>
+                      <div className="bg-slate-50 h-8 px-3 py-1 rounded-lg border border-slate-200 font-sans font-medium mb-2.5">
                         <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">
-                          {selectedSlot?.editingId ? "Spieler 1 (Ersteller)" : "Spieler 1 (Eingeloggt)"}
+                          {selectedSlot?.editingId ? t("dashboard.player1Creator") : t("dashboard.player1LoggedIn")}
                         </label>
-                        <div className="font-bold text-sm text-[var(--color-primary)] flex items-center gap-1.5">
-                          <i className="fa-solid fa-user-check text-[var(--color-primary)]"></i>
+                        <div className="font-bold text-sm text-slate-800">
                           {spieler1Name}
                         </div>
                       </div>
                       <div className="space-y-2.5 relative">
-                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">
-                          Mitspieler
-                        </label>
-
-                        <div className="relative">
+                          <div className="relative">
                           <div className="relative flex items-center w-full">
                             <i className="fa-solid fa-magnifying-glass absolute left-3 text-slate-400 text-xs pointer-events-none"></i>
                             <input 
@@ -3653,10 +4159,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                               }
                               placeholder={
                                 !isUserAuthorizedToEdit
-                                  ? "Keine Berechtigung zum Bearbeiten"
-                                  : "Mitspieler suchen & hinzufügen..."
+                                  ? t("dashboard.noPermissionEdit")
+                                  : t("dashboard.searchCoPlayersPlaceholder")
                               }
-                              className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg bg-white focus:border-[var(--color-accent)] outline-none text-slate-900 text-sm transition-all disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                              className="w-full h-8 pl-9 pr-3 py-1 border border-slate-200 rounded-lg bg-white focus:border-[var(--color-accent)] outline-none text-slate-900 text-sm transition-all disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                             />
                           </div>
 
@@ -3665,7 +4171,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                               {getFilteredUsers(playerQuery).length === 0 ? (
                                 canBookHobbyLeague ? (
                                   <div className="p-3 text-center flex flex-col items-center gap-2">
-                                    <span className="text-[10px] text-slate-500 font-bold">Kein Mitspieler gefunden.</span>
+                                    <span className="text-[10px] text-slate-500 font-bold">{t("dashboard.noCoPlayersFound")}</span>
                                     <button 
                                       type="button" 
                                       onMouseDown={(e) => { e.preventDefault(); setBookingTab("league"); }}
@@ -3675,7 +4181,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                     </button>
                                   </div>
                                 ) : (
-                                  <div className="p-3 text-[10px] text-slate-500 font-bold text-center">Kein Mitspieler gefunden.</div>
+                                  <div className="p-3 text-[10px] text-slate-500 font-bold text-center">{t("dashboard.noCoPlayersFound")}</div>
                                 )
                               ) : (
                                 getFilteredUsers(playerQuery).map((s) => (
@@ -3712,7 +4218,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                     type="button"
                                     onClick={() => handleRemovePlayer(idx)}
                                     className="w-3.5 h-3.5 rounded-full bg-emerald-100/80 hover:bg-emerald-600 hover:text-white flex items-center justify-center transition-colors text-[8px] font-black ml-0.5 cursor-pointer"
-                                    title="Entfernen"
+                                    title={t("common.delete")}
                                   >
                                     <i className="fa-solid fa-xmark"></i>
                                   </button>
@@ -3721,83 +4227,167 @@ const Dashboard: React.FC<DashboardProps> = ({
                             ))}
                           </div>
                         )}
+
+                        {/* Frequent / Recommended Partners Quick-Select Pills (Mobile: max 3) */}
+                        {recommendedPartnersMobile.length > 0 && additionalPlayers.length < 3 && isUserAuthorizedToEdit && (
+                          <div className="space-y-1 pt-0.5">
+                            <div className="text-[9px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                              <i className="fa-solid fa-bolt text-amber-500 text-[8px]"></i>
+                              <span>{t("dashboard.frequentPartners")}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {recommendedPartnersMobile.map((rec) => (
+                                <button
+                                  key={rec.user.id}
+                                  type="button"
+                                  onClick={() => handleAddRecommendedPartner(rec.displayName)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/20 active:scale-95 transition-all shadow-3xs max-w-[160px] cursor-pointer truncate"
+                                  title={`${rec.displayName} (${rec.totalCount}x gespielt)`}
+                                >
+                                  <i className="fa-solid fa-plus text-[8px] shrink-0 opacity-80"></i>
+                                  <span className="truncate">{rec.displayName}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    </div>
 
-                      {(() => {
-                        const maxMachines =
-                          reservationRules?.availableBallMachines ?? 1;
-                        if (maxMachines <= 0) return null;
-
-                        const ballMachinesInUse = bookings.filter(
-                          (b) =>
-                            b.id !== selectedSlot.editingId &&
-                            b.date === selectedSlot.date &&
-                            b.time === modalStartTime &&
-                            b.court !== selectedSlot.court &&
-                            b.hasBallMachine,
-                        ).length;
-                        const ballMachineBelegt =
-                          ballMachinesInUse >= maxMachines;
-                        return (
-                          <div className="flex flex-col justify-end">
-                            <label
-                              className={`flex items-center gap-2 p-2 bg-green-50/50 border rounded-lg transition-all shadow-sm ${ballMachineBelegt ? "opacity-50 border-red-200 bg-red-50 cursor-not-allowed" : !isUserAuthorizedToEdit ? "opacity-60 bg-slate-100 border-slate-200 cursor-not-allowed" : "border-[var(--color-primary)]/10 cursor-pointer hover:bg-green-100"}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={!ballMachineBelegt && hasBallMachine}
-                                onChange={(e) => {
-                                  if (!ballMachineBelegt) {
-                                    setHasBallMachine(e.target.checked);
-                                  }
-                                }}
-                                disabled={ballMachineBelegt || !isUserAuthorizedToEdit}
-                                className="w-4 h-4 accent-[var(--color-primary)] disabled:opacity-60 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                              />
-                              <span className="text-[9px] font-bold text-[var(--color-primary)] uppercase flex items-center gap-1.5">
-                                <i className="fa-solid fa-robot"></i>{" "}
-                                Ballmaschine
-                              </span>
-                            </label>
-                            {ballMachineBelegt && (
-                              <p className="text-[8px] text-red-600 font-bold mt-0.5 uppercase tracking-wider leading-none">
-                                <i className="fa-solid fa-circle-exclamation mr-1"></i>{" "}
-                                Belegt auf anderem Platz!
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {settings?.modules?.guests !== false && (
-                        <div className="flex flex-col justify-end">
-                          <label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5 flex items-center gap-1">
-                            <i className="fa-solid fa-user-tag text-slate-400"></i>{" "}
-                            Gastspieler
-                          </label>
-                          <div className="flex gap-1">
-                            {[0, 1, 2, 3].map((num) => (
-                              <button
-                                key={num}
-                                type="button"
-                                disabled={!isUserAuthorizedToEdit}
-                                onClick={() => setGuestCount(num)}
-                                className={`flex-1 h-8 rounded-lg border font-bold text-[11px] transition-all active:scale-95 flex items-center justify-center gap-0.5 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed ${guestCount === num ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white shadow-sm" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}
-                              >
-                                {num > 0 && (
-                                  <i className="fa-solid fa-user text-[9px]"></i>
-                                )}
-                                {num}
-                              </button>
-                            ))}
-                          </div>
+                      {availableEquipmentResources.length > 0 && (
+                        <div className="pt-3.5 mt-3.5 border-t border-slate-100">
+                          <EquipmentSelector
+                            resources={availableEquipmentResources}
+                            selectedResourceIds={selectedResourceIds}
+                            onChange={(ids) => {
+                              setSelectedResourceIds(ids);
+                              setHasBallMachine(ids.some((id) => id.includes("ballmachine") || id === "ballmachine"));
+                            }}
+                            bookedResourceIds={bookedResourceIdsForSlot}
+                            disabled={!isUserAuthorizedToEdit}
+                          />
                         </div>
                       )}
+
+                      {settings?.modules?.guests !== false && (
+                        <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex flex-col justify-end">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                            <i className="fa-solid fa-user-tag text-slate-400 text-xs shrink-0"></i>
+                            <span>{t("dashboard.guestPlayers", "Gastspieler")}</span>
+                          </label>
+                          <div className="space-y-1.5">
+                            {activeGuestCategories.map((cat) => {
+                              const val =
+                                cat.key === "guestCount"
+                                  ? guestCount
+                                  : cat.key === "adultGuestCount"
+                                  ? adultGuestCount
+                                  : youthGuestCount;
+                              return (
+                                <GuestCountStepper
+                                  key={cat.id}
+                                  value={val}
+                                  onChange={(newVal) => handleGuestCategoryChange(cat.key, newVal)}
+                                  label={cat.label}
+                                  min={0}
+                                  max={getCategoryMax(cat.key)}
+                                  disabled={!isUserAuthorizedToEdit}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {/* Neues Kassenbon-Layout & Akkordeon für Preisregeln */}
+                          <AnimatePresence initial={false}>
+                            {effectiveModalGuestCount > 0 && liveFeeResult && (() => {
+                              const durationHours = modalStartTime && endTime ? getDurationInHours(modalStartTime, endTime) : 1;
+                              const durationStr = durationHours % 1 === 0 ? `${durationHours} Std.` : `${durationHours.toFixed(1).replace('.', ',')} Std.`;
+                              const guestStr = effectiveModalGuestCount === 1 ? '1 Gast' : `${effectiveModalGuestCount} Gäste`;
+
+                              return (
+                                <motion.div
+                                  key="guest-fee-receipt-box-1"
+                                  initial={{ opacity: 0, height: 0, y: -8 }}
+                                  animate={{ opacity: 1, height: "auto", y: 0 }}
+                                  exit={{ opacity: 0, height: 0, y: -8 }}
+                                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="border-t border-slate-100 pt-2.5 mt-2.5 flex flex-col gap-1.5">
+                                    {/* Gastgebühr */}
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-slate-600 font-medium">Gastgebühr ({guestStr} x {durationStr})</span>
+                                      <span className="font-bold text-slate-900 text-sm">
+                                        {liveFeeResult.totalEuro.toFixed(2).replace('.', ',')} €
+                                      </span>
+                                    </div>
+
+                                    {/* Akkordeon für Preisregeln */}
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowGuestPriceRules((prev) => !prev)}
+                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors cursor-pointer select-none"
+                                      >
+                                        <i className="fa-solid fa-circle-info text-[11px] text-slate-400"></i>
+                                        <span>Preisregeln anzeigen</span>
+                                        <i
+                                          className={`fa-solid fa-chevron-${showGuestPriceRules ? "up" : "down"} text-[9px] text-slate-400 transition-transform`}
+                                        ></i>
+                                      </button>
+
+                                      <AnimatePresence initial={false}>
+                                        {showGuestPriceRules && (
+                                          <motion.div
+                                            initial={{ opacity: 0, height: 0, y: -4 }}
+                                            animate={{ opacity: 1, height: "auto", y: 0 }}
+                                            exit={{ opacity: 0, height: 0, y: -4 }}
+                                            transition={{ duration: 0.2, ease: "easeOut" }}
+                                            className="overflow-hidden"
+                                          >
+                                            <div className="mt-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600">
+                                              <div className="font-medium text-slate-800">
+                                                Angewandte Regel:{" "}
+                                                <span className="font-semibold text-slate-900">
+                                                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === "ADVANCED" ? "Standardregel" : "Standard-Tarif")}
+                                                </span>
+                                                . {liveFeeResult.appliedRateText || formatAppliedRate(liveFeeResult.action)}.
+                                              </div>
+                                            </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              );
+                            })()}
+                          </AnimatePresence>
+                        </div>
+                      )}
+
+                      <div className="pt-3.5 mt-3.5 border-t border-slate-100 space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                          <i className="fa-regular fa-comment-dots text-slate-400 text-xs shrink-0"></i>
+                          <span>{t("dashboard.comment", "Kommentar")}</span>
+                          <span className="text-[9px] font-normal text-slate-400 normal-case tracking-normal">
+                            {t("dashboard.commentOptional", "(optional)")}
+                          </span>
+                        </label>
+                        <input 
+                          type="text"
+                          value={comment}
+                          disabled={!isUserAuthorizedToEdit}
+                          onChange={(e) => setComment(e.target.value)}
+                          placeholder={t("dashboard.commentPlaceholder")}
+                          className="w-full h-8 px-3 py-1 border border-slate-200 rounded-lg text-sm outline-none focus:border-[var(--color-primary)] bg-white transition-colors shadow-2xs disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed placeholder:font-normal placeholder:text-slate-400 font-sans font-medium text-slate-900"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
                 <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col gap-2 shrink-0">
-                  {selectedSlot?.editingId && isUserAuthorizedToEdit && (
+                  {selectedSlot?.editingId && isUserAuthorizedToEdit && !isLockMode && (
                     <div className="flex items-center gap-2 px-1 py-0.5 text-slate-700">
                       <input
                         type="checkbox"
@@ -3808,38 +4398,46 @@ const Dashboard: React.FC<DashboardProps> = ({
                       />
                       <label htmlFor="sendEditNotificationMobile" className="text-xs font-semibold text-slate-700 cursor-pointer select-none flex items-center gap-1.5">
                         <i className="fa-solid fa-envelope text-[11px] text-emerald-700"></i>
-                        E-Mail über Änderung an Mitspieler versenden
+                        {t("dashboard.sendEditNotification")}
                       </label>
                     </div>
                   )}
                   {!isUserAuthorizedToEdit && (
                     <p className="text-center text-xs text-slate-500 font-semibold font-sans py-1">
                       <i className="fa-solid fa-circle-info mr-1.5 text-slate-400"></i>
-                      Diese Reservierung kann nur vom Ersteller oder Admin bearbeitet werden.
+                      {isParticipant
+                        ? t("dashboard.participantNotAuthorizedNote")
+                        : t("dashboard.onlyCreatorCanEdit")}
                     </p>
+                  )}
+                  {selectedSlot?.editingId && isUserAuthorizedToEdit && !isCreator && isParticipant && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-2.5 py-1.5 flex items-center gap-2 text-emerald-800 text-[11px] font-medium">
+                      <i className="fa-solid fa-user-check text-emerald-600 text-xs shrink-0"></i>
+                      <span>{t("dashboard.participantAuthorizedNote")}</span>
+                    </div>
                   )}
                   <div className="flex gap-3 w-full">
                     {isUserAuthorizedToEdit && (
                       <button
                         onClick={confirmAction}
-                        className={`flex-1 text-white rounded-xl shadow transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 h-10 text-sm font-medium ${isLockMode ? "bg-slate-500 hover:bg-slate-600" : "hover:brightness-95"}`}
+                        className={`flex-1 text-white rounded-xl shadow transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 h-10 text-sm font-semibold ${isLockMode ? "bg-slate-500 hover:bg-slate-600" : "hover:brightness-95"}`}
                         style={!isLockMode ? { backgroundColor: settings?.primaryColor || "var(--color-primary)" } : undefined}
                       >
                         <i
                           className={`fa-solid ${selectedSlot.editingId ? "fa-floppy-disk" : "fa-check-circle"}`}
                         ></i>
                         {selectedSlot.editingId
-                          ? "Speichern"
+                          ? t("dashboard.saveBooking")
                           : isLockMode
-                            ? "Sperrung aktiv"
-                            : "Platz reservieren"}
+                            ? t("dashboard.lockActive")
+                            : t("dashboard.reserveCourt")}
                       </button>
                     )}
                     <button
                       onClick={() => setIsModalOpen(false)}
                       className={`${isUserAuthorizedToEdit ? "px-6 bg-white border border-slate-300 text-slate-700" : "flex-1 bg-slate-200 text-slate-700"} font-bold py-2.5 rounded-xl shadow-sm transition-all uppercase tracking-wider text-[10px] active:scale-95`}
                     >
-                      {isUserAuthorizedToEdit ? "Abbr." : "Schließen"}
+                      {isUserAuthorizedToEdit ? t("common.cancel") : t("common.close")}
                     </button>
                   </div>
                 </div>
@@ -3930,7 +4528,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 disabled={!isAvailable && name !== selectedCourtInModal}
                                 className={!isAvailable ? 'text-slate-400 bg-slate-100' : 'text-slate-800'}
                               >
-                                {name} {!isAvailable ? '(belegt)' : ''}
+                                {translateCourt(name)} {!isAvailable ? ` (${t("dashboard.occupiedSlot", "belegt").replace(/^\(|\)$/g, '')})` : ''}
                               </option>
                             ))}
                           </select>
@@ -4014,8 +4612,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">
                             {selectedSlot?.editingId ? "Spieler 1 (Ersteller)" : "Spieler 1 (Eingeloggt)"}
                           </label>
-                          <div className="font-bold text-sm text-[var(--color-primary)] flex items-center gap-1.5">
-                            <i className="fa-solid fa-user-check text-[var(--color-primary)]"></i>
+                          <div className="font-bold text-sm text-slate-800">
                             {spieler1Name}
                           </div>
                         </div>
@@ -4108,7 +4705,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         {isUserAuthorizedToEdit && (
                           <button
                             onClick={handleLeagueSubmit}
-                            className="flex-1 text-white rounded-xl shadow transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 h-10 text-sm font-medium hover:brightness-95"
+                            className="flex-1 text-white rounded-xl shadow transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 h-10 text-sm font-semibold hover:brightness-95"
                             style={{ backgroundColor: settings?.primaryColor || "var(--color-primary)" }}
                           >
                             Ligaspiel eintragen
@@ -4164,12 +4761,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <i className="fa-solid fa-calendar-day text-[var(--color-primary)] text-[11px] sm:text-[10.5px]"></i>
                 <span className="text-[11px] sm:text-[11.5px] font-semibold text-slate-800 uppercase tracking-wider whitespace-nowrap pt-[0.5px]">
                   {viewType === "day"
-                    ? new Date(selectedDate).toLocaleDateString("de-DE", {
+                    ? new Date(selectedDate).toLocaleDateString(dateLocale, {
                         weekday: "short",
                         day: "2-digit",
                         month: "2-digit",
                       })
-                    : `${new Date(weekDates[0]).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })} - ${new Date(weekDates[6]).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`}
+                    : `${new Date(weekDates[0]).toLocaleDateString(dateLocale, { day: "2-digit", month: "2-digit" })} - ${new Date(weekDates[6]).toLocaleDateString(dateLocale, { day: "2-digit", month: "2-digit" })}`}
                 </span>
                 <i className="fa-solid fa-caret-down text-slate-400 group-hover:text-slate-600 transition-colors text-[8px]"></i>
               </button>
@@ -4201,8 +4798,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                           handleCustomCalNavigateMonth(-1);
                         }}
                         className="text-slate-600 hover:text-emerald-700 hover:bg-slate-100 p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer active:scale-95"
-                        title="Vorheriger Monat"
-                        aria-label="Vorheriger Monat"
+                        title={t("common.prevMonth", "Vorheriger Monat")}
+                        aria-label={t("common.prevMonth", "Vorheriger Monat")}
                       >
                         <i className="fa-solid fa-chevron-left text-xs"></i>
                       </button>
@@ -4214,22 +4811,22 @@ const Dashboard: React.FC<DashboardProps> = ({
                           transition={{ duration: 0.18, ease: "easeOut" }}
                           className="text-sm lg:text-xs font-black text-[var(--color-primary)] uppercase tracking-wider text-center"
                         >
-                          {
-                            [
-                              "Januar",
-                              "Februar",
-                              "März",
-                              "April",
-                              "Mai",
-                              "Juni",
-                              "Juli",
-                              "August",
-                              "September",
-                              "Oktober",
-                              "November",
-                              "Dezember",
-                            ][currentCalendarMonth.getMonth()]
-                          }{" "}
+                          {(i18n.language || "").startsWith("en")
+                            ? currentCalendarMonth.toLocaleDateString("en-US", { month: "long" })
+                            : [
+                                "Januar",
+                                "Februar",
+                                "März",
+                                "April",
+                                "Mai",
+                                "Juni",
+                                "Juli",
+                                "August",
+                                "September",
+                                "Oktober",
+                                "November",
+                                "Dezember",
+                              ][currentCalendarMonth.getMonth()]}{" "}
                           {currentCalendarMonth.getFullYear()}
                         </motion.span>
                       </div>
@@ -4240,8 +4837,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                           handleCustomCalNavigateMonth(1);
                         }}
                         className="text-slate-600 hover:text-emerald-700 hover:bg-slate-100 p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer active:scale-95"
-                        title="Nächster Monat"
-                        aria-label="Nächster Monat"
+                        title={t("common.nextMonth", "Nächster Monat")}
+                        aria-label={t("common.nextMonth", "Nächster Monat")}
                       >
                         <i className="fa-solid fa-chevron-right text-xs"></i>
                       </button>
@@ -4249,7 +4846,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                     {/* Weekdays */}
                     <div className="grid grid-cols-7 gap-1 place-items-center mb-2 select-none">
-                      {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((wd) => (
+                      {((i18n.language || "").startsWith("en")
+                        ? ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+                        : ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+                      ).map((wd) => (
                         <span
                           key={wd}
                           className="w-full text-center text-[10px] lg:text-[9px] font-black uppercase text-slate-400 py-1"
@@ -4331,7 +4931,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <span
                 className={`relative z-10 flex items-center gap-1.5 ${viewType === "day" ? "text-white" : "text-slate-500 hover:text-slate-700"}`}
               >
-                <i className="fa-solid fa-calendar-day text-[10px]"></i> Tag
+                <i className="fa-solid fa-calendar-day text-[10px]"></i> {t("dashboard.dayView", "Tag")}
               </span>
             </button>
             <button
@@ -4353,7 +4953,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <span
                 className={`relative z-10 flex items-center gap-1.5 ${viewType === "week" ? "text-white" : "text-slate-500 hover:text-slate-700"}`}
               >
-                <i className="fa-solid fa-calendar-week text-[10px]"></i> Woche
+                <i className="fa-solid fa-calendar-week text-[10px]"></i> {t("dashboard.weekView", "Woche")}
               </span>
             </button>
             <div className="w-[1px] h-3 bg-slate-300 mx-1 shrink-0 relative z-10" />
@@ -4365,81 +4965,29 @@ const Dashboard: React.FC<DashboardProps> = ({
                 setCurrentCalendarMonth(new Date());
               }}
               className="flex-1 sm:px-3 h-full rounded-lg font-black md:font-medium uppercase text-[10px] lg:text-[9px] tracking-widest transition-colors flex items-center justify-center gap-1.5 relative cursor-pointer outline-none text-slate-500 hover:text-slate-700 active:scale-95"
-              title="Zum heutigen Tag springen"
+              title={t("dashboard.jumpToToday", "Zum heutigen Tag springen")}
             >
               <i className="fa-solid fa-clock-rotate-left text-[10px]"></i>{" "}
-              Heute
+              {t("dashboard.today", "Heute")}
             </button>
           </div>
         </div>
         <div className="flex flex-wrap gap-3 sm:gap-4 overflow-x-auto w-full lg:w-auto shrink-0 border-t sm:border-t-0 lg:border-l border-slate-200 lg:border-slate-300 pt-1 sm:pt-0 lg:pl-4 lg:pr-3 min-h-8 items-center justify-center sm:justify-start">
           <span className="flex items-center gap-1.5 text-[10px] lg:text-[9px] font-black md:font-medium text-slate-600 uppercase whitespace-nowrap">
-            <div className="w-3 h-3 bg-white border border-slate-400 rounded-sm shadow-sm"></div>{" "}
-            Frei
+            <div className="w-3.5 h-3.5 bg-white border border-slate-300 rounded-sm shadow-2xs"></div>{" "}
+            {t("dashboard.available", "Frei")}
           </span>
           <span className="flex items-center gap-1.5 text-[10px] lg:text-[9px] font-black md:font-medium text-slate-600 uppercase whitespace-nowrap">
-            <div className="w-3 h-3 bg-emerald-50 border border-emerald-300 rounded-sm shadow-sm"></div>{" "}
-            Gebucht
+            <div className="w-3.5 h-3.5 bg-emerald-50 border border-emerald-200 border-l-[3px] border-l-emerald-600 rounded-sm shadow-2xs"></div>{" "}
+            {t("dashboard.occupied", "Gebucht")}
           </span>
           <span className="flex items-center gap-1.5 text-[10px] lg:text-[9px] font-black md:font-medium text-slate-600 uppercase whitespace-nowrap">
-            <div className="w-3 h-3 bg-slate-200 border border-slate-400 rounded-sm shadow-sm"></div>{" "}
-            Blockiert
+            <div className="w-3.5 h-3.5 bg-slate-100 border border-slate-300 rounded-sm shadow-2xs"></div>{" "}
+            {t("dashboard.locked", "Blockiert")}
           </span>
         </div>
       </div>
 
-      {activePeriodRangeLocks.length > 0 && (
-        <div className="space-y-3">
-          {activePeriodRangeLocks.map((lock) => {
-            const startStr = new Date(lock.startDate).toLocaleDateString(
-              "de-DE",
-              { day: "2-digit", month: "2-digit", year: "numeric" },
-            );
-            const endStr = new Date(lock.endDate).toLocaleDateString("de-DE", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            });
-            const isWinterBreak = lock.title.toLowerCase().includes("winter");
-            return (
-              <div
-                key={lock.id}
-                className={`p-5 sm:p-6 rounded-3xl border-2 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in slide-in-from-top duration-300 ${
-                  isWinterBreak
-                    ? "bg-blue-50/95 border-blue-200 text-blue-950"
-                    : "bg-amber-50/95 border-amber-200 text-amber-950"
-                }`}
-              >
-                <div className="flex items-start md:items-center gap-4">
-                  <div
-                    className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${
-                      isWinterBreak
-                        ? "bg-blue-100 border-blue-200 text-blue-600"
-                        : "bg-amber-100 border-amber-200 text-amber-600"
-                    }`}
-                  >
-                    <i
-                      className={`fa-solid ${isWinterBreak ? "fa-snowflake text-lg" : "fa-triangle-exclamation text-lg"}`}
-                    ></i>
-                  </div>
-                  <div>
-                    <h4 className="font-black text-xs uppercase tracking-wider leading-none">
-                      {lock.title}
-                    </h4>
-                    <p className="text-[11px] font-bold mt-1.5 opacity-90 leading-relaxed">
-                      Einschränkung für {lock.courts.join(", ")} vom{" "}
-                      <strong>{startStr}</strong> bis zum{" "}
-                      <strong>{endStr}</strong> aktiv. In diesem Zeitraum sind
-                      die betroffenen Plätze für Reservierungen komplett
-                      gesperrt.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       <div className="w-full relative flex flex-col">
         <AnimatePresence mode="wait">
@@ -4489,7 +5037,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="flex w-full min-w-[600px] relative">
                     {/* Time Axis Column */}
                     <div className="w-24 shrink-0 border-r-2 border-slate-400 bg-slate-200 z-30 flex flex-col sticky left-0 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
-                        <div className="h-[72px] border-b-2 border-slate-400 bg-slate-200 text-center font-black md:font-normal uppercase text-[10px] text-[var(--color-primary)] sticky top-0 z-40 flex items-center justify-center">Zeitraum</div>
+                        <div className="h-[72px] border-b-2 border-slate-400 bg-slate-200 text-center font-black md:font-normal uppercase text-[10px] text-[var(--color-primary)] sticky top-0 z-40 flex items-center justify-center">{t("dashboard.period") || "Zeitraum"}</div>
                         <div className="flex flex-col" style={{ height: gridHeight }}>
                             {startTimes.map((time, idx) => {
                                 const nextTime = TIME_SLOTS[TIME_SLOTS.indexOf(time) + 1];
@@ -4504,7 +5052,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                       onMouseLeave={() => setHoveredTime(null)}
                                    >
                                       <span className={`text-xs font-medium text-center leading-none tracking-tight transition-colors ${isHoveredTime ? "text-white" : "text-slate-500"}`}>
-                                          {parseInt(time)} - {parseInt(nextTime)} Uhr
+                                          {i18n.language === "en" ? `${parseInt(time)}:00 - ${parseInt(nextTime)}:00` : `${parseInt(time)} - ${parseInt(nextTime)} Uhr`}
                                       </span>
                                    </div>
                                 )
@@ -4517,7 +5065,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <div className="flex sticky top-0 z-20 bg-slate-50 border-b-2 border-slate-400 h-[72px]">
                            {courts.map(court => (
                               <div key={court} className="flex-1 min-w-[120px] h-full text-center font-bold uppercase text-[12px] text-[var(--color-primary)] border-r border-slate-300 last:border-r-0 flex items-center justify-center">
-                                 {court}
+                                 {translateCourt(court)}
                               </div>
                            ))}
                         </div>
@@ -4544,7 +5092,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex w-full relative min-w-[700px]">
               {/* Time Axis Column */}
               <div className="w-24 shrink-0 border-r-2 border-slate-400 bg-slate-200 z-30 flex flex-col sticky left-0 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
-                  <div className="h-[72px] border-b-2 border-slate-400 bg-slate-200 text-center font-black md:font-normal uppercase text-[10px] text-[var(--color-primary)] sticky top-0 z-40 flex items-center justify-center">Zeitraum</div>
+                  <div className="h-[72px] border-b-2 border-slate-400 bg-slate-200 text-center font-black md:font-normal uppercase text-[10px] text-[var(--color-primary)] sticky top-0 z-40 flex items-center justify-center">{t("dashboard.period") || "Zeitraum"}</div>
                   <div className="flex flex-col" style={{ height: gridHeight }}>
                       {startTimes.map((time, idx) => {
                           const nextTime = TIME_SLOTS[TIME_SLOTS.indexOf(time) + 1];
@@ -4559,7 +5107,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 onMouseLeave={() => setHoveredTime(null)}
                              >
                                 <span className={`text-xs font-medium text-center leading-none tracking-tight transition-colors ${isHoveredTime ? "text-white" : "text-slate-500"}`}>
-                                    {parseInt(time)} - {parseInt(nextTime)} Uhr
+                                    {i18n.language === "en" ? `${parseInt(time)}:00 - ${parseInt(nextTime)}:00` : `${parseInt(time)} - ${parseInt(nextTime)} Uhr`}
                                 </span>
                              </div>
                           )
@@ -4576,10 +5124,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                           <div key={date} className="flex-1 min-w-0 text-center border-r-2 border-slate-500 last:border-r-0 flex items-center justify-center">
                             <div className="flex justify-center items-center gap-1 font-bold uppercase text-[10px] md:text-[11px] lg:text-[12px]">
                               <span className="tracking-widest text-[var(--color-primary)]">
-                                {new Date(date).toLocaleDateString("de-DE", { weekday: "short" })}
+                                {new Date(date).toLocaleDateString(dateLocale, { weekday: "short" }).replace(".", "").toUpperCase()}
                               </span>
                               <span className="text-slate-500 font-bold">
-                                {new Date(date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+                                {new Date(date).toLocaleDateString(dateLocale, { day: "2-digit", month: "2-digit" })}
                               </span>
                             </div>
                           </div>
@@ -4590,7 +5138,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                            <div key={`${date}-courts`} className="flex-1 min-w-0 flex border-r-2 border-slate-500 last:border-r-0">
                               {courts.map(court => (
                                  <div key={court} className="flex-1 min-w-0 h-8 text-center font-bold uppercase text-[10px] lg:text-[11px] text-slate-600 border-r border-slate-300 last:border-r-0 flex items-center justify-center">
-                                    {court}
+                                    {translateCourt(court)}
                                  </div>
                               ))}
                            </div>
@@ -4620,6 +5168,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div
             className="hidden lg:flex fixed inset-0 z-[99999] justify-end bg-slate-900/60 backdrop-blur-[2px] transition-opacity"
             onClick={handleCloseModal}
+            onWheel={(e) => {
+              if (e.target === e.currentTarget) {
+                e.preventDefault();
+              }
+            }}
             style={{
               opacity: !isAnimatingIn || isClosing ? 0 : 1,
               transitionDuration: isClosing ? "200ms" : "250ms",
@@ -4628,7 +5181,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             }}
           >
             <div
-              className="w-[450px] max-w-[100vw] h-[100vh] bg-white shadow-2xl flex flex-col transform transition-transform pointer-events-auto"
+              className="w-[450px] max-w-[100vw] h-[100vh] bg-white shadow-2xl flex flex-col transform transition-transform pointer-events-auto overscroll-contain"
               onClick={(e) => e.stopPropagation()}
               style={{
                 transform:
@@ -4660,11 +5213,13 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                 <div className="relative z-10">
                   <h3 className="text-xl font-bold uppercase tracking-tight leading-none mb-1">
-                    {selectedSlot.editingId && isUserAuthorizedToEdit ? "Bearbeiten" : selectedSlot.court}
+                    {selectedSlot.editingId && isUserAuthorizedToEdit
+                      ? (isLockMode ? t("dashboard.lockCourtTab", "Platz sperren") : t("common.edit", "Bearbeiten"))
+                      : translateCourt(selectedCourtInModal || selectedSlot.court)}
                   </h3>
                   <p className="text-[11px] font-bold text-white/90 flex items-center gap-1.5">
                     <i className="fa-solid fa-calendar-day opacity-75"></i>
-                    {new Date(selectedSlot.date).toLocaleDateString("de-DE", {
+                    {new Date(selectedSlot.date).toLocaleDateString(dateLocale, {
                       weekday: "long",
                       day: "2-digit",
                       month: "long",
@@ -4747,7 +5302,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     >
                       <div>
                         <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                          Benutzername oder E-Mail
+                          {t("auth.usernameOrEmail", "Benutzername")}
                         </label>
                         <input
                           type="text"
@@ -4818,6 +5373,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                                if (option.id === "lock") {
                                  setIsLockMode(true);
                                  setBookingTab("normal");
+                                 if (selectedCourtsForLock.length === 0) {
+                                   setSelectedCourtsForLock([selectedCourtInModal || selectedSlot?.court || "Platz 1"]);
+                                 }
                                } else if (option.id === "league") {
                                  setIsLockMode(false);
                                  setBookingTab("league");
@@ -4841,124 +5399,186 @@ const Dashboard: React.FC<DashboardProps> = ({
                 className="p-5 overflow-y-auto flex-1 bg-slate-50 space-y-5"
                 style={{ isolation: "isolate" }}
               >
-                    {/* Platz wählen */}
-                    <div className="bg-white p-3 rounded-xl mb-5 border border-slate-200 shrink-0 shadow-sm">
-                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
-                        Platz wählen
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={selectedCourtInModal}
-                          disabled={!isUserAuthorizedToEdit}
-                          onChange={(e) => setSelectedCourtInModal(e.target.value)}
-                          className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer text-slate-800 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
-                        >
-                          {currentModalCourtOptions.map(({ name, isAvailable }) => (
-                            <option
-                              key={name}
-                              value={name}
-                              disabled={!isAvailable && name !== selectedCourtInModal}
-                              className={!isAvailable ? 'text-slate-400 bg-slate-100' : 'text-slate-800'}
-                            >
-                              {name} {!isAvailable ? '(belegt)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                    {/* Platz wählen / Bei Sperren: Mehrfachauswahl */}
+                    {isLockMode ? (
+                      <div className="bg-white p-3 rounded-xl mb-5 border border-slate-200 shrink-0 shadow-sm space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider">
+                            {t("admin.closures.affectedCourts", "Betroffene Plätze")}
+                          </label>
+                          <button
+                            type="button"
+                            disabled={!isUserAuthorizedToEdit}
+                            onClick={() => {
+                              const all = (settings?.courts && settings.courts.length > 0) ? settings.courts : ["Platz 1", "Platz 2"];
+                              if (selectedCourtsForLock.length === all.length) {
+                                setSelectedCourtsForLock([selectedCourtInModal || all[0]]);
+                              } else {
+                                setSelectedCourtsForLock([...all]);
+                              }
+                            }}
+                            className="text-[10px] font-bold text-[var(--color-primary)] hover:underline cursor-pointer disabled:opacity-50"
+                          >
+                            {selectedCourtsForLock.length === ((settings?.courts && settings.courts.length > 0) ? settings.courts.length : 2)
+                              ? t("common.deselectAll", "Alle abwählen")
+                              : t("dashboard.allCourts", "Alle Plätze")}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {((settings?.courts && settings.courts.length > 0) ? settings.courts : ["Platz 1", "Platz 2"]).map((c) => {
+                            const isSelected = selectedCourtsForLock.includes(c);
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                disabled={!isUserAuthorizedToEdit}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    if (selectedCourtsForLock.length > 1) {
+                                      setSelectedCourtsForLock(selectedCourtsForLock.filter((x) => x !== c));
+                                    }
+                                  } else {
+                                    setSelectedCourtsForLock([...selectedCourtsForLock, c]);
+                                  }
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                                  isSelected
+                                    ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)] shadow-xs"
+                                    : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                }`}
+                              >
+                                <i className={`fa-solid ${isSelected ? "fa-circle-check" : "fa-circle text-slate-300"} text-[10px]`}></i>
+                                {translateCourt(c)}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="bg-white p-3 rounded-xl mb-5 border border-slate-200 shrink-0 shadow-sm">
+                        <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
+                          {t("dashboard.selectCourt", "Platz wählen")}
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedCourtInModal}
+                            disabled={!isUserAuthorizedToEdit}
+                            onChange={(e) => setSelectedCourtInModal(e.target.value)}
+                            className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer text-slate-800 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
+                          >
+                            {currentModalCourtOptions.map(({ name, isAvailable }) => (
+                              <option
+                                key={name}
+                                value={name}
+                                disabled={!isAvailable && name !== selectedCourtInModal}
+                                className={!isAvailable ? 'text-slate-400 bg-slate-100' : 'text-slate-800'}
+                              >
+                                {translateCourt(name)} {!isAvailable ? ` (${t("dashboard.occupiedSlot", "belegt").replace(/^\(|\)$/g, '')})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                        </div>
+                      </div>
+                    )}
 
                 <div className={`space-y-5 ${!isUserAuthorizedToEdit ? "pointer-events-none opacity-80" : ""}`}>
-                  {/* Zeitraum */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-2 gap-3 shrink-0 shadow-sm">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
-                      Ab
-                    </label>
-                    <select 
-                      value={modalStartTime}
-                      disabled={!isUserAuthorizedToEdit}
-                      onChange={(e) => {
-                        const newStart = e.target.value;
-                        setModalStartTime(newStart);
-                        const startIdx = TIME_SLOTS.indexOf(newStart);
-                        if (TIME_SLOTS.indexOf(endTime) <= startIdx) {
-                          setEndTime(TIME_SLOTS[startIdx + 1]);
-                        }
-                      }}
-                      className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
-                    >
-                      {TIME_SLOTS.slice(0, -1).map((t) => (
-                        <option key={t} value={t}>
-                          {t} Uhr
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
-                      Bis
-                    </label>
-                    <select 
-                      value={endTime}
-                      disabled={!isUserAuthorizedToEdit}
-                      onChange={(e) => setEndTime(e.target.value)}
-                      className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
-                    >
-                      {TIME_SLOTS.slice(
-                        TIME_SLOTS.indexOf(modalStartTime) + 1,
-                      ).map((t) => (
-                        <option key={t} value={t}>
-                          {t} Uhr
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {isLockMode ? (
-                  <div className="space-y-3">
+                  {/* Zeitraum & Ganztägig */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 shrink-0 shadow-sm space-y-2.5">
+                  <div className={`grid grid-cols-2 gap-3 transition-opacity duration-200 ${
+                    isFullDay && isLockMode ? "opacity-40 pointer-events-none select-none" : "opacity-100"
+                  }`}>
                     <div>
                       <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
-                        Grund der Sperrung
+                        {t("common.from", "Ab")}
                       </label>
-                      <input 
-                        type="text"
-                        value={reason}
-                        disabled={!isUserAuthorizedToEdit}
-                        onChange={(e) => setReason(e.target.value)}
-                        className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-xl text-sm outline-none focus:border-slate-800 bg-slate-50 focus:bg-white transition-colors disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
-                        placeholder="z. B. Medenspiel, Training..."
-                      />
+                      <select 
+                        value={isFullDay && isLockMode ? TIME_SLOTS[0] : modalStartTime}
+                        disabled={!isUserAuthorizedToEdit || (isLockMode && isFullDay)}
+                        onChange={(e) => {
+                          const newStart = e.target.value;
+                          setModalStartTime(newStart);
+                          const startIdx = TIME_SLOTS.indexOf(newStart);
+                          if (TIME_SLOTS.indexOf(endTime) <= startIdx) {
+                            setEndTime(TIME_SLOTS[startIdx + 1]);
+                          }
+                        }}
+                        className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer disabled:opacity-75 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
+                      >
+                        {TIME_SLOTS.slice(0, -1).map((tSlot) => (
+                          <option key={tSlot} value={tSlot}>
+                            {(i18n.language || "").startsWith("en") ? tSlot : `${tSlot} Uhr`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="flex flex-col gap-2 pt-1">
-                      <label className={`flex items-center gap-3 text-[11px] font-black text-slate-800 cursor-pointer p-2 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors ${!isUserAuthorizedToEdit ? "opacity-60 bg-slate-100 cursor-not-allowed" : ""}`}>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
+                        {t("common.to", "Bis")}
+                      </label>
+                      <select 
+                        value={isFullDay && isLockMode ? TIME_SLOTS[TIME_SLOTS.length - 1] : endTime}
+                        disabled={!isUserAuthorizedToEdit || (isLockMode && isFullDay)}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-lg bg-white text-sm outline-none focus:border-[var(--color-primary)] transition-colors appearance-none cursor-pointer disabled:opacity-75 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium"
+                      >
+                        {TIME_SLOTS.slice(
+                          TIME_SLOTS.indexOf(isFullDay && isLockMode ? TIME_SLOTS[0] : modalStartTime) + 1,
+                        ).map((tSlot) => (
+                          <option key={tSlot} value={tSlot}>
+                            {(i18n.language || "").startsWith("en") ? tSlot : `${tSlot} Uhr`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {isLockMode && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <label className={`flex items-center gap-2.5 text-[11px] font-black text-slate-800 cursor-pointer select-none hover:text-slate-900 transition-colors ${!isUserAuthorizedToEdit ? "opacity-60 cursor-not-allowed" : ""}`}>
                         <input
                           type="checkbox"
                           checked={isFullDay}
                           disabled={!isUserAuthorizedToEdit}
                           onChange={(e) => setIsFullDay(e.target.checked)}
-                          className="w-4 h-4 accent-slate-800 font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                          className="w-4 h-4 rounded accent-slate-800 cursor-pointer"
                         />
-                        <span>GANZTÄGIG SPERREN</span>
+                        <span>{t("dashboard.fullDayLock", "GANZTÄGIG SPERREN")}</span>
                       </label>
                     </div>
+                  )}
+                </div>
+
+                {isLockMode ? (
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
+                      {t("dashboard.lockReason", "Grund der Sperrung")}
+                    </label>
+                    <input 
+                      type="text"
+                      value={reason}
+                      disabled={!isUserAuthorizedToEdit}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-xl text-sm outline-none focus:border-slate-800 bg-white transition-colors disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed placeholder:font-normal placeholder:text-slate-400 font-sans font-medium shadow-2xs"
+                      placeholder={t("dashboard.lockReasonPlaceholder", "z. B. Medenspiel, Training...")}
+                    />
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="bg-slate-100 p-1.5 px-3 rounded-xl border-2 border-slate-200">
-                      <label className="block text-[9px] font-black text-slate-500 uppercase flex items-center gap-1.5">
-                        <i className="fa-solid fa-user-check text-[var(--color-primary)] text-[9px]"></i>{" "}
-                        {selectedSlot?.editingId ? "Spieler 1 (Ersteller)" : "Spieler 1 (Eingeloggt)"}
+                    <div className="pt-3.5 mt-3.5 border-t border-slate-100">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                        <i className="fa-solid fa-users text-slate-400 text-xs shrink-0"></i>
+                        <span>{t("dashboard.players", "Spieler")}</span>
                       </label>
-                      <div className="font-black text-sm text-[var(--color-primary)] mt-0.5">
-                        {spieler1Name}
+                      <div className="bg-slate-100 p-1.5 px-3 rounded-xl border-2 border-slate-200 mb-2.5">
+                        <label className="block text-[9px] font-black text-slate-500 uppercase">
+                          {selectedSlot?.editingId ? t("dashboard.player1Creator", "Spieler 1 (Ersteller)") : t("dashboard.player1LoggedIn", "Spieler 1 (Eingeloggt)")}
+                        </label>
+                        <div className="font-bold text-sm text-slate-800 mt-0.5">
+                          {spieler1Name}
+                        </div>
                       </div>
-                    </div>
-                    <div className="space-y-2 relative">
-                      <label className="block text-[10px] font-black text-slate-500 uppercase">
-                        Mitspieler
-                      </label>
+                      <div className="space-y-2 relative">
 
                       <div className="relative">
                         <div className="relative flex items-center w-full">
@@ -4975,10 +5595,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                             }
                             placeholder={
                               !isUserAuthorizedToEdit
-                                ? "Keine Berechtigung zum Bearbeiten"
-                                : "Mitspieler suchen & hinzufügen..."
+                                ? t("dashboard.noPermissionEdit", "Keine Berechtigung zum Bearbeiten")
+                                : t("dashboard.searchCoPlayersPlaceholder", "Mitspieler suchen & hinzufügen...")
                             }
-                            className="w-full pl-9 pr-3 py-2 border-2 border-slate-200 rounded-xl bg-white focus:border-[var(--color-accent)] outline-none text-slate-900 text-sm transition-colors shadow-sm disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                            className="w-full h-8 pl-9 pr-3 py-1 border-2 border-slate-200 rounded-xl bg-white focus:border-[var(--color-accent)] outline-none text-slate-900 text-sm transition-colors shadow-xs disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                           />
                         </div>
 
@@ -4987,7 +5607,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             {getFilteredUsers(playerQuery).length === 0 ? (
                               canBookHobbyLeague ? (
                                 <div className="p-3 text-center flex flex-col items-center gap-2">
-                                  <span className="text-xs text-slate-500 font-bold">Kein Mitspieler gefunden.</span>
+                                  <span className="text-xs text-slate-500 font-bold">{t("dashboard.noCoPlayersFound", "Kein Mitspieler gefunden.")}</span>
                                   <button 
                                     type="button" 
                                     onMouseDown={(e) => { e.preventDefault(); setBookingTab("league"); }}
@@ -4997,7 +5617,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                   </button>
                                 </div>
                               ) : (
-                                <div className="p-3 text-xs text-slate-500 font-bold text-center">Kein Mitspieler gefunden.</div>
+                                <div className="p-3 text-xs text-slate-500 font-bold text-center">{t("dashboard.noCoPlayersFound", "Kein Mitspieler gefunden.")}</div>
                               )
                             ) : (
                               getFilteredUsers(playerQuery).map((s) => (
@@ -5043,86 +5663,152 @@ const Dashboard: React.FC<DashboardProps> = ({
                           ))}
                         </div>
                       )}
-                    </div>
 
-                    <div>
-                      {(() => {
-                        const maxMachines =
-                          reservationRules?.availableBallMachines ?? 1;
-                        if (maxMachines <= 0) return null;
-
-                        const ballMachinesInUse = bookings.filter(
-                          (b) =>
-                            b.id !== selectedSlot.editingId &&
-                            b.date === selectedSlot.date &&
-                            b.time === modalStartTime &&
-                            b.court !== selectedSlot.court &&
-                            b.hasBallMachine,
-                        ).length;
-                        const ballMachineBelegt =
-                          ballMachinesInUse >= maxMachines;
-                        return (
-                          <div className="flex flex-col justify-end">
-                            <label
-                              className={`flex items-center gap-3 p-2 bg-green-50 border-2 rounded-xl transition-all shadow-sm ${ballMachineBelegt ? "opacity-50 border-red-200 bg-red-50 cursor-not-allowed" : !isUserAuthorizedToEdit ? "opacity-60 bg-slate-100 border-slate-200 cursor-not-allowed" : "border-[var(--color-primary)]/20 cursor-pointer hover:bg-green-100"}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={!ballMachineBelegt && hasBallMachine}
-                                onChange={(e) => {
-                                  if (!ballMachineBelegt) {
-                                    setHasBallMachine(e.target.checked);
-                                  }
-                                }}
-                                disabled={ballMachineBelegt || !isUserAuthorizedToEdit}
-                                className="w-4 h-4 accent-[var(--color-primary)] relative top-px disabled:opacity-60 disabled:cursor-not-allowed font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                              />
-                              <span className="text-[10px] font-black text-[var(--color-primary)] uppercase flex items-center gap-1.5">
-                                <i className="fa-solid fa-robot"></i>{" "}
-                                Ballmaschine
-                              </span>
-                            </label>
-                            {ballMachineBelegt && (
-                              <p className="text-[8px] text-red-600 font-bold mt-1 uppercase tracking-wider leading-tight">
-                                <i className="fa-solid fa-circle-exclamation mr-1"></i>{" "}
-                                Belegt auf anderem Platz!
-                              </p>
-                            )}
+                      {/* Frequent / Recommended Partners Quick-Select Pills (Desktop: max 5) */}
+                      {recommendedPartnersDesktop.length > 0 && additionalPlayers.length < 3 && isUserAuthorizedToEdit && (
+                        <div className="space-y-1.5 pt-0.5">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <i className="fa-solid fa-bolt text-amber-500 text-[9px]"></i>
+                            <span>Häufige Partner:</span>
                           </div>
-                        );
-                      })()}
-
-                      {settings?.modules?.guests !== false && (
-                        <div className="flex flex-col justify-end mt-2.5">
-                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1 flex items-center gap-1.5">
-                            <i className="fa-solid fa-user-tag text-slate-400"></i>{" "}
-                            Gastspieler
-                          </label>
-                          <div className="flex gap-1">
-                            {[0, 1, 2, 3].map((num) => (
+                          <div className="flex flex-wrap gap-2">
+                            {recommendedPartnersDesktop.map((rec) => (
                               <button
-                                key={num}
+                                key={rec.user.id}
                                 type="button"
-                                disabled={!isUserAuthorizedToEdit}
-                                onClick={() => setGuestCount(num)}
-                                className={`flex-1 h-8 rounded-lg border-2 font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-1 disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed ${guestCount === num ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white shadow-md" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300"}`}
+                                onClick={() => handleAddRecommendedPartner(rec.displayName)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/20 active:scale-95 transition-all shadow-3xs hover:shadow-2xs cursor-pointer max-w-[200px] truncate"
+                                title={`${rec.displayName} (${rec.totalCount} gemeinsame Buchungen)`}
                               >
-                                {num > 0 && (
-                                  <i className="fa-solid fa-user text-[9px]"></i>
-                                )}
-                                {num}
+                                <i className="fa-solid fa-plus text-[9px] shrink-0 opacity-80"></i>
+                                <span className="truncate">{rec.displayName}</span>
                               </button>
                             ))}
                           </div>
                         </div>
                       )}
                     </div>
-                    <div className="space-y-1 mt-3">
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                        <i className="fa-regular fa-comment-dots mr-1"></i>
-                        Kommentar{" "}
-                        <span className="opacity-70 normal-case tracking-normal">
-                          (optional)
+                  </div>
+
+                    <div>
+                      {availableEquipmentResources.length > 0 && (
+                        <div className="pt-3.5 mt-3.5 border-t border-slate-100">
+                          <EquipmentSelector
+                            resources={availableEquipmentResources}
+                            selectedResourceIds={selectedResourceIds}
+                            onChange={(ids) => {
+                              setSelectedResourceIds(ids);
+                              setHasBallMachine(ids.some((id) => id.includes("ballmachine") || id === "ballmachine"));
+                            }}
+                            bookedResourceIds={bookedResourceIdsForSlot}
+                            disabled={!isUserAuthorizedToEdit}
+                          />
+                        </div>
+                      )}
+
+                      {settings?.modules?.guests !== false && (
+                        <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex flex-col justify-end">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                            <i className="fa-solid fa-user-tag text-slate-400 text-xs shrink-0"></i>
+                            <span>{t("dashboard.guestPlayers", "Gastspieler")}</span>
+                          </label>
+                          <div className="space-y-2">
+                            {activeGuestCategories.map((cat) => {
+                              const val =
+                                cat.key === "guestCount"
+                                  ? guestCount
+                                  : cat.key === "adultGuestCount"
+                                  ? adultGuestCount
+                                  : youthGuestCount;
+                              return (
+                                <GuestCountStepper
+                                  key={cat.id}
+                                  value={val}
+                                  onChange={(newVal) => handleGuestCategoryChange(cat.key, newVal)}
+                                  label={cat.label}
+                                  min={0}
+                                  max={getCategoryMax(cat.key)}
+                                  disabled={!isUserAuthorizedToEdit}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {/* Neues Kassenbon-Layout & Akkordeon für Preisregeln */}
+                          <AnimatePresence initial={false}>
+                            {effectiveModalGuestCount > 0 && liveFeeResult && (() => {
+                              const durationHours = modalStartTime && endTime ? getDurationInHours(modalStartTime, endTime) : 1;
+                              const durationStr = durationHours % 1 === 0 ? `${durationHours} Std.` : `${durationHours.toFixed(1).replace('.', ',')} Std.`;
+                              const guestStr = effectiveModalGuestCount === 1 ? '1 Gast' : `${effectiveModalGuestCount} Gäste`;
+
+                              return (
+                                <motion.div
+                                  key="guest-fee-receipt-box-2"
+                                  initial={{ opacity: 0, height: 0, y: -8 }}
+                                  animate={{ opacity: 1, height: "auto", y: 0 }}
+                                  exit={{ opacity: 0, height: 0, y: -8 }}
+                                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="border-t border-slate-100 pt-2.5 mt-2.5 flex flex-col gap-1.5">
+                                    {/* Gastgebühr */}
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-slate-600 font-medium">Gastgebühr ({guestStr} x {durationStr})</span>
+                                      <span className="font-bold text-slate-900 text-sm">
+                                        {liveFeeResult.totalEuro.toFixed(2).replace('.', ',')} €
+                                      </span>
+                                    </div>
+
+                                    {/* Akkordeon für Preisregeln */}
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowGuestPriceRules((prev) => !prev)}
+                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors cursor-pointer select-none"
+                                      >
+                                        <i className="fa-solid fa-circle-info text-[11px] text-slate-400"></i>
+                                        <span>Preisregeln anzeigen</span>
+                                        <i
+                                          className={`fa-solid fa-chevron-${showGuestPriceRules ? "up" : "down"} text-[9px] text-slate-400 transition-transform`}
+                                        ></i>
+                                      </button>
+
+                                      <AnimatePresence initial={false}>
+                                        {showGuestPriceRules && (
+                                          <motion.div
+                                            initial={{ opacity: 0, height: 0, y: -4 }}
+                                            animate={{ opacity: 1, height: "auto", y: 0 }}
+                                            exit={{ opacity: 0, height: 0, y: -4 }}
+                                            transition={{ duration: 0.2, ease: "easeOut" }}
+                                            className="overflow-hidden"
+                                          >
+                                            <div className="mt-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600">
+                                              <div className="font-medium text-slate-800">
+                                                Angewandte Regel:{" "}
+                                                <span className="font-semibold text-slate-900">
+                                                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === "ADVANCED" ? "Standardregel" : "Standard-Tarif")}
+                                                </span>
+                                                . {liveFeeResult.appliedRateText || formatAppliedRate(liveFeeResult.action)}.
+                                              </div>
+                                            </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              );
+                            })()}
+                          </AnimatePresence>
+                        </div>
+                      )}
+                    </div>
+                    <div className="pt-3.5 mt-3.5 border-t border-slate-100 space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                        <i className="fa-regular fa-comment-dots text-slate-400 text-xs shrink-0"></i>
+                        <span>{t("dashboard.comment", "Kommentar")}</span>
+                        <span className="text-[9px] font-normal text-slate-400 normal-case tracking-normal">
+                          {t("dashboard.commentOptional", "(optional)")}
                         </span>
                       </label>
                       <input 
@@ -5130,8 +5816,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                         value={comment}
                         disabled={!isUserAuthorizedToEdit}
                         onChange={(e) => setComment(e.target.value)}
-                        placeholder="z. B. Vereinsmeisterschaft"
-                        className="w-full h-8 px-3 py-1 border-2 border-slate-300 rounded-xl text-sm outline-none focus:border-[var(--color-primary)] bg-slate-50 focus:bg-white transition-all shadow-sm disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
+                        placeholder={t("dashboard.commentPlaceholder")}
+                        className="w-full h-8 px-3 py-1 border-2 border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--color-accent)] bg-white transition-colors shadow-xs disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed placeholder:font-normal placeholder:text-slate-400 font-sans font-medium text-slate-900"
                       />
                     </div>
                   </div>
@@ -5141,7 +5827,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
               {/* Sticky Footer for Action Buttons */}
               <div className="px-5 py-4 border-t-2 border-slate-200 bg-slate-50 shrink-0 space-y-3 shadow-[0_-4px_15px_-5px_rgba(0,0,0,0.05)] z-10">
-                {selectedSlot?.editingId && isUserAuthorizedToEdit && (
+                {selectedSlot?.editingId && isUserAuthorizedToEdit && !isLockMode && (
                   <div className="flex items-center gap-2 px-1 text-slate-700">
                     <input
                       type="checkbox"
@@ -5152,38 +5838,47 @@ const Dashboard: React.FC<DashboardProps> = ({
                     />
                     <label htmlFor="sendEditNotificationDesktop" className="text-xs font-semibold text-slate-700 cursor-pointer select-none flex items-center gap-1.5">
                       <i className="fa-solid fa-envelope text-[11px] text-emerald-700"></i>
-                      E-Mail über Änderung an Mitspieler versenden
+                      {t("dashboard.sendEditNotification")}
                     </label>
+                  </div>
+                )}
+                {selectedSlot?.editingId && isUserAuthorizedToEdit && !isCreator && isParticipant && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-center gap-2 text-emerald-800 text-[11px] font-medium">
+                    <i className="fa-solid fa-user-check text-emerald-600 text-xs shrink-0"></i>
+                    <span>{t("dashboard.participantAuthorizedNote")}</span>
                   </div>
                 )}
                 {isUserAuthorizedToEdit ? (
                 <div className="flex gap-2 w-full">
                   <button
                     onClick={confirmAction}
-                    className={`w-full text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-medium ${isLockMode ? "bg-slate-500 hover:bg-slate-600" : "hover:brightness-95"}`}
+                    className={`w-full text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-semibold ${isLockMode ? "bg-slate-500 hover:bg-slate-600" : "hover:brightness-95"}`}
                     style={!isLockMode ? { backgroundColor: settings?.primaryColor || "var(--color-primary)" } : undefined}
                   >
                     <i
                       className={`fa-solid ${selectedSlot.editingId ? "fa-floppy-disk" : "fa-check-circle"} text-[12px]`}
                     ></i>
                     {selectedSlot.editingId
-                      ? "Speichern"
+                      ? t("dashboard.saveBooking")
                       : isLockMode
-                        ? "Sperren"
-                        : "Platz reservieren"}
+                        ? t("dashboard.lockCourt")
+                        : t("dashboard.reserveCourt")}
                   </button>
 
                   {selectedSlot.editingId && (
                     <button
                       onClick={async () => {
-                        const errorMsg = await onCancel(
-                          selectedSlot.editingId!,
-                        );
-                        if (errorMsg) setError(errorMsg);
-                        else handleCloseModal();
+                        const ids = editingLockIds.length > 0
+                          ? editingLockIds
+                          : (selectedSlot.editingId ? [selectedSlot.editingId] : []);
+                        if (ids.length > 0) {
+                          const errorMsg = await onCancel(ids);
+                          if (errorMsg) setError(errorMsg);
+                          else handleCloseModal();
+                        }
                       }}
                       className="px-4 shrink-0 bg-red-600 hover:bg-red-700 text-white font-black py-2.5 rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5"
-                      title="Buchung stornieren / Freigeben"
+                      title={t("dashboard.cancelBookingTooltip")}
                     >
                       <i className="fa-solid fa-trash-can text-[11px]"></i>
                     </button>
@@ -5193,7 +5888,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="bg-slate-100 border border-slate-200 rounded-xl p-3 flex items-start gap-3 shadow-sm">
                     <i className="fa-solid fa-circle-info text-slate-400 text-base mt-0.5"></i>
                     <span className="text-[11px] text-slate-500 font-sans font-semibold leading-relaxed">
-                      Diese Reservierung kann nur vom Ersteller oder Admin bearbeitet werden.
+                      {isParticipant
+                        ? t("dashboard.participantNotAuthorizedNote")
+                        : t("dashboard.onlyCreatorCanEdit")}
                     </span>
                   </div>
                 )}
@@ -5287,7 +5984,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 disabled={!isAvailable && name !== selectedCourtInModal}
                                 className={!isAvailable ? 'text-slate-400 bg-slate-100' : 'text-slate-800'}
                               >
-                                {name} {!isAvailable ? '(belegt)' : ''}
+                                {translateCourt(name)} {!isAvailable ? ` (${t("dashboard.occupiedSlot", "belegt").replace(/^\(|\)$/g, '')})` : ''}
                               </option>
                             ))}
                           </select>
@@ -5371,8 +6068,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
                             {selectedSlot?.editingId ? "Spieler 1 (Ersteller)" : "Spieler 1 (Eingeloggt)"}
                           </label>
-                          <div className="font-bold text-[13px] text-[var(--color-primary)] flex items-center gap-1.5">
-                            <i className="fa-solid fa-user-check text-[var(--color-primary)]"></i>
+                          <div className="font-bold text-[13px] text-slate-800">
                             {spieler1Name}
                           </div>
                         </div>
@@ -5467,7 +6163,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <div className="flex gap-2 w-full">
                         <button
                           onClick={handleLeagueSubmit}
-                          className="w-full text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-medium hover:brightness-95"
+                          className="w-full text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-semibold hover:brightness-95"
                           style={{ backgroundColor: settings?.primaryColor || "var(--color-primary)" }}
                         >
                           Ligaspiel eintragen
@@ -5477,7 +6173,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <div className="bg-slate-100 border border-slate-200 rounded-xl p-3 flex items-start gap-3 shadow-sm">
                         <i className="fa-solid fa-circle-info text-slate-400 text-base mt-0.5"></i>
                         <span className="text-[11px] text-slate-500 font-sans font-semibold leading-relaxed">
-                          Diese Reservierung kann nur vom Ersteller oder Admin bearbeitet werden.
+                          {isParticipant
+                            ? t("dashboard.participantNotAuthorizedNote")
+                            : t("dashboard.onlyCreatorCanEdit", "Diese Reservierung kann nur vom Ersteller oder Admin bearbeitet werden.")}
                         </span>
                       </div>
                     )}
@@ -5570,7 +6268,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             >
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                  Benutzername oder E-Mail
+                  {t("auth.usernameOrEmail", "Benutzername")}
                 </label>
                 <input
                   type="text"
@@ -5619,6 +6317,74 @@ const Dashboard: React.FC<DashboardProps> = ({
                 )}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- GUEST FEE RULE EXPLANATION INFO MODAL --- */}
+      {showFeeInfoModal && liveFeeResult && (
+        <div className="fixed inset-0 z-[120] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150 font-sans">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <i className="fa-solid fa-circle-info text-base"></i>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Berechnungsgrundlage Gastgebühr
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFeeInfoModal(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 text-xs font-bold transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Angewendete Regel ({liveFeeResult.mode === 'ADVANCED' ? 'Erweiterter Modus' : 'Einfacher Modus'})
+                </div>
+                <div className="font-bold text-slate-800 text-sm">
+                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === 'ADVANCED' ? 'Standardregel' : 'Standard-Tarif')}
+                </div>
+                <div className="text-emerald-950 font-bold bg-white p-2.5 rounded-xl border border-emerald-200/90 flex items-center gap-2 text-xs shadow-3xs">
+                  <i className="fa-solid fa-tag text-emerald-600 shrink-0 text-xs"></i>
+                  <span>{liveFeeResult.appliedRateText || formatAppliedRate(liveFeeResult.action)}</span>
+                </div>
+                {liveFeeResult.matchedRuleId && liveFeeResult.matchedRuleId !== 'DEFAULT_RULE' && liveFeeResult.ruleSentence && (
+                  <div className="text-slate-600 text-[11px] font-medium italic pt-1 leading-relaxed">
+                    {liveFeeResult.ruleSentence}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-slate-600">
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Gäste gebucht</span>
+                  <span className="font-bold text-slate-800">
+                    {isYouthRulesActive ? `${adultGuestCount} Erw. / ${youthGuestCount} Jugendl.` : (guestCount === 1 ? '1 Gast' : `${guestCount} Gäste`)}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Berechneter Betrag</span>
+                  <span className="font-black text-emerald-700 text-sm">
+                    {liveFeeResult.totalEuro.toFixed(2).replace('.', ',')} €
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowFeeInfoModal(false)}
+                className="px-4 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+              >
+                Schließen
+              </button>
+            </div>
           </div>
         </div>
       )}

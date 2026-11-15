@@ -220,13 +220,6 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
             </div>
           )}
 
-          {isProcessing && (
-            <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold flex items-center gap-3 animate-pulse">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-              <span>{processingStatus || "Wird gespeichert..."}</span>
-            </div>
-          )}
-
           {/* Actions */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
             {currentAvatarUrl ? (

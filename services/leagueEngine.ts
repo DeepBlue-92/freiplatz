@@ -1,4 +1,4 @@
-import { LeaguePlayer, LeagueTimePreference, LeagueConfigVersion } from "../types";
+import type { LeaguePlayer, LeagueTimePreference, LeagueConfigVersion } from "../types.ts";
 
 export interface LeaguePointConfig {
   initialRankingPoints: number;

@@ -91,7 +91,12 @@ interface HobbyligaBannerProps {
   crestLeftUrl?: string;
   crestRightUrl?: string;
   clubs?: BannerClubItem[];
+  title?: string;
+  bannerUrl?: string;
+  bannerPosition?: string;
 }
+
+export const DEFAULT_LEAGUE_BANNER_BG = "https://raw.githubusercontent.com/DeepBlue-92/platzbuchung/5d032958bd4003163d9a57f31aa0e5dc4b4e801a/public/images/collage_3.png";
 
 /**
  * Einzelnes Wasserzeichen-Wappen:
@@ -205,6 +210,9 @@ export const HobbyligaBanner: React.FC<HobbyligaBannerProps> = ({
   crestLeftUrl,
   crestRightUrl,
   clubs,
+  title,
+  bannerUrl,
+  bannerPosition,
 }) => {
   const displayClubs = useMemo(() => {
     let rawClubs: BannerClubItem[];
@@ -262,16 +270,17 @@ export const HobbyligaBanner: React.FC<HobbyligaBannerProps> = ({
 
   return (
     <div className="relative w-full h-[46px] sm:h-[98px] md:h-[105px] rounded-xl md:rounded-2xl overflow-hidden shadow-sm flex items-center bg-slate-900 border border-slate-200">
-      {/* Background Cover Image: positioniert auf center 25% für perfekten Kopfausschnitt */}
+      {/* Background Cover Image */}
       <img 
-        src="https://raw.githubusercontent.com/DeepBlue-92/platzbuchung/5d032958bd4003163d9a57f31aa0e5dc4b4e801a/public/images/collage_3.png" 
+        src={bannerUrl || DEFAULT_LEAGUE_BANNER_BG} 
         onError={(e) => {
           // Fallback to secondary path if primary path is missing
           (e.target as HTMLImageElement).src = "/images/collage_2.png";
         }}
-        alt="Hobbyliga Collage" 
+        alt={title || "Hobbyliga Collage"} 
         referrerPolicy="no-referrer"
-        className="absolute inset-0 w-full h-full object-cover object-[center_25%]"
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ objectPosition: bannerPosition || 'center 25%' }}
       />
 
       {/* Dark gradient overlay with increased transparency for better banner visibility */}
@@ -299,7 +308,7 @@ export const HobbyligaBanner: React.FC<HobbyligaBannerProps> = ({
         ))}
       </div>
 
-      {/* Foreground Content: Links = Titel "Hobbyliga", Rechts = Badge für Punkte & Rang */}
+      {/* Foreground Content: Links = Titel, Rechts = Badge für Punkte & Rang */}
       <div className="relative z-10 px-3.5 sm:px-6 md:px-8 py-1.5 sm:py-3 flex items-center justify-between w-full h-full">
         {/* Links: Nur Hauptüberschrift */}
         <div className="flex items-center shrink-0">
@@ -307,7 +316,7 @@ export const HobbyligaBanner: React.FC<HobbyligaBannerProps> = ({
             className="text-base sm:text-2xl md:text-3xl font-bold tracking-tight leading-none text-white drop-shadow-md whitespace-nowrap"
             style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', Times, serif" }}
           >
-            Hobbyliga
+            {title || "Hobbyliga"}
           </h2>
         </div>
         

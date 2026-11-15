@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { User, Person } from "../types";
 import { UserAvatar, TennisBallSvg, TennisRacketSvg, hexToRgba } from "./UserAvatar";
 import { AvatarCropModal } from "./AvatarCropModal";
@@ -13,6 +14,7 @@ import {
   Crop,
   Trash2,
   Sparkles,
+  ChevronDown,
   Trophy,
   Star,
   Flame,
@@ -46,6 +48,7 @@ interface AvatarUploaderProps {
   primaryColor?: string;
   hideTitle?: boolean;
   compact?: boolean;
+  inlineIcons?: boolean;
 }
 
 export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
@@ -58,7 +61,9 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   primaryColor = "var(--color-primary)",
   hideTitle = false,
   compact = false,
+  inlineIcons = false,
 }) => {
+  const { t } = useTranslation();
   const [internalAvatarUrl, setInternalAvatarUrl] = useState<string | null | undefined>(
     explicitUrl !== undefined ? explicitUrl : user?.avatarUrl
   );
@@ -103,7 +108,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
-  const [showIconSelector, setShowIconSelector] = useState(!explicitUrl && !user?.avatarUrl);
+  const [showIconSelector, setShowIconSelector] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -115,7 +120,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
     // Format (JPEG, PNG, WEBP, HEIC) & Größe (max 10 MB)
     const validation = validateAvatarFile(file);
     if (!validation.valid) {
-      setErrorMessage(validation.error || "Ungültige Datei.");
+      setErrorMessage(validation.error || t("avatar.invalidFile", "Ungültige Datei."));
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -128,7 +133,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
     reader.onerror = () => {
-      setErrorMessage("Fehler beim Einlesen des Bildes.");
+      setErrorMessage(t("avatar.readError", "Fehler beim Einlesen des Bildes."));
     };
     reader.readAsDataURL(file);
   };
@@ -144,13 +149,13 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
       setInternalAvatarIcon("initials");
       setShowIconSelector(false);
       onChange({ avatarUrl: result.avatarUrl, avatarIcon: null, avatarColor: activeAvatarColor });
-      setSuccessInfo("Foto erfolgreich gespeichert.");
+      setSuccessInfo(t("avatar.savedSuccess", "Foto erfolgreich gespeichert."));
     } else {
       // Foto wurde entfernt
       setInternalAvatarUrl(null);
       setInternalAvatarIcon(activeAvatarIcon || "initials");
       onChange({ avatarUrl: null, avatarIcon: activeAvatarIcon || "initials", avatarColor: activeAvatarColor });
-      setSuccessInfo("Profilbild erfolgreich entfernt.");
+      setSuccessInfo(t("avatar.removedSuccess", "Profilbild erfolgreich entfernt."));
     }
   };
 
@@ -163,7 +168,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
       setInternalAvatarUrl(null);
       setInternalAvatarIcon(activeAvatarIcon || "initials");
       onChange({ avatarUrl: null, avatarIcon: activeAvatarIcon || "initials", avatarColor: activeAvatarColor });
-      setSuccessInfo("Profilbild erfolgreich entfernt.");
+      setSuccessInfo(t("avatar.removedSuccess", "Profilbild erfolgreich entfernt."));
     } catch (err) {
       console.warn("Fehler beim Entfernen:", err);
     }
@@ -217,7 +222,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
                 setCropModalOpen(true);
               }}
               className="absolute -bottom-1 -right-1 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white border border-slate-300 shadow-xs flex items-center justify-center text-slate-600 hover:text-[var(--color-primary)] hover:border-[var(--color-primary)] transition-colors cursor-pointer"
-              title="Ausschnitt anpassen"
+              title={t("avatar.adjustCrop", "Ausschnitt anpassen")}
             >
               <Crop className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             </button>
@@ -228,14 +233,14 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
         <div className="flex-1 min-w-0 text-center sm:text-left space-y-1">
           {!hideTitle && (
             <h4 className="text-sm font-bold text-slate-900 tracking-tight">
-              Profilbild &amp; Avatar
+              {t("avatar.title", "Profilbild & Avatar")}
             </h4>
           )}
 
           <p className="text-xs text-slate-500 font-normal leading-relaxed">
             {activeAvatarUrl
-              ? "Aktuelles Profilbild gespeichert. Du kannst jederzeit ein neues Foto hochladen oder ein Icon wählen."
-              : "Lade ein Foto hoch oder wähle eines unserer Sport-Icons als Profilbild."}
+              ? t("avatar.savedDesc", "Aktuelles Profilbild gespeichert. Du kannst jederzeit ein neues Foto hochladen oder ein Icon wählen.")
+              : t("avatar.emptyDesc", "Lade ein Foto hoch oder wähle eines unserer Sport-Icons als Profilbild.")}
           </p>
 
           {/* Buttons */}
@@ -260,44 +265,177 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
               className="h-9 px-3.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs active:scale-98 cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" />
-              Bild hochladen
+              {t("avatar.uploadPhoto", "Bild hochladen")}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setShowIconSelector(!showIconSelector)}
-              className={`h-9 px-3.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
-                showIconSelector
-                  ? "bg-amber-50/80 border-amber-300 text-amber-900 ring-2 ring-amber-400/20"
-                  : "bg-white border-slate-200 hover:bg-slate-50 text-slate-700"
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              Icon &amp; Farbe wählen
-            </button>
+            {!inlineIcons && (
+              <button
+                type="button"
+                onClick={() => setShowIconSelector(!showIconSelector)}
+                className={`h-9 px-3.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                  showIconSelector
+                    ? "bg-amber-50/80 border-amber-300 text-amber-900 ring-2 ring-amber-400/20"
+                    : "bg-white border-slate-200 hover:bg-slate-50 text-slate-700"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>{t("avatar.chooseIconColor", "Icon & Farbe wählen")}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                    showIconSelector ? "rotate-180 text-amber-700" : "text-slate-400"
+                  }`}
+                />
+              </button>
+            )}
 
             {activeAvatarUrl && (
               <button
                 type="button"
                 onClick={handleRemoveAvatar}
                 className="h-9 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Foto entfernen"
+                title={t("avatar.removePhotoTitle", "Foto entfernen")}
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Entfernen
+                {t("avatar.removePhoto", "Entfernen")}
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Icon Selector Drawer / Grid (Zero Storage Cost) */}
-      {showIconSelector && (
+      {/* Icon Selector: Inline Compact Mode or Accordion Drawer */}
+      {inlineIcons ? (
+        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3 space-y-2.5 mt-2.5 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3 text-amber-500" />
+              <span>{t("avatar.chooseIconShort", "Sport-Icon & Farbe wählen")}</span>
+            </span>
+            {activeAvatarColor && (
+              <button
+                type="button"
+                onClick={() => handleSelectColor(null)}
+                className="text-[10px] font-medium text-slate-400 hover:text-slate-700 flex items-center gap-1 hover:underline transition-colors cursor-pointer"
+                title={t("avatar.resetColorTooltip", "Auf Standard zurücksetzen")}
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                <span>{t("avatar.resetColor", "Farbe zurücksetzen")}</span>
+              </button>
+            )}
+          </div>
+
+          {/* 18 Icons in compact 9-column (or 6-col mobile) grid */}
+          <div className="grid grid-cols-6 sm:grid-cols-9 gap-1.5 items-center justify-items-center py-0.5">
+            {AVATAR_ICON_OPTIONS.map((opt) => {
+              const isSelected = !activeAvatarUrl && activeAvatarIcon === opt.id;
+              
+              const displayName = user?.firstName && user?.lastName 
+                ? `${user.firstName} ${user.lastName}` 
+                : user?.firstName || user?.name || user?.klarname || "TK";
+              const parts = displayName.trim().split(/\s+/);
+              const initials = parts.length >= 2 
+                ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() 
+                : displayName.slice(0, 2).toUpperCase();
+
+              const buttonCustomStyle = isSelected && activeAvatarColor
+                ? {
+                    backgroundColor: hexToRgba(activeAvatarColor, 0.18),
+                    color: activeAvatarColor,
+                  }
+                : {};
+
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleSelectIcon(opt.id)}
+                  title={opt.name}
+                  style={buttonCustomStyle}
+                  className={`w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    isSelected && activeAvatarColor ? "" : `${opt.bgClass} ${opt.colorClass}`
+                  } shadow-3xs transition-all duration-150 cursor-pointer outline-none ${
+                    isSelected
+                      ? "ring-2 ring-[var(--color-primary)] ring-offset-1 ring-offset-white font-bold scale-105"
+                      : "hover:scale-105 active:scale-95 opacity-80 hover:opacity-100"
+                  }`}
+                >
+                  {opt.id === "initials" && <span className="font-bold text-[10px] tracking-tight select-none">{initials}</span>}
+                  {opt.id === "user" && <UserIcon className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "tennis-ball" && <TennisBallSvg className="w-3.5 h-3.5 shrink-0" color={isSelected && activeAvatarColor ? activeAvatarColor : undefined} />}
+                  {opt.id === "racket" && <TennisRacketSvg className="w-3.5 h-3.5 shrink-0" />}
+                  {opt.id === "trophy" && <Trophy className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "medal" && <Medal className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "flame" && <Flame className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "shield" && <Shield className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "crown" && <Crown className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "star" && <Star className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "coffee" && <Coffee className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "beer" && <Beer className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "sunglasses" && <Sunglasses className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "dumbbell" && <Dumbbell className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "zap" && <Zap className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "target" && <Target className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "rocket" && <Rocket className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                  {opt.id === "heart" && <Heart className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Color Presets & Pipette (Ultra Compact Row) */}
+          <div className="flex items-center gap-1.5 pt-2 border-t border-slate-200/60 max-w-sm">
+            {AVATAR_COLOR_PRESETS.map((preset) => {
+              const isSelected = activeAvatarColor?.toLowerCase() === preset.value.toLowerCase();
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => handleSelectColor(preset.value)}
+                  title={preset.name}
+                  className={`w-5 h-5 rounded-full transition-all duration-150 cursor-pointer relative flex items-center justify-center shadow-3xs outline-none shrink-0 ${
+                    isSelected
+                      ? "ring-2 ring-[var(--color-primary)] ring-offset-1 ring-offset-white scale-110 z-10"
+                      : "hover:scale-110 active:scale-95"
+                  }`}
+                  style={{ backgroundColor: preset.value }}
+                >
+                  {isSelected && (
+                    <Check className="w-2.5 h-2.5 text-white drop-shadow-xs" strokeWidth={3} />
+                  )}
+                </button>
+              );
+            })}
+
+            {/* Pipette / Regenbogen-Knopf */}
+            <label
+              title={isCustomColor ? t("avatar.customColorActive", `Eigene Farbe: ${activeAvatarColor}`, { color: activeAvatarColor }) : t("avatar.customColor", "Beliebige eigene Farbe wählen")}
+              className={`w-5 h-5 rounded-full transition-all duration-150 relative flex items-center justify-center cursor-pointer shadow-3xs outline-none shrink-0 ${
+                isCustomColor
+                  ? "ring-2 ring-[var(--color-primary)] ring-offset-1 ring-offset-white scale-110 z-10"
+                  : "border border-slate-300 hover:border-slate-500 hover:scale-110 active:scale-95 bg-linear-to-tr from-rose-400 via-amber-300 via-emerald-400 to-indigo-500"
+              }`}
+              style={isCustomColor ? { backgroundColor: activeAvatarColor } : {}}
+            >
+              <input
+                type="color"
+                value={activeAvatarColor || "#1b4332"}
+                onChange={(e) => handleSelectColor(e.target.value)}
+                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+              />
+              {isCustomColor ? (
+                <Check className="w-2.5 h-2.5 text-white drop-shadow-xs" strokeWidth={3} />
+              ) : (
+                <Pipette className="w-2.5 h-2.5 text-white drop-shadow-xs" />
+              )}
+            </label>
+          </div>
+        </div>
+      ) : showIconSelector ? (
         <div className="bg-white border border-slate-200/80 rounded-xl p-4 space-y-3.5 animate-in fade-in slide-in-from-top-2 duration-150 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              Icons
+              {t("avatar.icons", "Icons")}
             </span>
           </div>
 
@@ -365,17 +503,17 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
                 <Palette className="w-3.5 h-3.5 text-indigo-500" />
-                Farbe
+                {t("avatar.color", "Farbe")}
               </span>
               {activeAvatarColor && (
                 <button
                   type="button"
                   onClick={() => handleSelectColor(null)}
                   className="text-xs font-medium text-slate-400 hover:text-slate-700 flex items-center gap-1 hover:underline transition-colors cursor-pointer"
-                  title="Auf Standard zurücksetzen"
+                  title={t("avatar.resetColorTooltip", "Auf Standard zurücksetzen")}
                 >
                   <RotateCcw className="w-3 h-3" />
-                  Zurücksetzen
+                  {t("avatar.resetColor", "Zurücksetzen")}
                 </button>
               )}
             </div>
@@ -406,7 +544,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
 
               {/* Pipette / Regenbogen-Knopf */}
               <label
-                title={isCustomColor ? `Eigene Farbe: ${activeAvatarColor}` : "Beliebige eigene Farbe wählen"}
+                title={isCustomColor ? t("avatar.customColorActive", `Eigene Farbe: ${activeAvatarColor}`, { color: activeAvatarColor }) : t("avatar.customColor", "Beliebige eigene Farbe wählen")}
                 className={`flex-1 aspect-square max-w-[30px] min-w-[20px] rounded-full transition-all duration-150 relative flex items-center justify-center cursor-pointer shadow-2xs outline-none ${
                   isCustomColor
                     ? "ring-2 ring-[var(--color-primary)] ring-offset-2 ring-offset-white scale-110 z-10"
@@ -429,7 +567,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Error Message */}
       {errorMessage && (

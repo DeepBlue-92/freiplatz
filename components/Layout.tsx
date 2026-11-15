@@ -4,7 +4,6 @@ import {
   ChevronDown,
   CircleUser,
   UserCog,
-  HelpCircle,
   LogOut,
   ArrowLeftRight,
   Check,
@@ -14,12 +13,30 @@ import { RichTextRenderer } from "./RichText";
 import { UserClub } from "../types";
 import { getUserClubs } from "../lib/userUtils";
 import { UserAvatar } from "./UserAvatar";
+import { useTranslation } from "react-i18next";
+
+export const GermanFlag: React.FC<{ className?: string }> = ({ className = "w-full h-full" }) => (
+  <svg viewBox="0 0 30 30" preserveAspectRatio="none" className={`${className} block`}>
+    <rect width="30" height="10" y="0" fill="#111111" />
+    <rect width="30" height="10" y="10" fill="#DD0000" />
+    <rect width="30" height="10" y="20" fill="#FFCE00" />
+  </svg>
+);
+
+export const UKFlag: React.FC<{ className?: string }> = ({ className = "w-full h-full" }) => (
+  <svg viewBox="0 0 60 60" preserveAspectRatio="none" className={`${className} block`}>
+    <rect width="60" height="60" fill="#012169" />
+    <path d="M0,0 L60,60 M60,0 L0,60" stroke="#fff" strokeWidth="12" />
+    <path d="M0,0 L60,60 M60,0 L0,60" stroke="#C8102E" strokeWidth="4" />
+    <path d="M30,0 v60 M0,30 h60" stroke="#fff" strokeWidth="20" />
+    <path d="M30,0 v60 M0,30 h60" stroke="#C8102E" strokeWidth="12" />
+  </svg>
+);
 
 interface LayoutProps {
   children: React.ReactNode;
   user: any;
   onLogout: () => void;
-  onShowHelp?: () => void;
   onShowImpressum?: () => void;
   onShowProfile?: () => void;
   news?: string;
@@ -27,6 +44,10 @@ interface LayoutProps {
   logoUrl?: string;
   bannerUrl?: string;
   bannerPosition?: string;
+  bannerType?: "image" | "color" | "gradient";
+  bannerColor?: string;
+  bannerGradientStart?: string;
+  bannerGradientEnd?: string;
   primaryColor?: string;
   websiteUrl?: string;
   hideWebsiteLink?: boolean;
@@ -38,6 +59,9 @@ interface LayoutProps {
   currentVereinsId?: string;
   onSwitchClub?: (vereinsId: string) => void;
   onOpenLogin?: () => void;
+  supportedLanguages?: ("de" | "en")[];
+  currentLanguage?: "de" | "en";
+  onLanguageChange?: (lang: "de" | "en") => void;
 }
 
 const Layout: React.FC<LayoutProps> = ({
@@ -45,7 +69,6 @@ const Layout: React.FC<LayoutProps> = ({
   user,
   onLogout,
   onOpenLogin,
-  onShowHelp,
   onShowImpressum,
   onShowProfile,
   news,
@@ -53,6 +76,10 @@ const Layout: React.FC<LayoutProps> = ({
   logoUrl = "https://lirp.cdn-website.com/236a6a55/dms3rep/multi/opt/Wappen-1920w.jpg",
   bannerUrl = "https://lirp.cdn-website.com/236a6a55/dms3rep/multi/opt/banner_platzreservierung_1-1920w.png",
   bannerPosition = "50% 50%",
+  bannerType = "image",
+  bannerColor = "#1b4332",
+  bannerGradientStart = "#1b4332",
+  bannerGradientEnd = "#2d6a4f",
   primaryColor = "var(--color-primary)",
   websiteUrl = "https://www.tennis-club.local",
   hideWebsiteLink = false,
@@ -63,7 +90,11 @@ const Layout: React.FC<LayoutProps> = ({
   userClubs,
   currentVereinsId,
   onSwitchClub,
+  supportedLanguages,
+  currentLanguage,
+  onLanguageChange,
 }) => {
+  const { t } = useTranslation();
   const clubUrl = websiteUrl;
   const [isTopLeftDropdownOpen, setIsTopLeftDropdownOpen] = useState(false);
   const topLeftDropdownRef = useRef<HTMLDivElement>(null);
@@ -199,7 +230,43 @@ const Layout: React.FC<LayoutProps> = ({
     const curId = String(currentVereinsId || "").toLowerCase().replace(/\s/g, "");
     return cId === curId;
   });
-  const activeClubName = getCleanClubName(activeClubObj, clubName);
+  const renderLanguagePill = () => {
+    if (!onLanguageChange) return null;
+    return (
+      <div className="flex items-center bg-white/10 hover:bg-white/15 border border-white/20 rounded-full p-0.5 shadow-xs backdrop-blur-sm transition-colors text-white select-none shrink-0">
+        <button
+          type="button"
+          onClick={() => onLanguageChange("de")}
+          className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide transition-all cursor-pointer flex items-center gap-1.5 ${
+            (currentLanguage || "de") === "de"
+              ? "bg-white text-slate-900 shadow-xs"
+              : "text-white/80 hover:text-white"
+          }`}
+          title="Deutsch"
+        >
+          <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block shadow-3xs">
+            <GermanFlag />
+          </span>
+          <span>DE</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onLanguageChange("en")}
+          className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide transition-all cursor-pointer flex items-center gap-1.5 ${
+            (currentLanguage || "de") === "en"
+              ? "bg-white text-slate-900 shadow-xs"
+              : "text-white/80 hover:text-white"
+          }`}
+          title="English"
+        >
+          <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block shadow-3xs">
+            <UKFlag />
+          </span>
+          <span>EN</span>
+        </button>
+      </div>
+    );
+  };
 
   if (isPublicWochenplanRoute) {
     return (
@@ -209,22 +276,26 @@ const Layout: React.FC<LayoutProps> = ({
           className="w-full h-14 relative shadow-md shrink-0 z-[60] text-white flex items-center"
           style={{ backgroundColor: primaryColor }}
         >
-          <div className="max-w-[1600px] w-full mx-auto px-3 sm:px-4 flex items-center gap-3">
-            {logoUrl && (
-              <img
-                src={logoUrl}
-                alt={`${clubName} Logo`}
-                className="w-8 h-8 object-contain drop-shadow-lg shrink-0 animate-in fade-in zoom-in duration-200"
-              />
-            )}
-            <div className="flex items-baseline gap-1.5">
-              <span className="font-bold text-[15.5pt] leading-none" style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', Times, serif" }}>
-                {clubName}
-              </span>
-              <span className="text-sm font-semibold text-white/90">
-                – Platzbuchung
-              </span>
+          <div className="max-w-[1600px] w-full mx-auto px-3 sm:px-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {logoUrl && (
+                <img
+                  src={logoUrl}
+                  alt={`${clubName} Logo`}
+                  className="w-8 h-8 object-contain drop-shadow-lg shrink-0 animate-in fade-in zoom-in duration-200"
+                />
+              )}
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-bold text-[15.5pt] leading-none" style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', Times, serif" }}>
+                  {clubName}
+                </span>
+                <span className="text-sm font-semibold text-white/90">
+                  – {t("nav.reservation")}
+                </span>
+              </div>
             </div>
+
+            {renderLanguagePill()}
           </div>
         </header>
 
@@ -247,28 +318,42 @@ const Layout: React.FC<LayoutProps> = ({
         <div className="absolute inset-0 overflow-hidden z-0 pointer-events-none">
           <AnimatePresence mode="wait">
             <motion.div
-              key={currentVereinsId || bannerUrl || primaryColor}
+              key={currentVereinsId || bannerType || bannerUrl || bannerColor || bannerGradientStart || bannerGradientEnd || primaryColor}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25, ease: "easeInOut" }}
               className="absolute inset-0"
             >
-              {bannerUrl ? (
-                <img
-                  src={bannerUrl}
-                  alt={`${clubName} Anlage`}
-                  className="w-full h-full object-cover"
-                  style={{ objectPosition: bannerPosition }}
+              {bannerType === "color" ? (
+                <div
+                  className="w-full h-full"
+                  style={{ backgroundColor: bannerColor || primaryColor }}
                 />
+              ) : bannerType === "gradient" ? (
+                <div
+                  className="w-full h-full"
+                  style={{
+                    background: `linear-gradient(to right, ${bannerGradientStart || primaryColor}, ${bannerGradientEnd || "#2d6a4f"})`,
+                  }}
+                />
+              ) : bannerUrl ? (
+                <>
+                  <img
+                    src={bannerUrl}
+                    alt={`${clubName} Anlage`}
+                    className="w-full h-full object-cover"
+                    style={{ objectPosition: bannerPosition }}
+                  />
+                  {/* Gradient overlay for text readability */}
+                  <div
+                    className="absolute inset-0 bg-gradient-to-r"
+                    style={{
+                      backgroundImage: `linear-gradient(to right, ${primaryColor}F2, ${primaryColor}E6, ${primaryColor}80, transparent)`,
+                    }}
+                  ></div>
+                </>
               ) : null}
-              {/* Gradient overlay for text readability */}
-              <div
-                className="absolute inset-0 bg-gradient-to-r"
-                style={{
-                  backgroundImage: `linear-gradient(to right, ${primaryColor}F2, ${primaryColor}E6, ${primaryColor}80, transparent)`,
-                }}
-              ></div>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -379,7 +464,11 @@ const Layout: React.FC<LayoutProps> = ({
             </div>
 
             {/* Compact Greeting & Control Buttons inside the Banner */}
-            <div className="flex items-center justify-end drop-shadow-lg text-white select-none shrink-0 gap-3 ml-auto transition-all duration-300 ease-in-out">
+            <motion.div 
+              layout
+              transition={{ layout: { duration: 0.25, ease: "easeInOut" } }}
+              className="flex items-center justify-end drop-shadow-lg text-white select-none shrink-0 gap-3 ml-auto transition-all duration-300 ease-in-out"
+            >
               {user ? (
                 (() => {
                   const headerDisplayName = (user.firstName && user.lastName)
@@ -390,14 +479,18 @@ const Layout: React.FC<LayoutProps> = ({
 
                   return (
                     <>
-                      <div className="hidden lg:flex bg-white/10 py-0.5 pl-1 pr-1.5 rounded-full shadow-sm gap-1 w-auto backdrop-blur-sm border border-white/10 relative items-center h-8 transition-all duration-300 ease-in-out">
+                      <motion.div 
+                        layout
+                        transition={{ layout: { duration: 0.25, ease: "easeInOut" } }}
+                        className="hidden lg:flex bg-white/10 py-0.5 pl-1 pr-1.5 rounded-full shadow-sm gap-1 w-auto backdrop-blur-sm border border-white/10 relative items-center h-8 transition-all duration-300 ease-in-out"
+                      >
                         {/* Interactive Profile Button (Avatar + Name) */}
                         {onShowProfile ? (
                           <button
                             type="button"
                             onClick={onShowProfile}
                             className="flex items-center gap-2 pl-1 pr-2.5 h-[26px] text-[10px] font-medium tracking-wide rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-all duration-200 cursor-pointer outline-none select-none group"
-                            title="Mein Profil bearbeiten"
+                            title={t("profile.title")}
                           >
                             <UserAvatar user={user} size="xs" showBorder borderColor="border-white/40" />
                             <span className="truncate max-w-[120px] group-hover:text-white">
@@ -416,23 +509,38 @@ const Layout: React.FC<LayoutProps> = ({
                           </div>
                         )}
 
-                        {/* Vertical Divider */}
-                        {onShowHelp && <div className="w-[1px] h-3.5 bg-white/20 mx-0.5 shrink-0" />}
-
-                        {/* Help Action */}
-                        {onShowHelp && (
-                          <button
-                            type="button"
-                            onClick={onShowHelp}
-                            className="w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer outline-none text-white/70 hover:text-white hover:bg-white/10 shrink-0"
-                            title="Hilfe & Funktionen"
-                          >
-                            <HelpCircle className="w-3.5 h-3.5" strokeWidth={1.8} />
-                          </button>
+                        {/* Language Switcher (Single Active Language, 1-Click Toggle directly next to name) */}
+                        {onLanguageChange && (
+                          <>
+                            <div className="w-[1px] h-3.5 bg-white/20 mx-0.5 shrink-0" />
+                            <motion.button
+                              layout
+                              transition={{ layout: { duration: 0.25, ease: "easeInOut" } }}
+                              type="button"
+                              onClick={() => onLanguageChange((currentLanguage || "de") === "de" ? "en" : "de")}
+                              className="flex items-center gap-1.5 px-2 h-[26px] text-[10px] font-bold tracking-wide rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-all duration-200 cursor-pointer outline-none select-none shrink-0"
+                              title={(currentLanguage || "de") === "de" ? "Zu English wechseln" : "Zu Deutsch wechseln"}
+                            >
+                              <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block shadow-3xs">
+                                {(currentLanguage || "de") === "de" ? <GermanFlag /> : <UKFlag />}
+                              </span>
+                              <AnimatePresence mode="wait">
+                                <motion.span
+                                  key={currentLanguage || "de"}
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  exit={{ opacity: 0 }}
+                                  transition={{ duration: 0.15 }}
+                                >
+                                  {(currentLanguage || "de").toUpperCase()}
+                                </motion.span>
+                              </AnimatePresence>
+                            </motion.button>
+                          </>
                         )}
-                      </div>
+                      </motion.div>
 
-                      {/* Mobile Fallback for Account/Profile/Help */}
+                      {/* Mobile Fallback for Account/Profile */}
                       <div className="flex lg:hidden items-center gap-1">
                         <div className="text-[9px] font-medium tracking-wide flex items-center gap-1.5 text-white/95 bg-white/10 px-2.5 py-1 rounded-md border border-white/10 backdrop-blur-sm w-auto">
                           <UserAvatar user={user} size="xs" />
@@ -440,61 +548,68 @@ const Layout: React.FC<LayoutProps> = ({
                             {headerDisplayName}
                           </span>
                         </div>
+                        {onLanguageChange && (
+                          <button
+                            type="button"
+                            onClick={() => onLanguageChange((currentLanguage || "de") === "de" ? "en" : "de")}
+                            className="bg-white/10 hover:bg-white/20 transition-all px-2 rounded-lg text-white border border-white/15 active:scale-95 shadow-sm flex items-center justify-center gap-1.5 backdrop-blur-sm text-[10px] font-bold h-7 cursor-pointer"
+                            title={(currentLanguage || "de") === "de" ? "Zu English wechseln" : "Zu Deutsch wechseln"}
+                          >
+                            <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block">
+                              {(currentLanguage || "de") === "de" ? <GermanFlag /> : <UKFlag />}
+                            </span>
+                            <span>{(currentLanguage || "de").toUpperCase()}</span>
+                          </button>
+                        )}
                         {onShowProfile && (
                           <button
                             onClick={onShowProfile}
                             className="bg-white/10 hover:bg-white/20 transition-all p-1 rounded-lg text-white border border-white/15 active:scale-95 shadow-sm flex items-center justify-center backdrop-blur-sm text-xs font-medium h-7 w-7"
-                            title="Mein Profil"
+                            title={t("profile.title")}
                           >
                             <UserCog className="w-3.5 h-3.5" strokeWidth={1.8} />
-                          </button>
-                        )}
-                        {onShowHelp && (
-                          <button
-                            onClick={onShowHelp}
-                            className="bg-white/10 hover:bg-white/20 transition-all p-1 rounded-lg text-white border border-white/15 active:scale-95 shadow-sm flex items-center justify-center backdrop-blur-sm text-xs font-medium h-7 w-7"
-                            title="Hilfe & Funktionen"
-                          >
-                            <HelpCircle className="w-3.5 h-3.5" strokeWidth={1.8} />
                           </button>
                         )}
                       </div>
 
                       {/* Logout Button */}
-                      <button
+                      <motion.button
+                        layout
+                        transition={{ layout: { duration: 0.25, ease: "easeInOut" } }}
                         onClick={onLogout}
                         className="bg-[var(--color-accent)] hover:bg-[color-mix(in srgb, var(--color-accent) 80%, black)] transition-all px-4 h-7 lg:h-8 rounded-lg lg:rounded-full text-white border border-white/20 active:scale-95 shadow-sm flex items-center justify-center gap-1.5 text-[10px] font-medium tracking-wide shrink-0 cursor-pointer"
-                        title="Abmelden"
+                        title={t("nav.logout")}
                       >
-                        <span className="hidden xl:inline">Abmelden</span>
+                        <AnimatePresence mode="wait">
+                          <motion.span
+                            key={t("nav.logout")}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="hidden xl:inline"
+                          >
+                            {t("nav.logout")}
+                          </motion.span>
+                        </AnimatePresence>
                         <LogOut className="w-3.5 h-3.5 shrink-0" strokeWidth={1.8} />
-                      </button>
+                      </motion.button>
                     </>
                   );
                 })()
               ) : (
                 <div className="flex items-center gap-2">
-                  {onShowHelp && (
-                    <button
-                      type="button"
-                      onClick={onShowHelp}
-                      className="w-7 h-7 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer outline-none text-white/80 hover:text-white bg-white/10 hover:bg-white/20 shrink-0 border border-white/10"
-                      title="Hilfe & Anleitungen"
-                    >
-                      <HelpCircle className="w-4 h-4" strokeWidth={1.8} />
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={onOpenLogin || onLogout}
                     className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] text-white transition-all px-3.5 sm:px-4 h-7 lg:h-8 rounded-full border border-white/20 active:scale-95 shadow-md flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
                   >
                     <LogIn className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
-                    <span>Anmelden</span>
+                    <span>{t("nav.login")}</span>
                   </button>
                 </div>
               )}
-            </div>
+            </motion.div>
           </div>
         </div>
       </div>
@@ -537,26 +652,13 @@ const Layout: React.FC<LayoutProps> = ({
 
           <span className="text-white/20 select-none">|</span>
 
-          {onShowHelp && (
-            <>
-              <button
-                type="button"
-                onClick={onShowHelp}
-                className="text-white/70 hover:text-white transition-colors cursor-pointer"
-              >
-                Hilfe
-              </button>
-              <span className="text-white/20 select-none">|</span>
-            </>
-          )}
-
           {onShowImpressum && (
             <button
               type="button"
               onClick={onShowImpressum}
               className="text-white/70 hover:text-white transition-colors cursor-pointer"
             >
-              Impressum
+              {t("nav.impressum")}
             </button>
           )}
 
@@ -574,6 +676,8 @@ const Layout: React.FC<LayoutProps> = ({
               </a>
             </>
           )}
+
+
         </div>
       </footer>
     </div>

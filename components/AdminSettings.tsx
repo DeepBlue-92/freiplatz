@@ -22,6 +22,7 @@ import { GuestFeeSettingsEditor } from "./admin/GuestFeeSettingsEditor";
 import { getDefaultFeeSettings, validateFeeSettings } from "../utils/guestFeeCalculator";
 import {
   ClubSettings,
+  TenantLanguageTranslations,
   DEFAULT_SETTINGS,
   DEFAULT_DYNAMIC_LEAGUES,
   savePublicBookings,
@@ -30,13 +31,12 @@ import {
   saveArbeitseinsatz,
   isUsernameTakenGlobally,
 } from "../services/db";
+import { getUniqueLockReasons, getTenantTranslation } from "../services/tenantTranslations";
 import { calculateAge } from "../utils/playerHelper";
 import { RichTextRenderer, RichTextEditorToolbar } from "./RichText";
 import firebaseConfig from "../firebase-applet-config.json";
 import { TIME_SLOTS } from "../constants";
 import AdminRankings from "./AdminRankings";
-import AdminChangelog from "./AdminChangelog";
-import { AdminDocumentation } from "./AdminDocumentation";
 import { motion, AnimatePresence } from "motion/react";
 import { Settings, Trophy, SlidersHorizontal, Shield } from "lucide-react";
 import {
@@ -45,6 +45,7 @@ import {
   PrivacySafeCandidate,
 } from "../services/duplicateDetection";
 import { UserAvatar } from "./UserAvatar";
+import { isSuperAdmin as isUserSuperAdmin } from "../lib/userUtils";
 import { AvatarUploader } from "./AvatarUploader";
 import AdminOnboardingTab from "./AdminOnboardingTab";
 import { ChampionshipAdminTab } from "../features/championship/ChampionshipAdminTab";
@@ -64,6 +65,7 @@ import {
 } from "../services/emailTemplateStorage";
 import { DEFAULT_EMAIL_TEMPLATES } from "../services/notificationTemplates";
 import { EmailTemplate } from "../types/notifications";
+import { useTranslation } from "react-i18next";
 
 interface AdminSettingsProps {
   users: Record<string, User>;
@@ -85,7 +87,7 @@ interface AdminSettingsProps {
   onDeleteTournament: (id: string) => void;
   onActAsUser?: (user: User) => void;
   onSaveBooking?: (booking: Booking) => Promise<void> | void;
-  onDeleteBooking?: (id: string) => Promise<void> | void;
+  onDeleteBooking?: (id: string | string[]) => Promise<void> | void;
   isSuperAdminImpersonating?: boolean;
   onNavigateToChampionship?: () => void;
   initialTab?: string;
@@ -93,25 +95,25 @@ interface AdminSettingsProps {
 }
 
 const TABS = [
-  { id: "allgemein", label: "Allgemein", icon: "fa-cubes" },
-  { id: "landing_page", label: "Startseite bearbeiten", icon: "fa-table-cells-large" },
-  { id: "rules", label: "Buchungsregeln", icon: "fa-clipboard-check" },
-  { id: "sperren", label: "Sperren", icon: "fa-ban" },
-  { id: "layout", label: "Layout", icon: "fa-paint-roller" },
-  { id: "users", label: "Benutzer", icon: "fa-users" },
-  { id: "onboarding", label: "Mitgliederonboarding", icon: "fa-user-check" },
-  { id: "notifications", label: "Benachrichtigungen", icon: "fa-bell" },
-  { id: "database", label: "Datenverwaltung", icon: "fa-database" },
-  { id: "ranking", label: "Rangliste", icon: "fa-medal" },
-  { id: "championship", label: "Meisterschaft", icon: "fa-trophy" },
-  { id: "arbeitseinsaetze", label: "Arbeitseinsätze", icon: "fa-briefcase" },
-  { id: "updates", label: "Updates", icon: "fa-clock-rotate-left" },
-  { id: "handbuch", label: "Handbuch", icon: "fa-book-open" },
+  { id: "allgemein", labelKey: "admin.tabs.allgemein", fallback: "Allgemein", icon: "fa-cubes" },
+  { id: "landing_page", labelKey: "admin.tabs.landing_page", fallback: "Startseite", icon: "fa-table-cells-large" },
+  { id: "rules", labelKey: "admin.tabs.rules", fallback: "Buchungsregeln", icon: "fa-clipboard-check" },
+  { id: "sperren", labelKey: "admin.tabs.sperren", fallback: "Sperren", icon: "fa-ban" },
+  { id: "layout", labelKey: "admin.tabs.layout", fallback: "Layout", icon: "fa-paint-roller" },
+  { id: "translations", labelKey: "admin.tabs.translations", fallback: "Übersetzungen", icon: "fa-language" },
+  { id: "users", labelKey: "admin.tabs.users", fallback: "Benutzer", icon: "fa-users" },
+  { id: "onboarding", labelKey: "admin.tabs.onboarding", fallback: "Mitgliederonboarding", icon: "fa-user-check" },
+  { id: "notifications", labelKey: "admin.tabs.notifications", fallback: "Benachrichtigungen", icon: "fa-bell" },
+  { id: "database", labelKey: "admin.tabs.database", fallback: "Datenverwaltung", icon: "fa-database" },
+  { id: "ranking", labelKey: "admin.tabs.ranking", fallback: "Rangliste", icon: "fa-medal" },
+  { id: "championship", labelKey: "admin.tabs.championship", fallback: "Meisterschaft", icon: "fa-trophy" },
+  { id: "arbeitseinsaetze", labelKey: "admin.tabs.arbeitseinsaetze", fallback: "Arbeitseinsätze", icon: "fa-briefcase" },
 ];
 
 const DEFAULT_NAV_ORDER = [
   "landing_page",
   "reservation",
+  "spielpartner",
   "tournaments",
   "ranking",
   "championship",
@@ -119,6 +121,146 @@ const DEFAULT_NAV_ORDER = [
   "guests",
   "arbeitseinsaetze",
 ];
+
+const normalizeNavOrder = (existing?: string[]): string[] => {
+  if (Array.isArray(existing) && existing.length > 0) {
+    const list = existing.filter((id) => DEFAULT_NAV_ORDER.includes(id));
+    for (const id of DEFAULT_NAV_ORDER) {
+      if (!list.includes(id)) list.push(id);
+    }
+    return list;
+  }
+  return [...DEFAULT_NAV_ORDER];
+};
+
+interface GroupedCalendarLock {
+  id: string;
+  bookingIds: string[];
+  date: string;
+  reason: string;
+  startTime: string;
+  endTime: string;
+  courts: string[];
+  isEvent?: boolean;
+}
+
+function groupCalendarLocks(rawLocks: Booking[]): GroupedCalendarLock[] {
+  if (!rawLocks || rawLocks.length === 0) return [];
+
+  const explicitGroups = new Map<string, Booking[]>();
+  const toCluster: Booking[] = [];
+
+  rawLocks.forEach((b) => {
+    const gId = b.lockGroupId || (b as any).parentLockId;
+    if (gId) {
+      if (!explicitGroups.has(gId)) {
+        explicitGroups.set(gId, []);
+      }
+      explicitGroups.get(gId)!.push(b);
+    } else {
+      toCluster.push(b);
+    }
+  });
+
+  const result: GroupedCalendarLock[] = [];
+
+  // 1. Process explicit groups (created together via lockGroupId)
+  explicitGroups.forEach((items, gId) => {
+    if (items.length === 0) return;
+    const dates = Array.from(new Set(items.map((b) => b.date))).sort();
+    for (const d of dates) {
+      const dateItems = items.filter((b) => b.date === d);
+      const timeIndices = dateItems
+        .map((b) => TIME_SLOTS.indexOf(b.time))
+        .filter((idx) => idx !== -1);
+      const minIdx = timeIndices.length > 0 ? Math.min(...timeIndices) : 0;
+      const maxIdx = timeIndices.length > 0 ? Math.max(...timeIndices) : 0;
+      const startTime = TIME_SLOTS[minIdx] || dateItems[0].time;
+      const endTime = TIME_SLOTS[maxIdx + 1] || "22:00";
+      const courts = Array.from(new Set(dateItems.map((b) => b.court))).sort();
+
+      result.push({
+        id: `${gId}_${d}`,
+        bookingIds: dateItems.map((b) => b.id),
+        date: d,
+        reason: dateItems[0].reason || "",
+        startTime,
+        endTime,
+        courts,
+        isEvent: dateItems[0].isEvent,
+      });
+    }
+  });
+
+  // 2. Process items without explicit lockGroupId: cluster by date and normalized reason
+  const buckets = new Map<string, Booking[]>();
+  toCluster.forEach((b) => {
+    const key = `${b.date}___${(b.reason || "").trim().toLowerCase()}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, []);
+    }
+    buckets.get(key)!.push(b);
+  });
+
+  const finishCluster = (cluster: Booking[]) => {
+    if (cluster.length === 0) return;
+    const timeIndices = cluster
+      .map((b) => TIME_SLOTS.indexOf(b.time))
+      .filter((idx) => idx !== -1);
+    const minIdx = timeIndices.length > 0 ? Math.min(...timeIndices) : 0;
+    const maxIdx = timeIndices.length > 0 ? Math.max(...timeIndices) : 0;
+    const startTime = TIME_SLOTS[minIdx] || cluster[0].time;
+    const endTime = TIME_SLOTS[maxIdx + 1] || "22:00";
+    const courts = Array.from(new Set(cluster.map((b) => b.court))).sort();
+
+    result.push({
+      id: cluster[0].id,
+      bookingIds: cluster.map((b) => b.id),
+      date: cluster[0].date,
+      reason: cluster[0].reason || "",
+      startTime,
+      endTime,
+      courts,
+      isEvent: cluster[0].isEvent,
+    });
+  };
+
+  buckets.forEach((items) => {
+    items.sort(
+      (a, b) => TIME_SLOTS.indexOf(a.time) - TIME_SLOTS.indexOf(b.time)
+    );
+
+    let currentCluster: Booking[] = [];
+    let currentMaxIdx = -1;
+
+    for (const item of items) {
+      const idx = TIME_SLOTS.indexOf(item.time);
+      if (currentCluster.length === 0) {
+        currentCluster.push(item);
+        currentMaxIdx = idx;
+      } else {
+        if (idx <= currentMaxIdx + 1) {
+          currentCluster.push(item);
+          if (idx > currentMaxIdx) {
+            currentMaxIdx = idx;
+          }
+        } else {
+          finishCluster(currentCluster);
+          currentCluster = [item];
+          currentMaxIdx = idx;
+        }
+      }
+    }
+    if (currentCluster.length > 0) {
+      finishCluster(currentCluster);
+    }
+  });
+
+  return result.sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return TIME_SLOTS.indexOf(a.startTime) - TIME_SLOTS.indexOf(b.startTime);
+  });
+}
 
 const AdminSettings: React.FC<AdminSettingsProps> = ({
   users,
@@ -144,6 +286,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   initialTab,
   onUpdateLandingPageConfig,
 }) => {
+  const { t, i18n } = useTranslation();
+  const translateCourt = (c: string) => getTenantTranslation(c, "courts", settings, i18n?.language);
   const currentClubId = settings?.vereinsId || settings?.id || currentUser.vereinsId || "sv-neuhausen";
   const [currentTab, setCurrentTab] = useState<
     | "allgemein"
@@ -153,6 +297,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     | "tournaments"
     | "sperren"
     | "layout"
+    | "translations"
     | "users"
     | "onboarding"
     | "notifications"
@@ -160,8 +305,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     | "ranking"
     | "championship"
     | "arbeitseinsaetze"
-    | "updates"
-    | "handbuch"
   >((initialTab as any) || "allgemein");
 
   useEffect(() => {
@@ -337,9 +480,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const welcomeTextRef = useRef<HTMLTextAreaElement | null>(null);
   const impressumTextRef = useRef<HTMLTextAreaElement | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [isDraggingCsv, setIsDraggingCsv] = useState(false);
   const [userPage, setUserPage] = useState(1);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [activeActionMenuUserId, setActiveActionMenuUserId] = useState<string | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   // Authentication Mail Confirmation Modal State
   const [authMailModal, setAuthMailModal] = useState<{
@@ -353,6 +498,45 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     previewOpen?: boolean;
     activeTemplate?: EmailTemplate | null;
   } | null>(null);
+
+  // Club Email & Notification Status for Tenant
+  const [clubEmailStatus, setClubEmailStatus] = useState<{
+    isLoaded: boolean;
+    isPaused: boolean;
+    activationActive: boolean;
+    resetActive: boolean;
+  }>({
+    isLoaded: false,
+    isPaused: false,
+    activationActive: true,
+    resetActive: true,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    loadClubEmailTemplatesData(settings.vereinsId || "sv-neuhausen")
+      .then((data) => {
+        if (!isMounted) return;
+        setClubEmailStatus({
+          isLoaded: true,
+          isPaused: data.isGlobalEmailPaused === true,
+          activationActive: data.systemwideActive?.USER_ACTIVATION !== false,
+          resetActive: data.systemwideActive?.PASSWORD_RESET !== false,
+        });
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setClubEmailStatus({
+          isLoaded: true,
+          isPaused: false,
+          activationActive: true,
+          resetActive: true,
+        });
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [settings.vereinsId, currentTab]);
 
   // Open Single Activation Modal
   const openSendActivationModal = async (u: User) => {
@@ -1018,12 +1202,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [street, setStreet] = useState(settings.street || "");
   const [zip, setZip] = useState(settings.zip || "");
   const [city, setCity] = useState(settings.city || "");
+  const [defaultLanguage, setDefaultLanguage] = useState<"de" | "en">(
+    settings.i18n?.defaultLanguage || "de"
+  );
+  const [allowOtherLanguage, setAllowOtherLanguage] = useState<boolean>(() => {
+    const def = settings.i18n?.defaultLanguage || "de";
+    const supported = settings.i18n?.supportedLanguages || [def];
+    const other = def === "de" ? "en" : "de";
+    return supported.includes(other);
+  });
   const [facilityPhotoUrl, setFacilityPhotoUrl] = useState(
     settings.facilityPhotoUrl || ""
   );
   const [customFacilityPhotoUrl, setCustomFacilityPhotoUrl] = useState(
     settings.customFacilityPhotoUrl ||
       (settings.facilityPhotoUrl ? settings.facilityPhotoUrl : "")
+  );
+  const [customAiInstructions, setCustomAiInstructions] = useState(
+    settings.customAiInstructions || ""
   );
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl || "");
   const [headerLogoUrl, setHeaderLogoUrl] = useState(
@@ -1052,9 +1248,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [faviconInputMode, setFaviconInputMode] = useState<"upload" | "url">(
     (settings.customFaviconUrl || "").startsWith("http") ? "url" : "upload",
   );
+  const isNeuhausenClub = Boolean(
+    settings.clubName?.toLowerCase().includes("neuhausen") ||
+    (currentClubId || "").toLowerCase().includes("neuhausen")
+  );
   const defaultBannerImg = DEFAULT_SETTINGS.bannerUrl;
-  const defaultLoginBannerImg =
-    DEFAULT_SETTINGS.loginBannerUrl || DEFAULT_SETTINGS.bannerUrl;
+  const defaultLoginBannerImg = DEFAULT_SETTINGS.loginBannerUrl || DEFAULT_SETTINGS.bannerUrl;
 
   const [useDefaultBanner, setUseDefaultBanner] = useState<boolean>(() => {
     if (settings.useDefaultBanner !== undefined) {
@@ -1094,6 +1293,18 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [bannerPosition, setBannerPosition] = useState(
     settings.bannerPosition || "50% 50%",
   );
+  const [bannerType, setBannerType] = useState<"image" | "color" | "gradient">(
+    settings.bannerType || (isNeuhausenClub ? "image" : "gradient"),
+  );
+  const [bannerColor, setBannerColor] = useState<string>(
+    settings.bannerColor || settings.primaryColor || "#1b4332",
+  );
+  const [bannerGradientStart, setBannerGradientStart] = useState<string>(
+    settings.bannerGradientStart || settings.primaryColor || "#1b4332",
+  );
+  const [bannerGradientEnd, setBannerGradientEnd] = useState<string>(
+    settings.bannerGradientEnd || settings.accentColor || "#2d6a4f",
+  );
   const [showBannerPositionModal, setShowBannerPositionModal] = useState(false);
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
   const [accentColor, setAccentColor] = useState(
@@ -1131,6 +1342,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     settings.courts || ["Platz 1", "Platz 2"],
   );
   const [newCourtName, setNewCourtName] = useState("");
+  const [equipmentList, setEquipmentList] = useState<string[]>(() =>
+    settings.equipmentList && settings.equipmentList.length > 0
+      ? settings.equipmentList
+      : ["Ballmaschine", "Ballkorb"]
+  );
+  const [newEquipmentName, setNewEquipmentName] = useState("");
   const [sollStunden, setSollStunden] = useState<number>(
     settings.arbeitseinsaetzeSettings?.sollStunden ?? 10
   );
@@ -1159,6 +1376,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
   const [remapTargetCategory, setRemapTargetCategory] = useState<string>("");
   const [isRemapping, setIsRemapping] = useState<boolean>(false);
+  const [aeRules, setAeRules] = useState<any[]>(
+    settings.arbeitseinsatz_rules ?? settings.arbeitseinsaetzeSettings?.rules ?? []
+  );
+  const [isAddingAeRule, setIsAddingAeRule] = useState<boolean>(false);
+  const [editingAeRuleId, setEditingAeRuleId] = useState<string | null>(null);
+  const [newRuleYear, setNewRuleYear] = useState<number>(new Date().getFullYear() + 1);
+  const [newRuleHours, setNewRuleHours] = useState<number>(10);
 
   useEffect(() => {
     const clubId = currentClubId;
@@ -1180,22 +1404,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     events: settings.modules?.events !== false,
     ranking: settings.modules?.ranking !== false,
     guests: settings.modules?.guests !== false,
+    spielpartner: settings.modules?.spielpartner !== false,
     arbeitseinsaetze: settings.modules?.arbeitseinsaetze === true,
     league: settings.modules?.league === true,
     championship: settings.modules?.championship === true,
   });
 
-  const [navOrder, setNavOrder] = useState<string[]>(() => {
-    const existing = settings.navigationOrder;
-    if (Array.isArray(existing) && existing.length > 0) {
-      const list = existing.filter((id) => DEFAULT_NAV_ORDER.includes(id));
-      for (const id of DEFAULT_NAV_ORDER) {
-        if (!list.includes(id)) list.push(id);
-      }
-      return list;
-    }
-    return DEFAULT_NAV_ORDER;
-  });
+  const [navOrder, setNavOrder] = useState<string[]>(() =>
+    normalizeNavOrder(settings.navigationOrder),
+  );
 
   const handleMoveNavModule = (index: number, direction: "up" | "down") => {
     const targetIndex = direction === "up" ? index - 1 : index + 1;
@@ -1221,6 +1438,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     maxAdvanceWeeks: 2,
     allowPastBookings: true,
     requireCoplayer: false,
+    allowParticipantsToEdit: false,
     openingHours: {
       "1": { start: "08:00", end: "21:00", closed: false },
       "2": { start: "08:00", end: "21:00", closed: false },
@@ -1243,6 +1461,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [isFeeSettingsValid, setIsFeeSettingsValid] = useState(true);
   const [localNews, setLocalNews] = useState(settings.news || "");
   const [impressum, setImpressum] = useState(settings.impressum || "");
+  const [translations, setTranslations] = useState<Record<string, TenantLanguageTranslations>>(
+    () => settings.i18n?.translations || {}
+  );
 
   // --- Sperren / Lock Form States ---
   const [lockContext, setLockContext] = useState<"lock" | "event">("lock");
@@ -1263,8 +1484,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [newRangeStartTime, setNewRangeStartTime] = useState("08:00");
   const [newRangeEndTime, setNewRangeEndTime] = useState("22:00");
   const [editingLockId, setEditingLockId] = useState<string | null>(null);
+  const [editingCalendarLock, setEditingCalendarLock] = useState<GroupedCalendarLock | null>(null);
   const [newLockColor, setNewLockColor] = useState("");
   const [isLockDrawerOpen, setIsLockDrawerOpen] = useState(false);
+  const [isLockDrawerAnimatingIn, setIsLockDrawerAnimatingIn] = useState(false);
+  const [isLockDrawerClosing, setIsLockDrawerClosing] = useState(false);
+
+  const openLockDrawer = useCallback(() => {
+    setIsLockDrawerClosing(false);
+    setIsLockDrawerAnimatingIn(false);
+    setIsLockDrawerOpen(true);
+    setTimeout(() => setIsLockDrawerAnimatingIn(true), 10);
+  }, []);
+
+  const closeLockDrawer = useCallback((resetFields?: () => void) => {
+    setIsLockDrawerClosing(true);
+    setIsLockDrawerAnimatingIn(false);
+    setTimeout(() => {
+      setIsLockDrawerOpen(false);
+      setIsLockDrawerClosing(false);
+      if (resetFields) {
+        resetFields();
+      }
+    }, 200);
+  }, []);
 
   // Meisterschaft draft states
 
@@ -1273,7 +1516,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     password: "",
     role: Role.USER,
     gender: "m",
-    showContactInfo: true,
+    showContactInfo: false,
+    onboarding_pending: true,
   });
   const [showUserForm, setShowUserForm] = useState(false);
   const [inlineEditingUserId, setInlineEditingUserId] = useState<string | null>(
@@ -1482,11 +1726,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setStreet(settings.street || "");
     setZip(settings.zip || "");
     setCity(settings.city || "");
+    const incomingDef = settings.i18n?.defaultLanguage || "de";
+    const incomingSupported = settings.i18n?.supportedLanguages || [incomingDef];
+    setDefaultLanguage(incomingDef);
+    setAllowOtherLanguage(incomingSupported.includes(incomingDef === "de" ? "en" : "de"));
     setFacilityPhotoUrl(settings.facilityPhotoUrl || "");
     setCustomFacilityPhotoUrl(
       settings.customFacilityPhotoUrl ||
         (settings.facilityPhotoUrl ? settings.facilityPhotoUrl : "")
     );
+    setCustomAiInstructions(settings.customAiInstructions || "");
     setLogoUrl(settings.logoUrl || "");
     setHeaderLogoUrl(settings.headerLogoUrl || settings.logoUrl || "");
     setFaviconUrl(settings.faviconUrl || "/favicon.svg");
@@ -1537,10 +1786,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
           : ""),
     );
     setBannerPosition(settings.bannerPosition || "50% 50%");
+    setBannerType(settings.bannerType || (isNeuhausenClub ? "image" : "gradient"));
+    setBannerColor(settings.bannerColor || settings.primaryColor || "#1b4332");
+    setBannerGradientStart(settings.bannerGradientStart || settings.primaryColor || "#1b4332");
+    setBannerGradientEnd(settings.bannerGradientEnd || settings.accentColor || "#2d6a4f");
     setPrimaryColor(settings.primaryColor);
     setAccentColor(settings.accentColor || "#c04d2b");
-    setAccentColor2(settings.accentColor2 || "#0f172a");
-    setAccentColor3(settings.accentColor3 || "#ccff00");
     setAccentColor2(settings.accentColor2 || "#0f172a");
     setAccentColor3(settings.accentColor3 || "#ccff00");
     setWebsiteUrl(
@@ -1552,17 +1803,28 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         "Herzlich willkommen im modernisierten Reservierungssystem! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.",
     );
     setCourtsList(settings.courts || ["Platz 1", "Platz 2"]);
+    setEquipmentList(
+      settings.equipmentList && settings.equipmentList.length > 0
+        ? settings.equipmentList
+        : ["Ballmaschine", "Ballkorb"]
+    );
     setSollStunden(settings.arbeitseinsaetzeSettings?.sollStunden ?? 10);
     setAeCategories((settings.arbeitseinsaetzeSettings?.categories ?? ["Platzpflege", "Clubheimreinigung", "Bewirtung", "Sonstiges"]).slice().sort((a, b) => a.localeCompare(b, "de")));
     setCommentsRequired(settings.arbeitseinsaetzeSettings?.commentsRequired ?? false);
+    setAeRules(settings.arbeitseinsatz_rules ?? settings.arbeitseinsaetzeSettings?.rules ?? []);
+    setIsAddingAeRule(false);
+    setEditingAeRuleId(null);
     setModules({
+      landing_page: settings.modules?.landing_page !== false,
       events: settings.modules?.events !== false,
       ranking: settings.modules?.ranking !== false,
       guests: settings.modules?.guests !== false,
+      spielpartner: settings.modules?.spielpartner !== false,
       arbeitseinsaetze: settings.modules?.arbeitseinsaetze === true,
       league: settings.modules?.league === true,
       championship: settings.modules?.championship === true,
     });
+    setNavOrder(normalizeNavOrder(settings.navigationOrder));
     setReservationRules({
       maxAdvanceDays: 14,
       maxActiveBookings: 3,
@@ -1594,24 +1856,36 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setFeeSettings(settings.feeSettings || getDefaultFeeSettings(settings.reservationRules));
     setLocalNews(settings.news || "");
     setImpressum(settings.impressum || "");
+    setTranslations(settings.i18n?.translations || {});
   }, [settings]);
 
   // Evaluates if a given tab is dirty
   const isTabDirty = useCallback(
     (tab: string): boolean => {
       if (tab === "allgemein") {
+        const expectedNavOrder = normalizeNavOrder(settings.navigationOrder);
+        const savedDef = settings.i18n?.defaultLanguage || "de";
+        const savedSupported = settings.i18n?.supportedLanguages || [savedDef];
+        const savedAllowOther = savedSupported.includes(savedDef === "de" ? "en" : "de");
+
         return (
           clubName !== settings.clubName ||
           (street || "") !== (settings.street || "") ||
           (zip || "") !== (settings.zip || "") ||
           (city || "") !== (settings.city || "") ||
           (customFacilityPhotoUrl || "") !== (settings.customFacilityPhotoUrl || settings.facilityPhotoUrl || "") ||
-          (modules.events ?? true) !== (settings.modules?.events ?? true) ||
-          (modules.ranking ?? true) !== (settings.modules?.ranking ?? true) ||
-          (modules.guests ?? true) !== (settings.modules?.guests ?? true) ||
-          (modules.championship ?? false) !== (settings.modules?.championship ?? false) ||
-          modules.arbeitseinsaetze !== (settings.modules?.arbeitseinsaetze ?? false) ||
-          (isSuperAdmin && (modules.league === true) !== (settings.modules?.league === true))
+          (customAiInstructions || "") !== (settings.customAiInstructions || "") ||
+          defaultLanguage !== savedDef ||
+          allowOtherLanguage !== savedAllowOther ||
+          (modules.landing_page !== false) !== (settings.modules?.landing_page !== false) ||
+          (modules.events !== false) !== (settings.modules?.events !== false) ||
+          (modules.ranking !== false) !== (settings.modules?.ranking !== false) ||
+          (modules.guests !== false) !== (settings.modules?.guests !== false) ||
+          (modules.spielpartner !== false) !== (settings.modules?.spielpartner !== false) ||
+          (modules.championship === true) !== (settings.modules?.championship === true) ||
+          (modules.arbeitseinsaetze === true) !== (settings.modules?.arbeitseinsaetze === true) ||
+          (modules.league === true) !== (settings.modules?.league === true) ||
+          navOrder.join(",") !== expectedNavOrder.join(",")
         );
       }
       if (tab === "arbeitseinsaetze") {
@@ -1622,7 +1896,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
           aeMaxDaysBack !== (settings.arbeitseinsaetzeSettings?.maxDaysBack ?? 14) ||
           commentsRequired !== (settings.arbeitseinsaetzeSettings?.commentsRequired ?? false) ||
           showPlannedShifts !== (settings.arbeitseinsaetzeSettings?.show_planned_shifts ?? settings.show_planned_shifts ?? true) ||
-          aeCategories.join(",") !== (settings.arbeitseinsaetzeSettings?.categories ?? ["Platzpflege", "Clubheimreinigung", "Bewirtung", "Sonstiges"]).join(",")
+          aeCategories.join(",") !== (settings.arbeitseinsaetzeSettings?.categories ?? ["Platzpflege", "Clubheimreinigung", "Bewirtung", "Sonstiges"]).join(",") ||
+          JSON.stringify(aeRules) !== JSON.stringify(settings.arbeitseinsatz_rules ?? settings.arbeitseinsaetzeSettings?.rules ?? [])
         );
       }
       if (tab === "rules") {
@@ -1633,8 +1908,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             (settings.reservationRules?.maxActiveBookings ?? 3) ||
           (reservationRules.allowGuest ?? true) !==
             (settings.reservationRules?.allowGuest ?? true) ||
-          (reservationRules.availableBallMachines ?? 1) !==
-            (settings.reservationRules?.availableBallMachines ?? 1) ||
           (reservationRules.guestFeePerHour ?? 2.5) !==
             (settings.reservationRules?.guestFeePerHour ?? 2.5) ||
           (reservationRules.maxBookingsPerDay ?? 2) !==
@@ -1661,6 +1934,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             JSON.stringify(settings.reservationRules?.openingHours) ||
           JSON.stringify(courtsList) !==
             JSON.stringify(settings.courts || ["Platz 1", "Platz 2"]) ||
+          JSON.stringify(equipmentList) !==
+            JSON.stringify(
+              settings.equipmentList && settings.equipmentList.length > 0
+                ? settings.equipmentList
+                : ["Ballmaschine", "Ballkorb"]
+            ) ||
           JSON.stringify(feeSettings) !==
             JSON.stringify(settings.feeSettings || getDefaultFeeSettings(settings.reservationRules))
         );
@@ -1720,6 +1999,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               "") ||
           (bannerPosition || "50% 50%") !==
             (settings.bannerPosition || "50% 50%") ||
+          bannerType !== (settings.bannerType || "image") ||
+          (bannerType === "color" && (bannerColor || "") !== (settings.bannerColor || settings.primaryColor || "#1b4332")) ||
+          (bannerType === "gradient" && (
+            (bannerGradientStart || "") !== (settings.bannerGradientStart || settings.primaryColor || "#1b4332") ||
+            (bannerGradientEnd || "") !== (settings.bannerGradientEnd || settings.accentColor || "#2d6a4f")
+          )) ||
           (primaryColor || "") !== (settings.primaryColor || "") ||
           (accentColor || "") !== (settings.accentColor || "#c04d2b") ||
           (accentColor2 || "") !== (settings.accentColor2 || "#0f172a") ||
@@ -1739,6 +2024,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               `Herzlich willkommen im modernisierten Reservierungssystem des ${settings.clubName || "Vereins"}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`)
         );
       }
+      if (tab === "translations") {
+        const savedTrans = settings.i18n?.translations || {};
+        return JSON.stringify(translations) !== JSON.stringify(savedTrans);
+      }
       return false;
     },
     [
@@ -1748,11 +2037,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       city,
       customFacilityPhotoUrl,
       facilityPhotoUrl,
+      customAiInstructions,
+      defaultLanguage,
+      allowOtherLanguage,
       settings,
       welcomeMessage,
       modules,
       reservationRules,
       courtsList,
+      equipmentList,
+      feeSettings,
       logoUrl,
       headerLogoUrl,
       faviconUrl,
@@ -1766,6 +2060,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       customBannerUrl,
       customLoginBannerUrl,
       bannerPosition,
+      bannerType,
+      bannerColor,
+      bannerGradientStart,
+      bannerGradientEnd,
       primaryColor,
       accentColor,
       accentColor2,
@@ -1781,6 +2079,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       aeMaxDaysBack,
       showPlannedShifts,
       aeCategories,
+      navOrder,
+      isSuperAdmin,
+      translations,
     ],
   );
 
@@ -1788,7 +2089,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   useEffect(() => {
     if (onDirtyChange) {
       const isDirty =
-        isTabDirty("allgemein") || isTabDirty("rules") || isTabDirty("layout") || isTabDirty("arbeitseinsaetze");
+        isTabDirty("allgemein") || isTabDirty("rules") || isTabDirty("layout") || isTabDirty("arbeitseinsaetze") || isTabDirty("translations");
       onDirtyChange(isDirty);
     }
   }, [isTabDirty, onDirtyChange]);
@@ -1803,11 +2104,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         city,
         facilityPhotoUrl: customFacilityPhotoUrl,
         customFacilityPhotoUrl: customFacilityPhotoUrl,
+        customAiInstructions,
+        i18n: {
+          defaultLanguage,
+          supportedLanguages: allowOtherLanguage
+            ? (defaultLanguage === "de" ? ["de", "en"] : ["en", "de"])
+            : [defaultLanguage],
+        },
         modules: {
           ...modules,
           landing_page: modules.landing_page !== false,
-          league: isSuperAdmin ? modules.league === true : settings.modules?.league === true,
+          spielpartner: modules.spielpartner !== false,
+          league: modules.league === true,
         },
+        enableLeague: modules.league === true,
         navigationOrder: navOrder,
       });
       saveLandingPageConfig(currentClubId, {
@@ -1821,9 +2131,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     } else if (tab === "arbeitseinsaetze") {
       onUpdateSettings({
         ...settings,
+        arbeitseinsatz_rules: aeRules,
         show_planned_shifts: showPlannedShifts,
         arbeitseinsaetzeSettings: {
           sollStunden: Number(sollStunden) || 10,
+          rules: aeRules,
           categories: aeCategories,
           visibility: aeVisibility,
           interval: aeInterval,
@@ -1887,6 +2199,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         reservationRules: syncedReservationRules,
         feeSettings,
         courts: newCourts,
+        equipmentList: equipmentList.length > 0 ? equipmentList : [],
       });
       setMessage({
         text: "Buchungsregeln erfolgreich gespeichert.",
@@ -1908,6 +2221,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         loginBannerUrl: resolvedLoginBannerUrl,
         customBannerUrl: useDefaultBanner ? (customBannerUrl || "") : (customBannerUrl || bannerUrl || ""),
         customLoginBannerUrl: useDefaultLoginBanner ? (customLoginBannerUrl || "") : (customLoginBannerUrl || loginBannerUrl || ""),
+        bannerType,
+        bannerColor,
+        bannerGradientStart,
+        bannerGradientEnd,
         logoUrl,
         headerLogoUrl,
         faviconUrl,
@@ -1926,6 +2243,18 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         text: "Design-, Impressums- & News-Einstellungen erfolgreich gespeichert.",
         type: "success",
       });
+    } else if (tab === "translations") {
+      onUpdateSettings({
+        ...settings,
+        i18n: {
+          ...(settings.i18n || { defaultLanguage: "de", supportedLanguages: ["de"] }),
+          translations,
+        },
+      });
+      setMessage({
+        text: "Übersetzungen erfolgreich gespeichert.",
+        type: "success",
+      });
     }
   };
 
@@ -1935,20 +2264,22 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       setStreet(settings.street || "");
       setZip(settings.zip || "");
       setCity(settings.city || "");
+      const discDef = settings.i18n?.defaultLanguage || "de";
+      const discSupported = settings.i18n?.supportedLanguages || [discDef];
+      setDefaultLanguage(discDef);
+      setAllowOtherLanguage(discSupported.includes(discDef === "de" ? "en" : "de"));
+      setCustomAiInstructions(settings.customAiInstructions || "");
       setModules({
         landing_page: settings.modules?.landing_page !== false,
         events: settings.modules?.events !== false,
         ranking: settings.modules?.ranking !== false,
         guests: settings.modules?.guests !== false,
+        spielpartner: settings.modules?.spielpartner !== false,
         arbeitseinsaetze: settings.modules?.arbeitseinsaetze === true,
         league: settings.modules?.league === true,
         championship: settings.modules?.championship === true,
       });
-      if (settings.navigationOrder && Array.isArray(settings.navigationOrder)) {
-        setNavOrder(settings.navigationOrder);
-      } else {
-        setNavOrder(DEFAULT_NAV_ORDER);
-      }
+      setNavOrder(normalizeNavOrder(settings.navigationOrder));
     } else if (tab === "arbeitseinsaetze") {
       setSollStunden(settings.arbeitseinsaetzeSettings?.sollStunden ?? 10);
       setAeCategories((settings.arbeitseinsaetzeSettings?.categories ?? ["Platzpflege", "Clubheimreinigung", "Bewirtung", "Sonstiges"]).slice().sort((a, b) => a.localeCompare(b, "de")));
@@ -1957,6 +2288,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       setAeMaxDaysBack(settings.arbeitseinsaetzeSettings?.maxDaysBack ?? 14);
       setCommentsRequired(settings.arbeitseinsaetzeSettings?.commentsRequired ?? false);
       setShowPlannedShifts(settings.arbeitseinsaetzeSettings?.show_planned_shifts ?? settings.show_planned_shifts ?? true);
+      setAeRules(settings.arbeitseinsatz_rules ?? settings.arbeitseinsaetzeSettings?.rules ?? []);
+      setIsAddingAeRule(false);
+      setEditingAeRuleId(null);
     } else if (tab === "rules") {
       const activeRules = settings.reservationRules || {
         maxAdvanceDays: 14,
@@ -1970,6 +2304,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         cancellationDeadlineMinutes: 30,
         maxDurationMinutesSingle: 90,
         maxDurationMinutesDouble: 120,
+        allowParticipantsToEdit: false,
       };
       setReservationRules(activeRules);
       setGuestFeeString(
@@ -1977,6 +2312,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       );
       setFeeSettings(settings.feeSettings || getDefaultFeeSettings(settings.reservationRules));
       setCourtsList(settings.courts || ["Platz 1", "Platz 2"]);
+      setEquipmentList(settings.equipmentList && settings.equipmentList.length > 0 ? settings.equipmentList : ["Ballmaschine", "Ballkorb"]);
+      setNewEquipmentName("");
     } else if (tab === "layout") {
       setLogoUrl(settings.logoUrl);
       setHeaderLogoUrl(settings.headerLogoUrl || settings.logoUrl);
@@ -2011,6 +2348,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             : ""),
       );
       setBannerPosition(settings.bannerPosition || "50% 50%");
+      setBannerType(settings.bannerType || (isNeuhausenClub ? "image" : "gradient"));
+      setBannerColor(settings.bannerColor || settings.primaryColor || "#1b4332");
+      setBannerGradientStart(settings.bannerGradientStart || settings.primaryColor || "#1b4332");
+      setBannerGradientEnd(settings.bannerGradientEnd || settings.accentColor || "#2d6a4f");
       setPrimaryColor(settings.primaryColor);
       setAccentColor(settings.accentColor || "#c04d2b");
       setAccentColor2(settings.accentColor2 || "#0f172a");
@@ -2031,6 +2372,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         settings.welcomeMessage ||
           `Herzlich willkommen im modernisierten Reservierungssystem des ${settings.clubName || "Vereins"}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`,
       );
+    } else if (tab === "translations") {
+      setTranslations(settings.i18n?.translations || {});
     }
   };
 
@@ -2121,27 +2464,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       });
     }
 
-    // Reset fields
-    setNewLockTitle("");
-    setNewLockColor("");
-    setNewLockCourts([]);
-    setNewLockIsOngoing(true);
-    setNewLockStartDate("");
-    setNewLockEndDate("");
-    setNewLockIsOpenOffer(false);
-    setNewRangeStartDate("");
-    setNewRangeEndDate("");
-    setNewRangeStartTime("08:00");
-    setNewRangeEndTime("22:00");
-    setIsLockDrawerOpen(false);
+    // Reset fields & smoothly close drawer
+    closeLockDrawer(() => {
+      setNewLockTitle("");
+      setNewLockColor("");
+      setNewLockCourts([]);
+      setNewLockIsOngoing(true);
+      setNewLockStartDate("");
+      setNewLockEndDate("");
+      setNewLockIsOpenOffer(false);
+      setNewRangeStartDate("");
+      setNewRangeEndDate("");
+      setNewRangeStartTime("08:00");
+      setNewRangeEndTime("22:00");
+    });
   };
 
-  const handleSaveLockEdit = () => {
+  const handleSaveLockEdit = async () => {
     if (!editingLockId) return;
     if (!newLockTitle.trim()) {
       setMessage({
         type: "error",
-        text: "Bitte geben Sie einen Namen/Titel für die Sperrung ein.",
+        text: lockContext === "event"
+          ? "Bitte geben Sie einen Namen/Titel für den Serientermin ein."
+          : "Bitte geben Sie einen Namen/Titel für die Sperrung ein.",
       });
       return;
     }
@@ -2153,7 +2499,84 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       return;
     }
 
-    if (newLockType === "regular") {
+    if (editingCalendarLock) {
+      if (!newRangeStartDate || !newRangeEndDate) {
+        setMessage({
+          type: "error",
+          text: "Bitte geben Sie ein Start- und Enddatum ein.",
+        });
+        return;
+      }
+      if (newRangeStartDate > newRangeEndDate) {
+        setMessage({
+          type: "error",
+          text: "Das Startdatum darf nicht nach dem Enddatum liegen.",
+        });
+        return;
+      }
+
+      // Delete old bookings from backend
+      if (onDeleteBooking) {
+        await onDeleteBooking(editingCalendarLock.bookingIds);
+      }
+
+      const startIndex = TIME_SLOTS.indexOf(newRangeStartTime);
+      const endIndex = TIME_SLOTS.indexOf(newRangeEndTime);
+      const slots =
+        startIndex !== -1 && endIndex !== -1 && endIndex > startIndex
+          ? TIME_SLOTS.slice(startIndex, endIndex)
+          : [newRangeStartTime];
+
+      const dates: string[] = [];
+      const cur = new Date(newRangeStartDate);
+      const endD = new Date(newRangeEndDate);
+      while (cur <= endD) {
+        dates.push(cur.toISOString().split("T")[0]);
+        cur.setDate(cur.getDate() + 1);
+      }
+
+      const lockGroupId = `lock_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const newBookings: Booking[] = [];
+      for (const c of newLockCourts) {
+        for (const dStr of dates) {
+          for (const t of slots) {
+            newBookings.push({
+              id: Math.random().toString(36).substr(2, 9),
+              lockGroupId,
+              date: dStr,
+              time: t,
+              court: c,
+              players: [],
+              isLocked: true,
+              isEvent: lockContext === "event",
+              isOpenOffer: lockContext === "event",
+              reason: newLockTitle,
+              hasBallMachine: false,
+              bookedBy: currentUser?.id,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      if (onSaveBooking) {
+        for (const nb of newBookings) {
+          await onSaveBooking(nb);
+        }
+      }
+      const remaining = bookings.filter(
+        (b) => !editingCalendarLock.bookingIds.includes(b.id)
+      );
+      onUpdateBookings([...remaining, ...newBookings]);
+
+      setMessage({
+        type: "success",
+        text: lockContext === "event"
+          ? `Serientermin "${newLockTitle}" erfolgreich aktualisiert.`
+          : `Sperre "${newLockTitle}" erfolgreich aktualisiert.`,
+      });
+      setEditingCalendarLock(null);
+    } else if (newLockType === "regular") {
       const updatedRegs = (settings.recurringLocks || []).map((l) => {
         if (l.id === editingLockId) {
           return {
@@ -2166,6 +2589,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             isOngoing: newLockIsOngoing,
             startDate: newLockIsOngoing ? undefined : newLockStartDate,
             endDate: newLockIsOngoing ? undefined : newLockEndDate,
+            isEvent: lockContext === "event",
             isOpenOffer: lockContext === "event",
             color: newLockColor.trim() || undefined,
           };
@@ -2178,7 +2602,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       });
       setMessage({
         type: "success",
-        text: `Änderungen an "${newLockTitle}" gespeichert.`,
+        text: lockContext === "event"
+          ? `Änderungen am Serientermin "${newLockTitle}" gespeichert.`
+          : `Änderungen an der Sperre "${newLockTitle}" gespeichert.`,
       });
     } else {
       if (!newRangeStartDate || !newRangeEndDate) {
@@ -2203,8 +2629,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             title: newLockTitle,
             startDate: newRangeStartDate,
             endDate: newRangeEndDate,
-             startTime: newRangeStartTime,
+            startTime: newRangeStartTime,
             endTime: newRangeEndTime,
+            isEvent: lockContext === "event",
             isOpenOffer: lockContext === "event",
             courts: [...newLockCourts],
           };
@@ -2217,27 +2644,33 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       });
       setMessage({
         type: "success",
-        text: `Änderungen an "${newLockTitle}" gespeichert.`,
+        text: lockContext === "event"
+          ? `Änderungen am Serientermin "${newLockTitle}" gespeichert.`
+          : `Änderungen an der Sperre "${newLockTitle}" gespeichert.`,
       });
     }
 
-    // Reset editing states
-    setEditingLockId(null);
-    setNewLockTitle("");
-    setNewLockColor("");
-    setNewLockCourts([]);
-    setNewLockIsOngoing(true);
-    setNewLockStartDate("");
-    setNewLockEndDate("");
-    setNewLockIsOpenOffer(false);
-    setNewRangeStartDate("");
-    setNewRangeEndDate("");
-    setNewRangeStartTime("08:00");
-    setNewRangeEndTime("22:00");
-    setIsLockDrawerOpen(false);
+    // Reset editing states & smoothly close drawer
+    closeLockDrawer(() => {
+      setEditingLockId(null);
+      setEditingCalendarLock(null);
+      setNewLockTitle("");
+      setNewLockColor("");
+      setNewLockCourts([]);
+      setNewLockIsOngoing(true);
+      setNewLockStartDate("");
+      setNewLockEndDate("");
+      setNewLockIsOpenOffer(false);
+      setNewRangeStartDate("");
+      setNewRangeEndDate("");
+      setNewRangeStartTime("08:00");
+      setNewRangeEndTime("22:00");
+    });
   };
 
-  const handleDeleteRecurringLock = (id: string) => {
+  const handleDeleteRecurringLock = (id: string, isEvent?: boolean) => {
+    const target = (settings.recurringLocks || []).find((l) => l.id === id);
+    const isEv = isEvent !== undefined ? isEvent : (target?.isEvent ?? false);
     const updated = (settings.recurringLocks || []).filter((l) => l.id !== id);
     onUpdateSettings({
       ...settings,
@@ -2245,11 +2678,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     });
     setMessage({
       type: "success",
-      text: "Regelmäßige Sperre erfolgreich gelöscht.",
+      text: isEv
+        ? "Serientermin erfolgreich gelöscht."
+        : "Regelmäßige Sperre erfolgreich gelöscht.",
     });
   };
 
-  const handleDeleteRangeLock = (id: string) => {
+  const handleDeleteRangeLock = (id: string, isEvent?: boolean) => {
+    const target = (settings.rangeLocks || []).find((l) => l.id === id);
+    const isEv = isEvent !== undefined ? isEvent : (target?.isEvent ?? false);
     const updated = (settings.rangeLocks || []).filter((l) => l.id !== id);
     onUpdateSettings({
       ...settings,
@@ -2257,22 +2694,35 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     });
     setMessage({
       type: "success",
-      text: "Zeitbereichssperre erfolgreich gelöscht.",
+      text: isEv
+        ? "Termin-Bereich erfolgreich gelöscht."
+        : "Zeitbereichssperre erfolgreich gelöscht.",
     });
   };
 
-  const handleDeleteCalendarLock = async (bookingId: string) => {
+  const handleDeleteCalendarLock = async (bookingIdOrIds: string | string[], isEvent?: boolean) => {
+    const ids = Array.isArray(bookingIdOrIds) ? bookingIdOrIds : [bookingIdOrIds];
     if (onDeleteBooking) {
-      await onDeleteBooking(bookingId);
+      await onDeleteBooking(ids);
     } else {
-      const updated = bookings.filter((b) => b.id !== bookingId);
+      const updated = bookings.filter((b) => !ids.includes(b.id));
       onUpdateBookings(updated);
     }
     setMessage({
       type: "success",
-      text: "Manuelle Einzelsperre erfolgreich gelöscht.",
+      text: isEvent
+        ? "Termin erfolgreich gelöscht."
+        : "Sperre erfolgreich gelöscht.",
     });
   };
+
+  const groupedCalendarLocks = useMemo(() => {
+    return groupCalendarLocks(bookings.filter((b) => b.isLocked && !b.isEvent));
+  }, [bookings]);
+
+  const groupedCalendarEvents = useMemo(() => {
+    return groupCalendarLocks(bookings.filter((b) => b.isLocked && b.isEvent));
+  }, [bookings]);
 
   // --- Individual Booking Management Operations ---
   const handleStartEditAdminBooking = (b: Booking) => {
@@ -2371,10 +2821,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setEditBkPlayers(editBkPlayers.filter((_, idx) => idx !== index));
   };
 
-  const handleStartEditRecurring = (lock: RegularLock) => {
-    setIsLockDrawerOpen(true);
+  const handleStartEditRecurring = (lock: RegularLock, forcedContext?: "lock" | "event") => {
+    openLockDrawer();
     setEditingLockId(lock.id);
     setNewLockType("regular");
+    setLockContext(forcedContext || (lock.isEvent ? "event" : "lock"));
     setNewLockTitle(lock.title);
     setNewLockCourts([...lock.courts]);
     setNewLockDay(lock.dayOfWeek);
@@ -2384,13 +2835,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setNewLockStartDate(lock.startDate || "");
     setNewLockEndDate(lock.endDate || "");
     setNewLockColor(lock.color || "");
+    setNewLockIsOpenOffer(lock.isOpenOffer || false);
   };
 
-  const handleStartEditRange = (lock: RangeLock) => {
-    setIsLockDrawerOpen(true);
+  const handleStartEditRange = (lock: RangeLock, forcedContext?: "lock" | "event") => {
+    openLockDrawer();
     setEditingLockId(lock.id);
     setNewLockType("range");
-    setLockContext(lock.isEvent ? "event" : "lock");
+    setLockContext(forcedContext || (lock.isEvent ? "event" : "lock"));
     setNewLockTitle(lock.title);
     setNewLockCourts([...lock.courts]);
     setNewRangeStartDate(lock.startDate);
@@ -2400,17 +2852,36 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setNewLockIsOpenOffer(lock.isOpenOffer || false);
   };
 
+  const handleStartEditCalendarLock = (lock: GroupedCalendarLock, forcedContext?: "lock" | "event") => {
+    openLockDrawer();
+    setEditingLockId("calendar_" + lock.id);
+    setEditingCalendarLock(lock);
+    setNewLockType("range");
+    setLockContext(forcedContext || (lock.isEvent ? "event" : "lock"));
+    setNewLockTitle(lock.reason || "");
+    setNewLockCourts([...lock.courts]);
+    setNewRangeStartDate(lock.date);
+    setNewRangeEndDate(lock.date);
+    setNewRangeStartTime(lock.startTime || "08:00");
+    setNewRangeEndTime(lock.endTime || "22:00");
+  };
+
   const handleCancelLockEdit = () => {
-    setIsLockDrawerOpen(false);
-    setEditingLockId(null);
-    setNewLockTitle("");
-    setNewLockColor("");
-    setNewLockCourts([]);
-    setNewLockIsOngoing(true);
-    setNewLockStartDate("");
-    setNewLockEndDate("");
-    setNewRangeStartDate("");
-    setNewRangeEndDate("");
+    closeLockDrawer(() => {
+      setEditingLockId(null);
+      setEditingCalendarLock(null);
+      setNewLockTitle("");
+      setNewLockColor("");
+      setNewLockCourts([]);
+      setNewLockIsOngoing(true);
+      setNewLockStartDate("");
+      setNewLockEndDate("");
+      setNewRangeStartDate("");
+      setNewRangeEndDate("");
+      setNewLockIsOpenOffer(false);
+      setNewRangeStartTime("08:00");
+      setNewRangeEndTime("22:00");
+    });
   };
 
   const handleTabClick = (tabId: typeof currentTab) => {
@@ -2551,6 +3022,35 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setCourtsList(updated);
   };
 
+  const handleAddEquipment = () => {
+    if (newEquipmentName.trim() && !equipmentList.includes(newEquipmentName.trim())) {
+      setEquipmentList([...equipmentList, newEquipmentName.trim()]);
+      setNewEquipmentName("");
+    }
+  };
+
+  const handleRemoveEquipment = (index: number) => {
+    const updated = [...equipmentList];
+    updated.splice(index, 1);
+    setEquipmentList(updated);
+  };
+
+  const handleMoveEquipment = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === equipmentList.length - 1) return;
+
+    const updated = [...equipmentList];
+    const temp = updated[index];
+    if (direction === "up") {
+      updated[index] = updated[index - 1];
+      updated[index - 1] = temp;
+    } else {
+      updated[index] = updated[index + 1];
+      updated[index + 1] = temp;
+    }
+    setEquipmentList(updated);
+  };
+
   const [duplicateCandidatesModal, setDuplicateCandidatesModal] = useState<{
     candidates: PrivacySafeCandidate[];
   } | null>(null);
@@ -2613,15 +3113,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       return;
     }
 
-    // Require email unless is_placeholder_email checkbox is ticked
-    const isPlaceholderChecked = !!editingUser.is_placeholder_email;
-    if (!isPlaceholderChecked && (!editingUser.email || !editingUser.email.trim())) {
-      setMessage({
-        text: "E-Mail-Adresse ist ein Pflichtfeld. Bitte eine gültige E-Mail angeben oder 'Keine E-Mail-Adresse vorhanden' aktivieren.",
-        type: "error",
-      });
-      return;
-    }
 
     // Check for potential duplicate person if creating a new member and not bypassing
     if (!inlineEditingUserId && !bypassDuplicateCheck) {
@@ -2684,11 +3175,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       role: editingUser.role || Role.MITGLIED,
       firstName: editingUser.firstName?.trim(),
       lastName: editingUser.lastName?.trim(),
-      email: editingUser.is_placeholder_email ? "" : (editingUser.email?.trim() || ""),
-      is_placeholder_email: !!editingUser.is_placeholder_email,
+      email: editingUser.email?.trim() || "",
+      is_placeholder_email: !editingUser.email?.trim(),
       phone: editingUser.phone?.trim() || "",
-      showContactInfo: editingUser.showContactInfo !== false,
-      onboarding_pending: editingUser.onboarding_pending !== undefined ? !!editingUser.onboarding_pending : (existingUser ? !!existingUser.onboarding_pending : (settings.club_onboarding_settings?.auto_enable_for_new_users !== false)),
+      showContactInfo: editingUser.showContactInfo !== undefined ? !!editingUser.showContactInfo : (existingUser ? existingUser.showContactInfo !== false : false),
+      onboarding_pending: editingUser.onboarding_pending !== undefined ? !!editingUser.onboarding_pending : (existingUser ? !!(existingUser.onboarding_pending ?? existingUser.onboardingPending) : true),
+      onboardingPending: editingUser.onboarding_pending !== undefined ? !!editingUser.onboarding_pending : (existingUser ? !!(existingUser.onboarding_pending ?? existingUser.onboardingPending) : true),
       isSuspended: !!editingUser.isSuspended,
       hauptAdmin: (() => {
         if (existingUser) return existingUser.hauptAdmin ?? false;
@@ -2703,6 +3195,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       createdAt: existingUser?.createdAt || new Date().toISOString(),
       gender: editingUser.gender || "m",
       birthDate: editingUser.birthDate ? editingUser.birthDate.trim() : null,
+      language: editingUser.language || (existingUser ? existingUser.language : (settings.i18n?.defaultLanguage || "de")),
       avatarUrl: editingUser.avatarUrl !== undefined ? (editingUser.avatarUrl || null) : (existingUser?.avatarUrl || null),
       avatarIcon: editingUser.avatarIcon !== undefined ? (editingUser.avatarIcon || "initials") : (existingUser?.avatarIcon || "initials"),
       avatarColor: editingUser.avatarColor !== undefined ? (editingUser.avatarColor || null) : (existingUser?.avatarColor || null),
@@ -2726,7 +3219,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         email: "",
         phone: "",
         birthDate: "",
-        showContactInfo: true,
+        showContactInfo: false,
+        onboarding_pending: true,
         isSuspended: false,
       });
       setShowUserForm(false);
@@ -2739,15 +3233,27 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     }
   };
 
-  const executeDeleteUser = (userToDelete: User) => {
-    const userKey = userToDelete.name.toLowerCase().replace(/\s/g, "");
-    const updatedUsers = { ...users };
-    delete updatedUsers[userKey];
-    onUpdateUsers(updatedUsers);
-    setMessage({
-      text: `Benutzer "${userToDelete.klarname || userToDelete.name}" gelöscht.`,
-      type: "success",
-    });
+  const executeDeleteUser = async (userToDelete: User) => {
+    setIsDeletingUser(true);
+    try {
+      const userKey = userToDelete.name.toLowerCase().replace(/\s/g, "");
+      const updatedUsers = { ...users };
+      delete updatedUsers[userKey];
+      await onUpdateUsers(updatedUsers);
+      setUserToDeleteConfirm(null);
+      setMessage({
+        text: `Benutzer "${userToDelete.klarname || userToDelete.name}" gelöscht.`,
+        type: "success",
+      });
+    } catch (err: any) {
+      console.error("Fehler beim Löschen des Benutzers:", err);
+      setMessage({
+        text: `Fehler beim Löschen: ${err?.message || "Unbekannter Fehler"}`,
+        type: "error",
+      });
+    } finally {
+      setIsDeletingUser(false);
+    }
   };
 
   const handleDeleteUser = (username: string) => {
@@ -2781,8 +3287,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setUserToDeleteConfirm(userToDelete);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processCsvFile = (file: File) => {
     if (!file) return;
 
     setSelectedFileName(file.name);
@@ -2853,6 +3358,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               phone,
               gender,
               birthDate,
+              showContactInfo: false,
+              onboarding_pending: true,
             });
           }
         }
@@ -2868,6 +3375,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processCsvFile(file);
+    }
   };
 
   const importUsers = () => {
@@ -3239,11 +3753,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     return `<iframe src="${url}" width="100%" height="720" style="border:none;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.06);width:100%;min-height:680px;" loading="lazy" title="Tennis Platzbelegung"></iframe>`;
   };
 
+  const nonSuperAdminUsers = useMemo(() => {
+    return ((Object.values(users) as User[]) as User[]).filter(
+      (u) => !isUserSuperAdmin(u)
+    );
+  }, [users]);
+
   const editPlayerSuggestions = useMemo(() => {
     if (!editBkNewPlayerQuery.trim()) return [];
     const q = editBkNewPlayerQuery.toLowerCase();
 
-    return ((Object.values(users) as User[]) as User[])
+    return nonSuperAdminUsers
       .filter((u) => {
         const fullName =
           u.lastName || u.firstName
@@ -3257,7 +3777,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         );
       })
       .slice(0, 5);
-  }, [users, editBkNewPlayerQuery]);
+  }, [nonSuperAdminUsers, editBkNewPlayerQuery]);
 
   const filteredAppointments = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
@@ -3334,13 +3854,23 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
   const sortedAndFilteredUsers = useMemo(() => {
     const rolePriority: Record<string, number> = {
-      "super-admin": 1,
-      admin: 2,
-      user: 3,
-      mitglied: 4,
+      admin: 1,
+      user: 2,
+      mitglied: 3,
     };
 
-    return ((Object.values(users) as User[]) as User[])
+    return nonSuperAdminUsers
+      .filter(
+        (u) =>
+          u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+          (u.firstName || "")
+            .toLowerCase()
+            .includes(userSearchQuery.toLowerCase()) ||
+          (u.lastName || "")
+            .toLowerCase()
+            .includes(userSearchQuery.toLowerCase()) ||
+          u.role.toLowerCase().includes(userSearchQuery.toLowerCase()),
+      )
       .sort((a, b) => {
         let result = 0;
         if (userSortBy === "role") {
@@ -3379,19 +3909,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         }
 
         return userSortOrder === "asc" ? result : -result;
-      })
-      .filter(
-        (u) =>
-          u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-          (u.firstName || "")
-            .toLowerCase()
-            .includes(userSearchQuery.toLowerCase()) ||
-          (u.lastName || "")
-            .toLowerCase()
-            .includes(userSearchQuery.toLowerCase()) ||
-          u.role.toLowerCase().includes(userSearchQuery.toLowerCase()),
-      );
-  }, [users, userSearchQuery, userSortBy, userSortOrder]);
+      });
+  }, [nonSuperAdminUsers, userSearchQuery, userSortBy, userSortOrder]);
 
   const itemsPerPage = 30;
   const totalUserPages = Math.ceil(
@@ -3413,10 +3932,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             </div>
             <div>
               <h3 className="text-xl font-bold text-slate-900 uppercase tracking-wider">
-                Systemeinstellungen
+                {t("admin.systemSettings", "Einstellungen")}
               </h3>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                Module, Regeln, Layout &amp; Datenpflege
+              <p className="text-xs text-slate-400 font-normal mt-0.5">
+                {t("admin.systemSettingsSubtitle", "Vereinskonfiguration, Buchungsregeln und Systemverwaltung")}
               </p>
             </div>
           </div>
@@ -3447,11 +3966,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <i
                   className={`fa-solid ${tab.icon} text-sm ${isActive ? "text-[var(--color-primary)]" : "text-slate-500"}`}
                 ></i>
-                <span>{tab.label}</span>
+                <span>{t(tab.labelKey, tab.fallback)}</span>
                 {isDirty && (
                   <span
                     className="w-2 h-2 rounded-full bg-orange-600 animate-pulse border border-white absolute -top-1 -right-1 z-20"
-                    title="Ungespeicherte Änderungen"
+                    title={t("admin.unsavedChanges")}
                   ></span>
                 )}
               </button>
@@ -3500,10 +4019,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-toggle-on text-[var(--color-primary)]"></i> Module
+                          <i className="fa-solid fa-toggle-on text-[var(--color-primary)]"></i> {t("admin.modulesConfig.title")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Aktiviere oder deaktiviere Funktionen und passe ihre Anzeigereihenfolge an.
+                          {t("admin.modulesConfig.subtitle")}
                         </p>
                       </div>
 
@@ -3511,6 +4030,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {navOrder.map((id, index) => {
                           const isStartPage = id === "landing_page";
                           const isReservation = id === "reservation";
+                          const isSpielpartner = id === "spielpartner";
                           const isEvents = id === "tournaments";
                           const isRanking = id === "ranking";
                           const isChampionship = id === "championship";
@@ -3524,42 +4044,47 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           let desc = "";
 
                           if (isStartPage) {
-                            label = "Startseite";
-                            desc = "Öffentliche Startseite mit Vereinsnews & Schnellzugriff.";
+                            label = t("admin.modulesConfig.startpage.label");
+                            desc = t("admin.modulesConfig.startpage.desc");
                             isChecked = modules.landing_page !== false;
                             onToggle = (val) => setModules({ ...modules, landing_page: val });
                           } else if (isReservation) {
-                            label = "Plätze";
-                            desc = "Platzreservierung für Mitglieder.";
+                            label = t("admin.modulesConfig.courts.label");
+                            desc = t("admin.modulesConfig.courts.desc");
                             isChecked = true;
+                          } else if (isSpielpartner) {
+                            label = t("admin.modulesConfig.spielpartner.label");
+                            desc = t("admin.modulesConfig.spielpartner.desc");
+                            isChecked = modules.spielpartner !== false;
+                            onToggle = (val) => setModules({ ...modules, spielpartner: val });
                           } else if (isEvents) {
-                            label = "Veranstaltungen";
-                            desc = "Veranstaltungsmodul für alle sichtbar.";
+                            label = t("admin.modulesConfig.events.label");
+                            desc = t("admin.modulesConfig.events.desc");
                             isChecked = !!modules.events;
                             onToggle = (val) => setModules({ ...modules, events: val });
                           } else if (isRanking) {
-                            label = "Rangliste";
-                            desc = "Zeigt Reihenfolge der Spieler in Form eines Dreiecks.";
+                            label = t("admin.modulesConfig.ranking.label");
+                            desc = t("admin.modulesConfig.ranking.desc");
                             isChecked = !!modules.ranking;
                             onToggle = (val) => setModules({ ...modules, ranking: val });
                           } else if (isChampionship) {
-                            label = "Meisterschaft";
-                            desc = "Aktiviert die offizielle Vereinsmeisterschaft (Vorlagen, Gruppenphasen & K.-o.-Endrunden).";
+                            label = t("admin.modulesConfig.championship.label");
+                            desc = t("admin.modulesConfig.championship.desc");
                             isChecked = !!modules.championship;
                             onToggle = (val) => setModules({ ...modules, championship: val });
                           } else if (isLeague) {
-                            label = "Liga";
-                            desc = "Hobbyliga mit dynamischem Punkte- und Ligensystem.";
+                            label = t("admin.modulesConfig.league.label");
+                            desc = t("admin.modulesConfig.league.desc");
                             isChecked = !!modules.league;
-                            onToggle = isSuperAdmin ? ((val) => setModules({ ...modules, league: val })) : null;
+                            onToggle = (val) => setModules({ ...modules, league: val });
                           } else if (isGuests) {
-                            label = "Gastspiele";
-                            desc = "Ermöglicht Abrechnung und Erfassung von Gastspielen.";
+                            label = t("admin.modulesConfig.guests.label");
+                            desc = t("admin.modulesConfig.guests.desc");
                             isChecked = modules.guests !== false;
                             onToggle = (val) => setModules({ ...modules, guests: val });
                           } else if (isArbeit) {
-                            label = "Arbeitseinsätze";
-                            desc = "Ermöglicht Erfassung und Übersicht von geleisteten Arbeitsstunden.";
+                            label = t("admin.modulesConfig.service.label");
+                            desc = t("admin.modulesConfig.service.desc");
                             isChecked = !!modules.arbeitseinsaetze;
                             onToggle = (val) => setModules({ ...modules, arbeitseinsaetze: val });
                           }
@@ -3586,7 +4111,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     disabled={index === 0}
                                     onClick={() => handleMoveNavModule(index, "up")}
                                     className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer text-xs"
-                                    title="Nach oben verschieben"
+                                    title={t("admin.modulesConfig.moveUp")}
                                   >
                                     <i className="fa-solid fa-arrow-up"></i>
                                   </button>
@@ -3595,7 +4120,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     disabled={index === navOrder.length - 1}
                                     onClick={() => handleMoveNavModule(index, "down")}
                                     className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer text-xs"
-                                    title="Nach unten verschieben"
+                                    title={t("admin.modulesConfig.moveDown")}
                                   >
                                     <i className="fa-solid fa-arrow-down"></i>
                                   </button>
@@ -3613,7 +4138,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
-                                    disabled={isLeague && !isSuperAdmin}
                                     onChange={(e) => onToggle && onToggle(e.target.checked)}
                                     className="w-4 h-4 accent-[var(--color-primary)] shrink-0 cursor-pointer rounded"
                                   />
@@ -3629,23 +4153,23 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-circle-info text-[var(--color-primary)]"></i> Allgemeine Einstellungen
+                          <i className="fa-solid fa-circle-info text-[var(--color-primary)]"></i> {t("admin.generalSettings.title")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Grundlegende Stammdaten und Standortinformationen des Vereins.
+                          {t("admin.generalSettings.subtitle")}
                         </p>
                       </div>
 
                       <div className="space-y-4">
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Vereinsname
+                            {t("admin.generalSettings.clubName")}
                           </label>
                           <input 
                             type="text"
                             value={clubName || ""}
                             onChange={(e) => setClubName(e.target.value)}
-                            placeholder="z. B. SV Neuhausen"
+                            placeholder={t("admin.generalSettings.clubNamePlaceholder")}
                             className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
                           />
                         </div>
@@ -3654,43 +4178,43 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="pt-3 border-t border-slate-200/60 space-y-3.5">
                           <div className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
                             <i className="fa-solid fa-location-dot text-[var(--color-primary)]"></i>
-                            Standort der Platzanlage
+                            {t("admin.generalSettings.facilityLocation")}
                           </div>
                           <div className="space-y-3">
                             <div>
                               <label className="block text-xs font-medium text-slate-600 mb-1">
-                                Straße & Hausnummer
+                                {t("admin.generalSettings.street")}
                               </label>
                               <input 
                                 type="text"
                                 value={street || ""}
                                 onChange={(e) => setStreet(e.target.value)}
-                                placeholder="z. B. Sportweg 4"
+                                placeholder={t("admin.generalSettings.streetPlaceholder")}
                                 className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
                               />
                             </div>
                             <div className="grid grid-cols-3 gap-3">
                               <div className="col-span-1">
                                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                                  PLZ
+                                  {t("admin.generalSettings.zip")}
                                 </label>
                                 <input 
                                   type="text"
                                   value={zip || ""}
                                   onChange={(e) => setZip(e.target.value)}
-                                  placeholder="z. B. 84030"
+                                  placeholder={t("admin.generalSettings.zipPlaceholder")}
                                   className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
                                 />
                               </div>
                               <div className="col-span-2">
                                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                                  Ort
+                                  {t("admin.generalSettings.city")}
                                 </label>
                                 <input 
                                   type="text"
                                   value={city || ""}
                                   onChange={(e) => setCity(e.target.value)}
-                                  placeholder="z. B. Ergolding"
+                                  placeholder={t("admin.generalSettings.cityPlaceholder")}
                                   className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
                                 />
                               </div>
@@ -3698,7 +4222,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             
                             <div className="pt-2">
                               <label className="block text-xs font-medium text-slate-600 mb-1.5">
-                                Anlagen-Foto (Für Liga & Buchung)
+                                {t("admin.generalSettings.facilityPhoto")}
                               </label>
                               <div className="flex flex-col gap-2.5">
                                 {(customFacilityPhotoUrl || headerLogoUrl) ? (
@@ -3716,7 +4240,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           setCustomFacilityPhotoUrl("");
                                         }}
                                         className="absolute top-1.5 right-1.5 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-red-500 shadow-xs hover:bg-red-50 transition-colors"
-                                        title="Anlagen-Foto entfernen"
+                                        title={t("admin.generalSettings.removePhoto")}
                                       >
                                         <i className="fa-solid fa-xmark text-xs"></i>
                                       </button>
@@ -3725,7 +4249,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 ) : null}
                                 <div className="flex flex-col gap-1.5">
                                   <label className="cursor-pointer flex items-center justify-center gap-2 w-full h-10 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl transition-all border border-slate-200 shadow-2xs">
-                                    <i className="fa-solid fa-upload"></i> Foto hochladen
+                                    <i className="fa-solid fa-upload"></i> {t("admin.generalSettings.uploadPhoto")}
                                     <input 
                                       type="file"
                                       accept="image/*"
@@ -3737,13 +4261,107 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     />
                                   </label>
                                   <p className="text-xs text-slate-400 leading-normal">
-                                    Optional. Wenn leer, wird das Logo/Banner als Fallback für die Austragungsort-Karte genutzt.
+                                    {t("admin.generalSettings.photoDesc")}
                                   </p>
                                 </div>
                               </div>
                             </div>
                             
                           </div>
+                        </div>
+
+                        {/* Sprache & Internationalisierung */}
+                        <div className="pt-3 border-t border-slate-200/60 space-y-3">
+                          <div className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                            <i className="fa-solid fa-language text-[var(--color-primary)]"></i>
+                            {t("admin.generalSettings.langSection")}
+                          </div>
+
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-4">
+                            {/* 1. Standardsprache des Vereins */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/60">
+                              <div className="pr-3">
+                                <label className="text-xs font-semibold text-slate-800 block">
+                                  {t("admin.generalSettings.defaultLang")}
+                                </label>
+                                <span className="text-[11px] text-slate-500 block leading-snug">
+                                  {t("admin.generalSettings.defaultLangDesc")}
+                                </span>
+                              </div>
+                              <select
+                                value={defaultLanguage}
+                                onChange={(e) => {
+                                  const newDef = e.target.value as "de" | "en";
+                                  setDefaultLanguage(newDef);
+                                }}
+                                className="h-9 px-3 border border-slate-200 rounded-xl bg-white text-xs font-semibold text-slate-800 outline-none focus:border-[var(--color-primary)] cursor-pointer"
+                              >
+                                <option value="de">Deutsch (DE)</option>
+                                <option value="en">English (EN)</option>
+                              </select>
+                            </div>
+
+                            {/* 2. Sprach-Verfügbarkeit */}
+                            <div className="space-y-2.5">
+                              <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+                                {t("admin.generalSettings.availLangs")}
+                              </div>
+
+                              {/* Primäre Standardsprache (Fest aktiv / locked) */}
+                              <div className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200/70 text-slate-700">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-slate-800">
+                                    {defaultLanguage === "de" ? "🇩🇪 Deutsch (DE)" : "🇬🇧 English (EN)"}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                    {t("admin.generalSettings.alwaysActive")}
+                                  </span>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={true}
+                                  disabled
+                                  className="w-4 h-4 accent-[var(--color-primary)] opacity-60 cursor-not-allowed rounded"
+                                />
+                              </div>
+
+                              {/* Optionale Zweitsprache (Frei konfigurierbar) */}
+                              <label className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200/70 hover:border-slate-300 transition-colors cursor-pointer text-slate-700">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-slate-800">
+                                    {defaultLanguage === "de" ? "🇬🇧 English (EN)" : "🇩🇪 Deutsch (DE)"}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {t("admin.generalSettings.allowOptionalLang")}
+                                  </span>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={allowOtherLanguage}
+                                  onChange={(e) => setAllowOtherLanguage(e.target.checked)}
+                                  className="w-4 h-4 accent-[var(--color-primary)] shrink-0 cursor-pointer rounded"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Zusatz-Wissen für KI-Assistent Ace */}
+                        <div className="pt-3 border-t border-slate-200/60 space-y-2">
+                          <div className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                            <i className="fa-solid fa-robot text-[var(--color-primary)]"></i>
+                            {t("admin.generalSettings.aceKnowledge")}
+                          </div>
+                          <textarea
+                            value={customAiInstructions}
+                            onChange={(e) => setCustomAiInstructions(e.target.value)}
+                            placeholder={t("admin.generalSettings.acePlaceholder")}
+                            rows={3}
+                            className="w-full p-3 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-xs text-slate-800 outline-none transition-all placeholder:text-slate-400 leading-relaxed font-sans"
+                          />
+                          <p className="text-[11px] text-slate-400">
+                            {t("admin.generalSettings.aceHelp")}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -3761,7 +4379,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
                       }`}
                     >
-                      <i className="fa-solid fa-floppy-disk"></i> Speichern
+                      <i className="fa-solid fa-floppy-disk"></i> {t("common.save")}
                     </button>
                   </div>
                 </div>
@@ -3792,17 +4410,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-briefcase text-[var(--color-primary)]"></i> Modul-Parameter
+                          <i className="fa-solid fa-briefcase text-[var(--color-primary)]"></i> {t("admin.arbeitseinsaetze.moduleParamsTitle")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Konfiguriere Sichtbarkeiten, Zeitintervalle und Pflichtfelder für Arbeitsstunden.
+                          {t("admin.arbeitseinsaetze.moduleParamsSubtitle")}
                         </p>
                       </div>
                       
                       <div className="space-y-4">
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Sichtbarkeit der Mitgliederliste (für normale Mitglieder)
+                            {t("admin.arbeitseinsaetze.memberListVisibility")}
                           </label>
                           <div className="relative">
                             <select
@@ -3810,9 +4428,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               onChange={(e) => setAeVisibility(e.target.value as any)}
                               className="w-full h-10 px-3.5 pr-10 bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none outline-none font-normal"
                             >
-                              <option value="full">Vollständig sichtbar</option>
-                              <option value="active_only">Nur aktive Helfer sichtbar (0-Stunden ausblenden)</option>
-                              <option value="hidden">Komplett ausgeblendet</option>
+                              <option value="full">{t("admin.arbeitseinsaetze.visibilityFull")}</option>
+                              <option value="active_only">{t("admin.arbeitseinsaetze.visibilityActiveOnly")}</option>
+                              <option value="hidden">{t("admin.arbeitseinsaetze.visibilityHidden")}</option>
                             </select>
                             <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                           </div>
@@ -3820,7 +4438,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Buchungs-Intervall (Taktung)
+                            {t("admin.arbeitseinsaetze.bookingInterval")}
                           </label>
                           <div className="relative">
                             <select
@@ -3828,9 +4446,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               onChange={(e) => setAeInterval(e.target.value as any)}
                               className="w-full h-10 px-3.5 pr-10 bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none outline-none font-normal"
                             >
-                              <option value="0.25">0,25-Stunden-Schritte</option>
-                              <option value="0.5">0,5-Stunden-Schritte</option>
-                              <option value="1.0">1-Stunde-Schritte</option>
+                              <option value="0.25">{t("admin.arbeitseinsaetze.intervalQuarter")}</option>
+                              <option value="0.5">{t("admin.arbeitseinsaetze.intervalHalf")}</option>
+                              <option value="1.0">{t("admin.arbeitseinsaetze.intervalHour")}</option>
                             </select>
                             <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                           </div>
@@ -3847,28 +4465,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             />
                             <div className="flex flex-col">
                               <span className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">
-                                Beschreibung / Kommentar ist Pflichtfeld
+                                {t("admin.arbeitseinsaetze.commentsRequired")}
                               </span>
                               <p className="text-xs text-slate-500 mt-0.5">
-                                Mitglieder müssen eine Beschreibung eingeben, wenn sie einen Arbeitseinsatz erfassen.
-                              </p>
-                            </div>
-                          </label>
-
-                          <label className="flex items-start gap-3 cursor-pointer group">
-                            <input
-                              type="checkbox"
-                              id="aeShowPlannedShifts"
-                              checked={showPlannedShifts}
-                              onChange={(e) => setShowPlannedShifts(e.target.checked)}
-                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
-                            />
-                            <div className="flex flex-col">
-                              <span className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">
-                                Geplante Arbeitseinsätze anzeigen
-                              </span>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                Aktiviert den Bereich für geplante Arbeitsdienste & Putzpläne in der Helferübersicht.
+                                {t("admin.arbeitseinsaetze.commentsRequiredDesc")}
                               </p>
                             </div>
                           </label>
@@ -3880,10 +4480,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-tags text-[var(--color-primary)]"></i> Kategorien verwalten
+                          <i className="fa-solid fa-tags text-[var(--color-primary)]"></i> {t("admin.arbeitseinsaetze.manageCategoriesTitle")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Definiere Kategorien zur Klassifizierung von Arbeitsstunden.
+                          {t("admin.arbeitseinsaetze.manageCategoriesSubtitle")}
                         </p>
                       </div>
                       
@@ -3891,7 +4491,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="flex gap-2">
                           <input
                             type="text"
-                            placeholder="Neue Kategorie..."
+                            placeholder={t("admin.arbeitseinsaetze.newCategoryPlaceholder")}
                             value={newAeCategory}
                             onChange={(e) => setNewAeCategory(e.target.value)}
                             onKeyDown={(e) => {
@@ -3916,14 +4516,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             disabled={!newAeCategory.trim()}
                             className="h-10 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                           >
-                            <i className="fa-solid fa-plus text-xs"></i> Hinzufügen
+                            <i className="fa-solid fa-plus text-xs"></i> {t("admin.arbeitseinsaetze.addCategory")}
                           </button>
                         </div>
 
                         <div className="flex flex-col gap-1.5 bg-slate-50/70 border border-slate-200/80 rounded-xl p-2 max-h-[300px] overflow-y-auto">
                           {aeCategories.length === 0 ? (
                             <div className="p-4 text-center text-xs font-normal text-slate-400">
-                              Keine Kategorien vorhanden.
+                              {t("admin.arbeitseinsaetze.noCategories")}
                             </div>
                           ) : (
                             aeCategories.map((cat, idx) => (
@@ -3963,7 +4563,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         }
                                       }}
                                       className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer"
-                                      title="Speichern"
+                                      title={t("admin.arbeitseinsaetze.saveCategory")}
                                     >
                                       <i className="fa-solid fa-check text-[10px]"></i>
                                     </button>
@@ -3971,7 +4571,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       type="button"
                                       onClick={() => setEditingCategoryIndex(null)}
                                       className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-600 transition-colors cursor-pointer"
-                                      title="Abbrechen"
+                                      title={t("admin.arbeitseinsaetze.cancel")}
                                     >
                                       <i className="fa-solid fa-xmark text-[10px]"></i>
                                     </button>
@@ -3987,7 +4587,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           setEditingCategoryValue(cat);
                                         }}
                                         className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-[var(--color-primary)] hover:bg-slate-100 transition-colors cursor-pointer"
-                                        title="Umbenennen"
+                                        title={t("admin.arbeitseinsaetze.renameCategory")}
                                       >
                                         <i className="fa-solid fa-pen-to-square text-xs"></i>
                                       </button>
@@ -4002,7 +4602,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             const otherCategories = aeCategories.filter(c => c !== cat);
                                             setRemapTargetCategory(otherCategories[0] || "");
                                           } else {
-                                            if (window.confirm(`Möchtest du die Kategorie "${cat}" wirklich löschen?`)) {
+                                            if (window.confirm(t("admin.arbeitseinsaetze.deleteConfirm", { cat }))) {
                                               setAeCategories(aeCategories.filter(c => c !== cat));
                                               if (editingCategoryIndex === idx) {
                                                 setEditingCategoryIndex(null);
@@ -4011,7 +4611,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           }
                                         }}
                                         className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-                                        title="Löschen"
+                                        title={t("admin.arbeitseinsaetze.deleteCategory")}
                                       >
                                         <i className="fa-solid fa-trash-can text-xs"></i>
                                       </button>
@@ -4031,15 +4631,18 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="border-none outline-none bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
                         <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 mb-3">
                           <i className="fa-solid fa-triangle-exclamation text-amber-500 text-lg"></i>
-                          Kategorie kann nicht gelöscht werden
+                          {t("admin.arbeitseinsaetze.cannotDeleteTitle")}
                         </h3>
                         <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                          Die Kategorie <span className="font-bold text-slate-800">"{categoryToDelete}"</span> kann nicht direkt gelöscht werden, da ihr aktuell <span className="font-bold text-slate-800">{aeEntries.filter(e => e.category.trim().toLowerCase() === categoryToDelete.trim().toLowerCase()).length} Arbeitseinsatz-Einträge</span> zugeordnet sind.
+                          {t("admin.arbeitseinsaetze.cannotDeleteDesc", {
+                            cat: categoryToDelete,
+                            count: aeEntries.filter(e => e.category.trim().toLowerCase() === categoryToDelete.trim().toLowerCase()).length
+                          })}
                         </p>
 
                         <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 mb-4">
                           <label className="block text-xs font-semibold text-slate-700 mb-2">
-                            Einträge umgruppieren in andere Kategorie:
+                            {t("admin.arbeitseinsaetze.remapLabel")}
                           </label>
                           {aeCategories.filter(c => c !== categoryToDelete).length > 0 ? (
                             <div className="relative">
@@ -4061,7 +4664,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                           ) : (
                             <p className="text-xs text-rose-600 font-medium">
-                              Keine andere Kategorie vorhanden. Bitte erstelle zuerst eine neue Kategorie, in die die Einträge umgruppiert werden können!
+                              {t("admin.arbeitseinsaetze.noOtherCategory")}
                             </p>
                           )}
                         </div>
@@ -4072,7 +4675,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             onClick={() => setCategoryToDelete(null)}
                             className="flex-1 h-10 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl font-semibold text-xs text-slate-700 transition-all cursor-pointer"
                           >
-                            Abbrechen
+                            {t("admin.arbeitseinsaetze.discard")}
                           </button>
                           
                           {aeCategories.filter(c => c !== categoryToDelete).length > 0 && (
@@ -4099,10 +4702,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   setAeCategories(newCats);
                                   
                                   setCategoryToDelete(null);
-                                  alert(`Erfolgreich ${entriesToUpdate.length} Einträge nach "${remapTargetCategory}" verschoben. Vergiss nicht, die Einstellungen unten zu SPEICHERN!`);
                                 } catch (err) {
                                   console.error("Fehler beim Umgruppieren:", err);
-                                  alert("Es ist ein Fehler beim Umgruppieren aufgetreten.");
                                 } finally {
                                   setIsRemapping(false);
                                 }
@@ -4112,12 +4713,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               {isRemapping ? (
                                 <>
                                   <i className="fa-solid fa-spinner animate-spin"></i>
-                                  Verarbeite...
+                                  {t("admin.arbeitseinsaetze.remapping")}
                                 </>
                               ) : (
                                 <>
                                   <i className="fa-solid fa-arrows-spin"></i>
-                                  Umgruppieren
+                                  {t("admin.arbeitseinsaetze.remapAndAction")}
                                 </>
                               )}
                             </button>
@@ -4127,6 +4728,222 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     </div>
                   )}
 
+                  {/* Zielwerte */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-6">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        <i className="fa-solid fa-clock text-[var(--color-primary)]"></i> Zielwerte
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Festlegung des regulären Jahres-Solls sowie jahresspezifischer Anpassungen.
+                      </p>
+                    </div>
+
+                    {/* Standardregel */}
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-800">Standardregel</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                            Gilt als Standardwert bis zu dem Jahr, ab dem die erste abweichende Regel aktiv wird. Jede abweichende Regel gilt ab dem jeweiligen Jahr fortlaufend.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <label className="text-xs font-medium text-slate-600">Soll-Stunden:</label>
+                          <div className="relative w-28">
+                            <input
+                              type="number"
+                              min="1"
+                              max="200"
+                              step="0.5"
+                              value={sollStunden}
+                              onChange={(e) => setSollStunden(Number(e.target.value) || 0)}
+                              className="w-full h-9 px-3 pr-8 bg-white text-xs font-bold text-slate-800 rounded-xl border border-slate-200 focus:border-[var(--color-primary)] focus:outline-none"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium">Std.</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Abweichende Jahresregeln */}
+                    <div className="space-y-3 pt-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                            Abweichende Jahresregeln
+                          </h4>
+                        </div>
+
+                        {!isAddingAeRule && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddingAeRule(true);
+                              setEditingAeRuleId(null);
+                              setNewRuleYear(new Date().getFullYear() + 1);
+                              setNewRuleHours(sollStunden);
+                            }}
+                            className="h-8 px-3 rounded-lg bg-[var(--color-primary)] text-white hover:brightness-110 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs shrink-0 self-start sm:self-auto"
+                          >
+                            <i className="fa-solid fa-plus text-[10px]"></i> Regel hinzufügen
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Inline form for adding / editing a rule */}
+                      {isAddingAeRule && (
+                        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-150">
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs font-semibold text-slate-700">Gültig ab Jahr:</label>
+                              <input
+                                type="number"
+                                min="2020"
+                                max="2050"
+                                value={newRuleYear}
+                                onChange={(e) => setNewRuleYear(Number(e.target.value))}
+                                className="w-24 h-8 px-2.5 bg-white text-xs font-bold text-slate-800 rounded-lg border border-slate-200 focus:border-[var(--color-primary)] outline-none"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs font-semibold text-slate-700">Soll-Stunden:</label>
+                              <div className="relative w-24">
+                                <input
+                                  type="number"
+                                  min="0.5"
+                                  max="200"
+                                  step="0.5"
+                                  value={newRuleHours}
+                                  onChange={(e) => setNewRuleHours(Number(e.target.value))}
+                                  className="w-full h-8 px-2.5 pr-7 bg-white text-xs font-bold text-slate-800 rounded-lg border border-slate-200 focus:border-[var(--color-primary)] outline-none"
+                                />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">Std.</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAddingAeRule(false);
+                                setEditingAeRuleId(null);
+                              }}
+                              className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                            >
+                              Abbrechen
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!newRuleYear || newRuleHours <= 0) return;
+                                let updated = [...aeRules];
+                                if (editingAeRuleId) {
+                                  updated = updated.map(r => r.id === editingAeRuleId ? { ...r, gueltig_ab_jahr: newRuleYear, soll_stunden: newRuleHours } : r);
+                                } else {
+                                  if (updated.some(r => r.gueltig_ab_jahr === newRuleYear)) {
+                                    alert(`Für das Jahr ${newRuleYear} existiert bereits eine Regel.`);
+                                    return;
+                                  }
+                                  updated.push({
+                                    id: `rule_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                                    gueltig_ab_jahr: newRuleYear,
+                                    soll_stunden: newRuleHours,
+                                  });
+                                }
+                                updated.sort((a, b) => b.gueltig_ab_jahr - a.gueltig_ab_jahr);
+                                setAeRules(updated);
+                                setIsAddingAeRule(false);
+                                setEditingAeRuleId(null);
+                              }}
+                              className="h-8 px-3.5 rounded-lg bg-[var(--color-primary)] text-white hover:brightness-110 text-xs font-semibold cursor-pointer shadow-xs"
+                            >
+                              Übernehmen
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Rules List / Table */}
+                      {aeRules.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                          Keine abweichenden Jahresregeln hinterlegt. Es gilt durchgehend die Standardregel ({sollStunden} Std.).
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto border border-slate-200/80 rounded-xl">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold text-[10px]">
+                                <th className="py-2.5 px-3.5">Gültig ab Jahr</th>
+                                <th className="py-2.5 px-3.5">Soll-Vorgabe</th>
+                                <th className="py-2.5 px-3.5">Geltungsbereich</th>
+                                <th className="py-2.5 px-3 text-right">Aktionen</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {(() => {
+                                const sortedRulesAsc = [...aeRules].sort((a, b) => a.gueltig_ab_jahr - b.gueltig_ab_jahr);
+                                return aeRules.map((rule) => {
+                                  const idx = sortedRulesAsc.findIndex(r => r.id === rule.id);
+                                  const nextRule = sortedRulesAsc[idx + 1];
+                                  const rangeText = nextRule 
+                                    ? `Gilt ${rule.gueltig_ab_jahr} – ${nextRule.gueltig_ab_jahr - 1}`
+                                    : `Gilt ab ${rule.gueltig_ab_jahr} fortlaufend`;
+
+                                  return (
+                                    <tr key={rule.id} className="hover:bg-slate-50/60 transition-colors">
+                                      <td className="py-2.5 px-3.5 font-bold text-slate-800">
+                                        Ab {rule.gueltig_ab_jahr}
+                                      </td>
+                                      <td className="py-2.5 px-3.5 font-semibold text-slate-700">
+                                        {rule.soll_stunden} Std.
+                                      </td>
+                                      <td className="py-2.5 px-3.5 text-slate-500 text-[11px]">
+                                        {rangeText}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right">
+                                        <div className="inline-flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingAeRuleId(rule.id);
+                                              setNewRuleYear(rule.gueltig_ab_jahr);
+                                              setNewRuleHours(rule.soll_stunden);
+                                              setIsAddingAeRule(true);
+                                            }}
+                                            className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer transition-colors"
+                                            title="Regel bearbeiten"
+                                          >
+                                            <i className="fa-solid fa-pen-to-square text-xs"></i>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (window.confirm(`Soll die Regel ab ${rule.gueltig_ab_jahr} gelöscht werden?`)) {
+                                                setAeRules(prev => prev.filter(r => r.id !== rule.id));
+                                              }
+                                            }}
+                                            className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center cursor-pointer transition-colors"
+                                            title="Regel löschen"
+                                          >
+                                            <i className="fa-solid fa-trash-can text-xs"></i>
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Save/Discard Actions */}
                   <div className="flex items-center justify-end gap-3 pt-5 border-t border-slate-200/80">
                     {isTabDirty("arbeitseinsaetze") && (
@@ -4135,7 +4952,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         onClick={() => handleDiscardTab("arbeitseinsaetze")}
                         className="h-10 px-4 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all cursor-pointer"
                       >
-                        Abbrechen
+                        {t("admin.arbeitseinsaetze.discard")}
                       </button>
                     )}
                     <button
@@ -4148,7 +4965,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
                       }`}
                     >
-                      <i className="fa-solid fa-floppy-disk"></i> Speichern
+                      <i className="fa-solid fa-floppy-disk"></i> {t("admin.arbeitseinsaetze.save")}
                     </button>
                   </div>
                 </div>
@@ -4163,10 +4980,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
                           <SlidersHorizontal className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
-                          <span>Reservierungsschranken</span>
+                          <span>{t("admin.rules.limitsTitle")}</span>
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Kontingente, Stornofristen und Buchungsbeschränkungen für Mitglieder.
+                          {t("admin.rules.limitsSubtitle")}
                         </p>
                       </div>
 
@@ -4174,7 +4991,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Max. aktive Buchungen
+                              {t("admin.rules.maxActiveBookings")}
                             </label>
                             <input 
                               type="number"
@@ -4189,11 +5006,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }}
                               className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">0 = unbegrenzt</p>
+                            <p className="text-[11px] text-slate-400 mt-1">{t("admin.rules.unlimitedHint")}</p>
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Max. Buchungen je Tag
+                              {t("admin.rules.maxBookingsPerDay")}
                             </label>
                             <input 
                               type="number"
@@ -4208,14 +5025,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }}
                               className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">0 = unbegrenzt</p>
+                            <p className="text-[11px] text-slate-400 mt-1">{t("admin.rules.unlimitedHint")}</p>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Max. Buchungen je Woche
+                              {t("admin.rules.maxBookingsPerWeek")}
                             </label>
                             <input 
                               type="number"
@@ -4230,11 +5047,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }}
                               className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">0 = unbegrenzt</p>
+                            <p className="text-[11px] text-slate-400 mt-1">{t("admin.rules.unlimitedHint")}</p>
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Stornierungsfrist (Min.)
+                              {t("admin.rules.cancellationDeadline")}
                             </label>
                             <input 
                               type="number"
@@ -4251,14 +5068,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }}
                               className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">Vor Spielbeginn</p>
+                            <p className="text-[11px] text-slate-400 mt-1">{t("admin.rules.beforeMatchStart")}</p>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Vorausbuchung (Wochen)
+                              {t("admin.rules.advanceBookingWeeks")}
                             </label>
                             <input 
                               type="number"
@@ -4275,27 +5092,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }}
                               className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">0 = unbegrenzt</p>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Verfügbare Ballmaschinen
-                            </label>
-                            <input 
-                              type="number"
-                              min="0"
-                              max="10"
-                              value={reservationRules.availableBallMachines ?? 1}
-                              onChange={(e) =>
-                                setReservationRules({
-                                  ...reservationRules,
-                                  availableBallMachines:
-                                    parseInt(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal"
-                            />
-                            <p className="text-[11px] text-slate-400 mt-1">Gleichzeitig buchbar</p>
+                            <p className="text-[11px] text-slate-400 mt-1">{t("admin.rules.unlimitedHint")}</p>
                           </div>
                         </div>
                         
@@ -4314,10 +5111,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             />
                             <div className="flex flex-col">
                               <span className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">
-                                Ligaspiele von Buchungsbeschränkungen ausnehmen
+                                {t("admin.rules.bypassForLeague")}
                               </span>
                               <p className="text-xs text-slate-500 mt-0.5">
-                                Umgeht Tages- und Wochenlimits für Hobbyligamatches (nur auf Platzverfügbarkeit geprüft).
+                                {t("admin.rules.bypassForLeagueDesc")}
                               </p>
                             </div>
                           </label>
@@ -4336,10 +5133,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             />
                             <div className="flex flex-col">
                               <span className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">
-                                Buchungen in der Vergangenheit erlauben
+                                {t("admin.rules.allowPastBookings")}
                               </span>
                               <p className="text-xs text-slate-500 mt-0.5">
-                                Ermöglicht das nachträgliche Eintragen von gespielten Matches.
+                                {t("admin.rules.allowPastBookingsDesc")}
                               </p>
                             </div>
                           </label>
@@ -4358,10 +5155,32 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             />
                             <div className="flex flex-col">
                               <span className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">
-                                Mitspieler erforderlich (für normale Spieler)
+                                {t("admin.rules.requireCoplayer")}
                               </span>
                               <p className="text-xs text-slate-500 mt-0.5">
-                                Spieler müssen bei der Buchung mindestens einen Partner, Gast oder die Ballmaschine angeben.
+                                {t("admin.rules.requireCoplayerDesc")}
+                              </p>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-3 cursor-pointer group">
+                            <input
+                              type="checkbox"
+                              checked={reservationRules.allowParticipantsToEdit ?? false}
+                              onChange={(e) =>
+                                setReservationRules({
+                                  ...reservationRules,
+                                  allowParticipantsToEdit: e.target.checked,
+                                })
+                              }
+                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors">
+                                {t("admin.rules.allowParticipantsToEdit")}
+                              </span>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {t("admin.rules.allowParticipantsToEditDesc")}
                               </p>
                             </div>
                           </label>
@@ -4370,17 +5189,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Opening Hours */}
                         <div className="pt-3 border-t border-slate-100">
                           <div className="text-xs font-semibold uppercase text-slate-500 tracking-wider mb-3 flex items-center gap-1.5">
-                            <i className="fa-solid fa-clock text-[var(--color-primary)]"></i> Öffnungszeiten je Wochentag
+                            <i className="fa-solid fa-clock text-[var(--color-primary)]"></i> {t("admin.rules.openingHoursTitle")}
                           </div>
                           <div className="space-y-2 bg-slate-50/70 p-3 sm:p-4 rounded-xl border border-slate-200/80">
                             {[
-                              { value: 1, label: "Montag" },
-                              { value: 2, label: "Dienstag" },
-                              { value: 3, label: "Mittwoch" },
-                              { value: 4, label: "Donnerstag" },
-                              { value: 5, label: "Freitag" },
-                              { value: 6, label: "Samstag" },
-                              { value: 0, label: "Sonntag" },
+                              { value: 1, label: t("admin.closures.weekdayMonday", "Montag") },
+                              { value: 2, label: t("admin.closures.weekdayTuesday", "Dienstag") },
+                              { value: 3, label: t("admin.closures.weekdayWednesday", "Mittwoch") },
+                              { value: 4, label: t("admin.closures.weekdayThursday", "Donnerstag") },
+                              { value: 5, label: t("admin.closures.weekdayFriday", "Freitag") },
+                              { value: 6, label: t("admin.closures.weekdaySaturday", "Samstag") },
+                              { value: 0, label: t("admin.closures.weekdaySunday", "Sonntag") },
                             ].map((day) => {
                               const key = String(day.value);
                               const dayConfig = reservationRules.openingHours?.[
@@ -4420,7 +5239,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         className="h-4 w-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
                                       />
                                       <span className="text-xs font-medium text-slate-500">
-                                        Geschlossen
+                                        {t("admin.rules.closed")}
                                       </span>
                                     </label>
                                     {!dayConfig.closed && (
@@ -4443,14 +5262,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           }}
                                           className="h-8 px-2 border border-slate-200 rounded-lg bg-white text-xs text-slate-700 outline-none font-normal"
                                         >
-                                          {TIME_SLOTS.slice(0, -1).map((t) => (
-                                            <option key={t} value={t}>
-                                              {t} Uhr
+                                          {TIME_SLOTS.slice(0, -1).map((tSlot) => (
+                                            <option key={tSlot} value={tSlot}>
+                                              {tSlot} {t("admin.rules.oclock")}
                                             </option>
                                           ))}
                                         </select>
                                         <span className="text-slate-400 text-xs">
-                                          bis
+                                          {t("admin.rules.to")}
                                         </span>
                                         <select 
                                           value={dayConfig.end || "21:00"}
@@ -4470,9 +5289,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           }}
                                           className="h-8 px-2 border border-slate-200 rounded-lg bg-white text-xs text-slate-700 outline-none font-normal"
                                         >
-                                          {TIME_SLOTS.slice(1).map((t) => (
-                                            <option key={t} value={t}>
-                                              {t} Uhr
+                                          {TIME_SLOTS.slice(1).map((tSlot) => (
+                                            <option key={tSlot} value={tSlot}>
+                                              {tSlot} {t("admin.rules.oclock")}
                                             </option>
                                           ))}
                                         </select>
@@ -4487,14 +5306,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       </div>
                     </div>
 
-                    {/* Courts/Tennisplätze segments */}
-                    <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
+                    {/* Right Column: Plätze & Ausrüstung */}
+                    <div className="space-y-5 lg:space-y-6">
+                      {/* Courts/Tennisplätze segments */}
+                      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-list-ol text-[var(--color-primary)]"></i> Plätze verwalten
+                          <i className="fa-solid fa-list-ol text-[var(--color-primary)]"></i> {t("admin.rules.manageCourtsTitle")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Erstelle, benenne um und sortiere die Tennisplätze der Anlage.
+                          {t("admin.rules.manageCourtsSubtitle")}
                         </p>
                       </div>
 
@@ -4521,7 +5342,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   onClick={() => handleMoveCourt(i, "up")}
                                   disabled={i === 0}
                                   className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer text-xs"
-                                  title="Nach oben"
+                                  title={t("admin.rules.moveUp")}
                                 >
                                   <i className="fa-solid fa-arrow-up"></i>
                                 </button>
@@ -4530,7 +5351,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   onClick={() => handleMoveCourt(i, "down")}
                                   disabled={i === courtsList.length - 1}
                                   className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer text-xs"
-                                  title="Nach unten"
+                                  title={t("admin.rules.moveDown")}
                                 >
                                   <i className="fa-solid fa-arrow-down"></i>
                                 </button>
@@ -4539,7 +5360,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 type="button"
                                 onClick={() => handleRemoveCourt(i)}
                                 className="w-7 h-7 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center cursor-pointer"
-                                title="Platz entfernen"
+                                title={t("admin.rules.removeCourt")}
                               >
                                 <i className="fa-solid fa-trash-can text-xs"></i>
                               </button>
@@ -4558,7 +5379,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 handleAddCourt();
                               }
                             }}
-                            placeholder="z. B. Platz 4 oder Halle 1..."
+                            placeholder={t("admin.rules.newCourtPlaceholder")}
                             className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
                           />
                           <button
@@ -4567,12 +5388,105 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             disabled={!newCourtName.trim()}
                             className="h-10 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white font-semibold text-xs rounded-xl transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                           >
-                            <i className="fa-solid fa-plus text-xs"></i> Hinzufügen
+                            <i className="fa-solid fa-plus text-xs"></i> {t("admin.rules.addCourt")}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Geräte & Ausrüstung verwalten */}
+                    <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                          <i className="fa-solid fa-boxes-stacked text-[var(--color-primary)]"></i> {t("admin.rules.manageEquipmentTitle")}
+                        </h3>
+                        <p className="text-xs text-slate-500 font-normal mt-0.5">
+                          {t("admin.rules.manageEquipmentSubtitle")}
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-2 bg-slate-50/70 p-3 sm:p-4 rounded-xl border border-slate-200/80">
+                          {equipmentList.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-2 text-center">
+                              {t("admin.rules.noEquipmentYet")}
+                            </p>
+                          ) : (
+                            equipmentList.map((item, i) => (
+                              <div
+                                key={i}
+                                className="flex items-center gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200/80 shadow-2xs"
+                              >
+                                <input 
+                                  type="text"
+                                  value={item}
+                                  onChange={(e) => {
+                                    const updated = [...equipmentList];
+                                    updated[i] = e.target.value;
+                                    setEquipmentList(updated);
+                                  }}
+                                  className="text-xs font-semibold text-slate-800 flex-1 bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 rounded px-2 py-1 transition-all"
+                                />
+                                <div className="flex items-center gap-1 border-r border-slate-200 pr-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveEquipment(i, "up")}
+                                    disabled={i === 0}
+                                    className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer text-xs"
+                                    title={t("admin.rules.moveUp")}
+                                  >
+                                    <i className="fa-solid fa-arrow-up"></i>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveEquipment(i, "down")}
+                                    disabled={i === equipmentList.length - 1}
+                                    className="w-7 h-7 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer text-xs"
+                                    title={t("admin.rules.moveDown")}
+                                  >
+                                    <i className="fa-solid fa-arrow-down"></i>
+                                  </button>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveEquipment(i)}
+                                  className="w-7 h-7 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center cursor-pointer"
+                                  title={t("admin.rules.removeEquipment")}
+                                >
+                                  <i className="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="flex gap-2 pt-1">
+                          <input 
+                            type="text"
+                            value={newEquipmentName}
+                            onChange={(e) => setNewEquipmentName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && newEquipmentName.trim()) {
+                                e.preventDefault();
+                                handleAddEquipment();
+                              }
+                            }}
+                            placeholder={t("admin.rules.newEquipmentPlaceholder")}
+                            className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddEquipment}
+                            disabled={!newEquipmentName.trim()}
+                            className="h-10 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white font-semibold text-xs rounded-xl transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                          >
+                            <i className="fa-solid fa-plus text-xs"></i> {t("admin.rules.addEquipment")}
                           </button>
                         </div>
                       </div>
                     </div>
                   </div>
+                </div>
 
                   {modules.guests !== false && (
                     <div className="pt-2">
@@ -4611,7 +5525,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
                       }`}
                     >
-                      <i className="fa-solid fa-floppy-disk"></i> Speichern
+                      <i className="fa-solid fa-floppy-disk"></i> {t("admin.rules.save")}
                     </button>
                   </div>
                 </div>
@@ -4620,37 +5534,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               {/* TAB: SPERREN */}
               {currentTab === "sperren" && (
                 <div className="space-y-6 animate-in fade-in duration-300">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 gap-4 shadow-xs">
-                    <div className="flex-1 flex flex-col justify-center">
-                      <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <i className="fa-solid fa-ban text-[var(--color-primary)]"></i> Platz-Sperren verwalten
-                      </h3>
-                      <p className="text-xs text-slate-500 font-normal mt-0.5">
-                        Definiere Turniere, wöchentliche Trainingszeiten, Serientermine oder saisonale Wintersperren.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLockContext("lock");
-                          setIsLockDrawerOpen(true);
-                        }}
-                        className="h-10 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-xs transition-all shadow-2xs flex items-center gap-2 cursor-pointer"
-                      >
-                        <i className="fa-solid fa-plus text-xs"></i> Neue Sperre
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLockContext("event");
-                          setIsLockDrawerOpen(true);
-                        }}
-                        className="h-10 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl font-semibold text-xs transition-all shadow-xs flex items-center gap-2 cursor-pointer"
-                      >
-                        <i className="fa-solid fa-plus text-xs"></i> Neuer Serientermin
-                      </button>
-                    </div>
+                  <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                      <i className="fa-solid fa-ban text-[var(--color-primary)]"></i> {t("admin.closures.title")}
+                    </h3>
+                    <p className="text-xs text-slate-500 font-normal mt-0.5">
+                      {t("admin.closures.subtitle")}
+                    </p>
                   </div>
 
                   <div className="flex flex-col gap-6 w-full">
@@ -4658,13 +5548,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="space-y-6 w-full">
                       {/* Category 1: Sperren & Öffnungszeiten */}
                       <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-                        <div>
-                          <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                            <i className="fa-solid fa-ban text-rose-500"></i> Sperren & Platzblockierungen
-                          </h4>
-                          <p className="text-xs text-slate-500 font-normal mt-0.5">
-                            Einzelne oder dauerhafte Schließzeiten für die Platzbelegung.
-                          </p>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                              <i className="fa-solid fa-ban text-rose-500"></i> {t("admin.closures.closuresHeading")}
+                            </h4>
+                            <p className="text-xs text-slate-500 font-normal mt-0.5">
+                              {t("admin.closures.closuresDesc")}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingLockId(null);
+                              setEditingCalendarLock(null);
+                              setNewLockTitle("");
+                              setNewLockCourts([...(settings.courts || ["Platz 1", "Platz 2"])]);
+                              setNewLockType("range");
+                              setLockContext("lock");
+                              openLockDrawer();
+                            }}
+                            className="h-9 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl font-semibold text-xs transition-all shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
+                          >
+                            <i className="fa-solid fa-plus text-xs"></i> {t("admin.closures.newClosure")}
+                          </button>
                         </div>
 
                         {(
@@ -4675,13 +5582,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             ...(settings.rangeLocks || [])
                               .filter((l) => !l.isEvent)
                               .map((l) => ({ ...l, _type: "range" })),
-                            ...bookings
-                              .filter((b) => b.isLocked && !b.isEvent)
-                              .map((b) => ({ ...b, _type: "calendar" })),
+                            ...groupedCalendarLocks,
                           ] as any[]
                         ).length === 0 ? (
                           <div className="p-4 text-center text-xs font-normal text-slate-400 bg-slate-50/70 rounded-xl border border-slate-200/60">
-                            Keine manuellen Einzelsperren oder Schließzeiten konfiguriert.
+                            {t("admin.closures.noClosures")}
                           </div>
                         ) : (
                           <div className="space-y-2.5">
@@ -4690,13 +5595,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               .filter((l) => !l.isEvent)
                               .map((lock: RegularLock) => {
                                 const weekdayLabel = [
-                                  "Sonntag",
-                                  "Montag",
-                                  "Dienstag",
-                                  "Mittwoch",
-                                  "Donnerstag",
-                                  "Freitag",
-                                  "Samstag",
+                                  t("admin.closures.weekdaySun"),
+                                  t("admin.closures.weekdayMon"),
+                                  t("admin.closures.weekdayTue"),
+                                  t("admin.closures.weekdayWed"),
+                                  t("admin.closures.weekdayThu"),
+                                  t("admin.closures.weekdayFri"),
+                                  t("admin.closures.weekdaySat"),
                                 ][lock.dayOfWeek];
                                 return (
                                   <div
@@ -4722,13 +5627,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         {lock.isOngoing ? (
                                           <span className="text-slate-600">
                                             <i className="fa-solid fa-calendar-check mr-1 text-slate-400"></i>
-                                            Dauerhaft
+                                            {t("admin.closures.permanent")}
                                           </span>
                                         ) : (
                                           <span className="text-slate-600">
                                             <i className="fa-solid fa-calendar-days mr-1 text-slate-400"></i>
                                             {lock.startDate
-                                              ? `${new Date(lock.startDate).toLocaleDateString("de-DE")} bis ${lock.endDate ? new Date(lock.endDate).toLocaleDateString("de-DE") : ""}`
+                                              ? `${new Date(lock.startDate).toLocaleDateString("de-DE")} ${t("admin.closures.to")} ${lock.endDate ? new Date(lock.endDate).toLocaleDateString("de-DE") : ""}`
                                               : ""}
                                           </span>
                                         )}
@@ -4738,20 +5643,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleStartEditRecurring(lock)
+                                          handleStartEditRecurring(lock, "lock")
                                         }
                                         className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Bearbeiten"
+                                        title={t("admin.closures.edit")}
                                       >
                                         <i className="fa-solid fa-pen"></i>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleDeleteRecurringLock(lock.id)
+                                          handleDeleteRecurringLock(lock.id, false)
                                         }
                                         className="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Löschen"
+                                        title={t("admin.closures.delete")}
                                       >
                                         <i className="fa-solid fa-trash-can"></i>
                                       </button>
@@ -4783,14 +5688,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       <div className="text-[11px] text-slate-500 font-normal mt-1 flex flex-wrap gap-2.5 items-center">
                                         <span>
                                           <i className="fa-regular fa-calendar-days mr-1 text-slate-400"></i>
-                                          {start} bis {end}
+                                          {start} {t("admin.closures.to")} {end}
                                         </span>
                                         <span>
                                           <i className="fa-solid fa-circle-nodes mr-1 text-slate-400"></i>
                                           {lock.courts.join(", ")}
                                         </span>
                                         <span className="text-rose-600 font-semibold text-[10px] bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200/60">
-                                          Ganztägig gesperrt
+                                          {t("admin.closures.allDayBlocked")}
                                         </span>
                                       </div>
                                     </div>
@@ -4798,20 +5703,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleStartEditRange(lock)
+                                          handleStartEditRange(lock, "lock")
                                         }
                                         className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Bearbeiten"
+                                        title={t("admin.closures.edit")}
                                       >
                                         <i className="fa-solid fa-pen"></i>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleDeleteRangeLock(lock.id)
+                                          handleDeleteRangeLock(lock.id, false)
                                         }
                                         className="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Löschen"
+                                        title={t("admin.closures.delete")}
                                       >
                                         <i className="fa-solid fa-trash-can"></i>
                                       </button>
@@ -4821,69 +5726,107 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               })}
 
                             {/* Render Calendar Locks (not Events) */}
-                            {bookings
-                              .filter((b) => b.isLocked && !b.isEvent)
-                              .map((lock: Booking) => {
-                                const dateFmt = new Date(
-                                  lock.date,
-                                ).toLocaleDateString("de-DE", {
-                                  weekday: "short",
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  year: "numeric",
-                                });
-                                return (
-                                  <div
-                                    key={lock.id}
-                                    className="p-3.5 rounded-xl bg-rose-50/50 border border-rose-100 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center hover:bg-rose-50 transition-colors"
-                                  >
-                                    <div>
-                                      <h5 className="text-xs font-semibold text-rose-800">
-                                        {lock.reason || "Sperre"}
-                                      </h5>
-                                      <div className="text-[11px] text-slate-500 font-normal mt-1 flex flex-wrap gap-2.5 items-center">
-                                        <span>
-                                          <i className="fa-regular fa-calendar mr-1 text-slate-400"></i>
-                                          {dateFmt}
-                                        </span>
-                                        <span>
-                                          <i className="fa-regular fa-clock mr-1 text-slate-400"></i>
-                                          {lock.time}
-                                        </span>
-                                        <span>
-                                          <i className="fa-solid fa-circle-nodes mr-1 text-slate-400"></i>
-                                          {lock.court}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 sm:shrink-0 w-full sm:w-auto justify-end border-t border-rose-100 sm:border-0 sm:pt-0 pt-2.5">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleDeleteCalendarLock(lock.id)
-                                        }
-                                        className="w-8 h-8 rounded-lg bg-red-100/70 text-red-600 hover:bg-red-200 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Löschen"
-                                      >
-                                        <i className="fa-solid fa-trash-can"></i>
-                                      </button>
+                            {groupedCalendarLocks.map((lock: GroupedCalendarLock) => {
+                              const dateFmt = new Date(
+                                lock.date,
+                              ).toLocaleDateString("de-DE", {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                              });
+                              const allCourtsList = settings.courts || ["Platz 1", "Platz 2"];
+                              const isAllCourts =
+                                allCourtsList.length > 0 &&
+                                lock.courts.length >= allCourtsList.length &&
+                                allCourtsList.every((c) => lock.courts.includes(c));
+                              const courtsDisplay = isAllCourts
+                                ? t("dashboard.allCourts", "Alle Plätze")
+                                : lock.courts.map(translateCourt).join(", ");
+                              const timeDisplay =
+                                lock.startTime !== lock.endTime
+                                  ? `${lock.startTime} – ${lock.endTime}`
+                                  : lock.startTime;
+
+                              return (
+                                <div
+                                  key={lock.id}
+                                  className="p-3.5 rounded-xl bg-rose-50/50 border border-rose-100 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center hover:bg-rose-50 transition-colors"
+                                >
+                                  <div>
+                                    <h5 className="text-xs font-semibold text-rose-800">
+                                      {lock.reason || t("admin.closures.defaultReason")}
+                                    </h5>
+                                    <div className="text-[11px] text-slate-500 font-normal mt-1 flex flex-wrap gap-2.5 items-center">
+                                      <span>
+                                        <i className="fa-regular fa-calendar mr-1 text-slate-400"></i>
+                                        {dateFmt}
+                                      </span>
+                                      <span>
+                                        <i className="fa-regular fa-clock mr-1 text-slate-400"></i>
+                                        {timeDisplay}
+                                      </span>
+                                      <span>
+                                        <i className="fa-solid fa-circle-nodes mr-1 text-slate-400"></i>
+                                        {courtsDisplay}
+                                      </span>
                                     </div>
                                   </div>
-                                );
-                              })}
+                                  <div className="flex items-center gap-1.5 sm:shrink-0 w-full sm:w-auto justify-end border-t border-rose-100 sm:border-0 sm:pt-0 pt-2.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleStartEditCalendarLock(lock, "lock")
+                                      }
+                                      className="w-8 h-8 rounded-lg bg-white border border-rose-200 text-slate-600 hover:bg-rose-100 flex items-center justify-center transition-colors text-xs cursor-pointer shadow-2xs"
+                                      title={t("admin.closures.edit")}
+                                    >
+                                      <i className="fa-solid fa-pen"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleDeleteCalendarLock(lock.bookingIds, false)
+                                      }
+                                      className="w-8 h-8 rounded-lg bg-red-100/70 text-red-600 hover:bg-red-200 flex items-center justify-center transition-colors text-xs cursor-pointer"
+                                      title={t("admin.closures.delete")}
+                                    >
+                                      <i className="fa-solid fa-trash-can"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
 
                       {/* Category 2: Regelmäßige Serientermine */}
                       <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-                        <div>
-                          <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                            <i className="fa-solid fa-calendar-check text-[var(--color-primary)]"></i> Regelmäßige Serientermine
-                          </h4>
-                          <p className="text-xs text-slate-500 font-normal mt-0.5">
-                            Wiederkehrende Mannschaftstrainings, Treffs oder feste Spielzeiten.
-                          </p>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                              <i className="fa-solid fa-calendar-check text-[var(--color-primary)]"></i> {t("admin.closures.recurringEventsHeading")}
+                            </h4>
+                            <p className="text-xs text-slate-500 font-normal mt-0.5">
+                              {t("admin.closures.recurringEventsDesc")}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingLockId(null);
+                              setEditingCalendarLock(null);
+                              setNewLockTitle("");
+                              setNewLockCourts([...(settings.courts || ["Platz 1", "Platz 2"])]);
+                              setNewLockType("regular");
+                              setLockContext("event");
+                              openLockDrawer();
+                            }}
+                            className="h-9 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl font-semibold text-xs transition-all shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
+                          >
+                            <i className="fa-solid fa-plus text-xs"></i> {t("admin.closures.newRecurringEvent")}
+                          </button>
                         </div>
 
                         {(
@@ -4894,13 +5837,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             ...(settings.rangeLocks || [])
                               .filter((l) => l.isEvent)
                               .map((l) => ({ ...l, _type: "range" })),
-                            ...bookings
-                              .filter((b) => b.isLocked && b.isEvent)
-                              .map((b) => ({ ...b, _type: "calendar" })),
+                            ...groupedCalendarEvents,
                           ] as any[]
                         ).length === 0 ? (
                           <div className="p-4 text-center text-xs font-normal text-slate-400 bg-slate-50/70 rounded-xl border border-slate-200/60">
-                            Keine Serientermine konfiguriert.
+                            {t("admin.closures.noRecurringEvents")}
                           </div>
                         ) : (
                           <div className="space-y-2.5">
@@ -4909,13 +5850,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               .filter((l) => l.isEvent)
                               .map((lock: RegularLock) => {
                                 const weekdayLabel = [
-                                  "Sonntag",
-                                  "Montag",
-                                  "Dienstag",
-                                  "Mittwoch",
-                                  "Donnerstag",
-                                  "Freitag",
-                                  "Samstag",
+                                  t("admin.closures.weekdaySun"),
+                                  t("admin.closures.weekdayMon"),
+                                  t("admin.closures.weekdayTue"),
+                                  t("admin.closures.weekdayWed"),
+                                  t("admin.closures.weekdayThu"),
+                                  t("admin.closures.weekdayFri"),
+                                  t("admin.closures.weekdaySat"),
                                 ][lock.dayOfWeek];
                                 return (
                                   <div
@@ -4950,20 +5891,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleStartEditRecurring(lock)
+                                          handleStartEditRecurring(lock, "event")
                                         }
                                         className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Bearbeiten"
+                                        title={t("admin.closures.edit")}
                                       >
                                         <i className="fa-solid fa-pen"></i>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleDeleteRecurringLock(lock.id)
+                                          handleDeleteRecurringLock(lock.id, true)
                                         }
                                         className="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Löschen"
+                                        title={t("admin.closures.delete")}
                                       >
                                         <i className="fa-solid fa-trash-can"></i>
                                       </button>
@@ -4995,7 +5936,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       <div className="text-[11px] text-slate-500 font-normal mt-1 flex flex-wrap gap-2.5 items-center">
                                         <span>
                                           <i className="fa-regular fa-calendar-days mr-1 text-slate-400"></i>
-                                          {start} bis {end}
+                                          {start} {t("admin.closures.to")} {end}
                                         </span>
                                         <span>
                                           <i className="fa-solid fa-circle-nodes mr-1 text-slate-400"></i>
@@ -5007,20 +5948,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleStartEditRange(lock)
+                                          handleStartEditRange(lock, "event")
                                         }
                                         className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Bearbeiten"
+                                        title={t("admin.closures.edit")}
                                       >
                                         <i className="fa-solid fa-pen"></i>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleDeleteRangeLock(lock.id)
+                                          handleDeleteRangeLock(lock.id, true)
                                         }
                                         className="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Löschen"
+                                        title={t("admin.closures.delete")}
                                       >
                                         <i className="fa-solid fa-trash-can"></i>
                                       </button>
@@ -5030,56 +5971,77 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               })}
 
                             {/* Render Calendar Locks (Events) */}
-                            {bookings
-                              .filter((b) => b.isLocked && b.isEvent)
-                              .map((lock: Booking) => {
-                                const dateFmt = new Date(
-                                  lock.date,
-                                ).toLocaleDateString("de-DE", {
-                                  weekday: "short",
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  year: "numeric",
-                                });
-                                return (
-                                  <div
-                                    key={lock.id}
-                                    className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center hover:border-slate-300 transition-colors"
-                                  >
-                                    <div>
-                                      <h5 className="text-xs font-semibold text-slate-800">
-                                        {lock.reason || "Sperre"}
-                                      </h5>
-                                      <div className="text-[11px] text-slate-500 font-normal mt-1 flex flex-wrap gap-2.5 items-center">
-                                        <span>
-                                          <i className="fa-regular fa-calendar mr-1 text-slate-400"></i>
-                                          {dateFmt}
-                                        </span>
-                                        <span>
-                                          <i className="fa-regular fa-clock mr-1 text-slate-400"></i>
-                                          {lock.time}
-                                        </span>
-                                        <span>
-                                          <i className="fa-solid fa-circle-nodes mr-1 text-slate-400"></i>
-                                          {lock.court}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 sm:shrink-0 w-full sm:w-auto justify-end border-t border-slate-200 sm:border-0 sm:pt-0 pt-2.5">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleDeleteCalendarLock(lock.id)
-                                        }
-                                        className="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
-                                        title="Löschen"
-                                      >
-                                        <i className="fa-solid fa-trash-can"></i>
-                                      </button>
+                            {groupedCalendarEvents.map((lock: GroupedCalendarLock) => {
+                              const dateFmt = new Date(
+                                lock.date,
+                              ).toLocaleDateString("de-DE", {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                              });
+                              const allCourtsList = settings.courts || ["Platz 1", "Platz 2"];
+                              const isAllCourts =
+                                allCourtsList.length > 0 &&
+                                lock.courts.length >= allCourtsList.length &&
+                                allCourtsList.every((c) => lock.courts.includes(c));
+                              const courtsDisplay = isAllCourts
+                                ? t("dashboard.allCourts", "Alle Plätze")
+                                : lock.courts.map(translateCourt).join(", ");
+                              const timeDisplay =
+                                lock.startTime !== lock.endTime
+                                  ? `${lock.startTime} – ${lock.endTime}`
+                                  : lock.startTime;
+
+                              return (
+                                <div
+                                  key={lock.id}
+                                  className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center hover:border-slate-300 transition-colors"
+                                >
+                                  <div>
+                                    <h5 className="text-xs font-semibold text-slate-800">
+                                      {lock.reason || t("admin.closures.defaultReason")}
+                                    </h5>
+                                    <div className="text-[11px] text-slate-500 font-normal mt-1 flex flex-wrap gap-2.5 items-center">
+                                      <span>
+                                        <i className="fa-regular fa-calendar mr-1 text-slate-400"></i>
+                                        {dateFmt}
+                                      </span>
+                                      <span>
+                                        <i className="fa-regular fa-clock mr-1 text-slate-400"></i>
+                                        {timeDisplay}
+                                      </span>
+                                      <span>
+                                        <i className="fa-solid fa-circle-nodes mr-1 text-slate-400"></i>
+                                        {courtsDisplay}
+                                      </span>
                                     </div>
                                   </div>
-                                );
-                              })}
+                                  <div className="flex items-center gap-1.5 sm:shrink-0 w-full sm:w-auto justify-end border-t border-slate-200 sm:border-0 sm:pt-0 pt-2.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleStartEditCalendarLock(lock, "event")
+                                      }
+                                      className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors text-xs cursor-pointer shadow-2xs"
+                                      title={t("admin.closures.edit")}
+                                    >
+                                      <i className="fa-solid fa-pen"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleDeleteCalendarLock(lock.bookingIds, true)
+                                      }
+                                      className="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors text-xs cursor-pointer"
+                                      title={t("admin.closures.delete")}
+                                    >
+                                      <i className="fa-solid fa-trash-can"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -5088,77 +6050,127 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                   {/* LOCK FORM DRAWER */}
                   {isLockDrawerOpen && createPortal(
-                    <div className="fixed inset-0 z-[99999] flex justify-end">
-                      {/* Backdrop */}
-                      <div
-                        className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
-                        onClick={() => setIsLockDrawerOpen(false)}
-                      ></div>
-
+                    <div
+                      className="fixed inset-0 z-[99999] flex justify-end bg-slate-900/60 backdrop-blur-[2px] transition-opacity"
+                      onClick={handleCancelLockEdit}
+                      onWheel={(e) => {
+                        if (e.target === e.currentTarget) {
+                          e.preventDefault();
+                        }
+                      }}
+                      style={{
+                        opacity: !isLockDrawerAnimatingIn || isLockDrawerClosing ? 0 : 1,
+                        transitionDuration: isLockDrawerClosing ? "200ms" : "250ms",
+                        transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                        pointerEvents: isLockDrawerClosing ? "none" : "auto",
+                      }}
+                    >
                       {/* Drawer Panel */}
-                      <div className="relative w-full md:max-w-md h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-10">
-                        {/* Header */}
-                        <div className="p-5 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
-                          <div>
-                            <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
-                              <i
-                                className={`fa-solid ${lockContext === "event" ? "fa-calendar-check text-[var(--color-primary)]" : "fa-ban text-rose-500"}`}
-                              ></i>
+                      <div
+                        className="w-[450px] max-w-[100vw] h-[100vh] bg-white shadow-2xl flex flex-col transform transition-transform pointer-events-auto overscroll-contain z-10"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          transform:
+                            !isLockDrawerAnimatingIn || isLockDrawerClosing
+                              ? "translateX(100%)"
+                              : "translateX(0)",
+                          transitionDuration: isLockDrawerClosing ? "200ms" : "250ms",
+                          transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                        }}
+                      >
+                        {/* Drawer Header (Matching Court Booking Drawer style) */}
+                        <div className="bg-[var(--color-primary)] p-4 px-5 text-white flex justify-between items-start relative shrink-0 shadow-md overflow-hidden">
+                          {/* Background Relief Watermark */}
+                          <div className="absolute -bottom-10 -right-6 text-white opacity-[0.06] z-0 pointer-events-none transform -rotate-12">
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="w-[140px] h-[140px]"
+                            >
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <path d="M5.5 5.5A7.5 7.5 0 0 1 12 12A7.5 7.5 0 0 1 5.5 18.5"></path>
+                              <path d="M18.5 5.5A7.5 7.5 0 0 0 12 12A7.5 7.5 0 0 0 18.5 18.5"></path>
+                            </svg>
+                          </div>
+
+                          <div className="relative z-10">
+                            <h3 className="text-xl font-bold uppercase tracking-tight leading-none mb-1 text-white">
                               {editingLockId
                                 ? lockContext === "event"
-                                  ? "Serientermin bearbeiten"
-                                  : "Sperre bearbeiten"
+                                  ? t("admin.closures.editRecurring", "Serientermin bearbeiten")
+                                  : t("admin.closures.editClosure", "Sperre bearbeiten")
                                 : lockContext === "event"
-                                  ? "Neuer Serientermin"
-                                  : "Neue Sperre"}
+                                  ? t("admin.closures.newRecurringEvent", "Neuer Serientermin")
+                                  : t("admin.closures.newClosure", "Neue Sperre")}
                             </h3>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {lockContext === "event" ? "Termindetails und Zeiten für Serientermine" : "Zeitraum und Plätze für die Sperre"}
+                            <p className="text-[11px] font-bold text-white/90 flex items-center gap-1.5">
+                              <i className={`fa-solid ${lockContext === "event" ? "fa-calendar-week" : "fa-ban"} opacity-75`}></i>
+                              {lockContext === "event"
+                                ? t("admin.closures.drawerEventSubtitle", "Termindetails und Zeiten für Serientermine")
+                                : t("admin.closures.drawerClosureSubtitle", "Zeitraum und Plätze für die Sperre")}
                             </p>
                           </div>
+
                           <button
                             type="button"
-                            onClick={() => setIsLockDrawerOpen(false)}
-                            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors flex items-center justify-center text-slate-500 cursor-pointer"
+                            onClick={handleCancelLockEdit}
+                            className="text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm shrink-0 relative z-10 text-sm font-medium cursor-pointer"
                           >
-                            <i className="fa-solid fa-xmark text-sm"></i>
+                            <i className="fa-solid fa-xmark text-base"></i>
                           </button>
                         </div>
 
-                        {/* Body / Scrollable Form */}
-                        <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/50">
-                          {/* Lock Type buttons (only show if creating new) */}
-                          {!editingLockId && (
-                            <div className="flex p-1 gap-1 bg-slate-200/80 rounded-xl">
+                        {/* Lock Type Mode Switcher (Sticky segmented bar, matching booking drawer) */}
+                        {!editingLockId && (
+                          <div className="px-5 py-3.5 border-b-2 border-slate-200 bg-slate-50 shrink-0 shadow-[0_4px_15px_-5px_rgba(0,0,0,0.05)] z-10">
+                            <div className="relative flex p-1 bg-slate-200 rounded-xl border border-slate-300 select-none shadow-sm">
+                              <div
+                                className="absolute top-1 bottom-1 rounded-lg shadow-sm transition-all duration-300 ease-out z-0 bg-white"
+                                style={{
+                                  width: "calc(50% - 4px)",
+                                  left: newLockType === "range" ? "2px" : "calc(50% + 2px)",
+                                  backgroundColor: settings?.primaryColor || "var(--color-primary)",
+                                }}
+                              ></div>
                               <button
                                 type="button"
                                 onClick={() => setNewLockType("range")}
-                                className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                className={`relative z-10 flex-1 py-1.5 rounded-lg transition-colors uppercase tracking-widest text-xs flex items-center justify-center gap-1.5 font-bold ${
                                   newLockType === "range"
-                                    ? "bg-white text-slate-900 shadow-xs"
-                                    : "text-slate-600 hover:text-slate-900"
+                                    ? "text-white font-medium"
+                                    : "text-slate-500 hover:text-slate-800"
                                 }`}
                               >
-                                Einmaliger Zeitraum
+                                <i className="fa-solid fa-calendar-day text-[11px]"></i>
+                                {t("admin.closures.singleRange", "Einmaliger Zeitraum")}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setNewLockType("regular")}
-                                className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                className={`relative z-10 flex-1 py-1.5 rounded-lg transition-colors uppercase tracking-widest text-xs flex items-center justify-center gap-1.5 font-bold ${
                                   newLockType === "regular"
-                                    ? "bg-white text-slate-900 shadow-xs"
-                                    : "text-slate-600 hover:text-slate-900"
+                                    ? "text-white font-medium"
+                                    : "text-slate-500 hover:text-slate-800"
                                 }`}
                               >
-                                Wöchentliche Serie
+                                <i className="fa-solid fa-arrows-rotate text-[11px]"></i>
+                                {t("admin.closures.weeklySeries", "Wöchentliche Serie")}
                               </button>
                             </div>
-                          )}
+                          </div>
+                        )}
 
-                          {/* Title */}
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Bezeichnung / Titel
+                        {/* Body / Scrollable Form */}
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50" style={{ isolation: "isolate" }}>
+                          {/* Title / Description */}
+                          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-1.5">
+                            <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                              <i className="fa-solid fa-pen text-slate-400 text-[10px]"></i>
+                              {t("admin.closures.titleLabel", "Bezeichnung / Titel")}
                             </label>
                             <input 
                               type="text"
@@ -5166,28 +6178,29 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               onChange={(e) => setNewLockTitle(e.target.value)}
                               placeholder={
                                 lockContext === "event"
-                                  ? "z. B. Freitagsdoppel, Mannschaftstraining..."
-                                  : "z. B. Platzpflege, Turnier, Regen..."
+                                  ? t("admin.closures.placeholderEvent", "z. B. Freitagsdoppel, Mannschaftstraining...")
+                                  : t("admin.closures.placeholderLock", "z. B. Platzpflege, Turnier, Regen...")
                               }
-                              className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
+                              className="w-full h-9 px-3 border-2 border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-sans font-medium placeholder:text-slate-400 placeholder:font-normal"
                             />
                           </div>
 
-                          {/* Farbe (Hex-Code, optional) */}
+                          {/* Farbe (Hex-Code, optional for recurring events) */}
                           {lockContext === "event" && newLockType === "regular" && (
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Farbe (optional)
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-1.5">
+                              <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                <i className="fa-solid fa-palette text-slate-400 text-[10px]"></i>
+                                {t("admin.closures.colorOptional", "Farbe (Hex-Code, optional)")}
                               </label>
-                              <div className="flex gap-2">
+                              <div className="flex gap-2 items-center">
                                 <input 
                                   type="text"
                                   value={newLockColor}
                                   onChange={(e) => setNewLockColor(e.target.value)}
                                   placeholder={settings.primaryColor || "#1b4332"}
-                                  className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400 uppercase"
+                                  className="flex-1 h-9 px-3 border-2 border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-sans font-medium placeholder:text-slate-400 uppercase"
                                 />
-                                <div className="relative flex items-center justify-center w-10 h-10 border border-slate-200 rounded-xl overflow-hidden cursor-pointer hover:border-slate-400 bg-white shadow-2xs">
+                                <div className="relative flex items-center justify-center w-9 h-9 border-2 border-slate-200 rounded-xl overflow-hidden cursor-pointer hover:border-slate-400 bg-white shadow-2xs shrink-0">
                                   <input
                                     type="color"
                                     value={newLockColor && /^#[0-9A-F]{6}$/i.test(newLockColor) ? newLockColor : (settings.primaryColor || "#1b4332")}
@@ -5203,10 +6216,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                           )}
 
-                          <div>
-                            <div className="flex justify-between items-center mb-1.5">
-                              <label className="block text-xs font-semibold text-slate-700">
-                                Betroffene Plätze
+                          {/* Affected Courts */}
+                          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider">
+                                {t("admin.closures.affectedCourts", "Betroffene Plätze")}
                               </label>
                               <button
                                 type="button"
@@ -5221,15 +6235,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     setNewLockCourts([...all]);
                                   }
                                 }}
-                                className="text-xs font-medium text-[var(--color-primary)] hover:underline cursor-pointer"
+                                className="text-[10px] font-bold text-[var(--color-primary)] hover:underline cursor-pointer"
                               >
-                                {newLockCourts.length ===
-                                (settings.courts || []).length
-                                  ? "Keine Plätze"
-                                  : "Alle Plätze"}
+                                {newLockCourts.length === (settings.courts || []).length
+                                  ? t("common.deselectAll", "Alle abwählen")
+                                  : t("dashboard.allCourts", "Alle Plätze")}
                               </button>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="flex flex-wrap gap-1.5">
                               {(
                                 settings.courts || [
                                   "Platz 1",
@@ -5257,12 +6270,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         ]);
                                       }
                                     }}
-                                    className={`h-10 px-3 flex items-center justify-center rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
                                       isSel
-                                        ? "bg-[var(--color-primary)]/10 border-[var(--color-primary)] text-[var(--color-primary)] font-bold"
-                                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                        ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)] shadow-xs"
+                                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                                     }`}
                                   >
+                                    <i className={`fa-solid ${isSel ? "fa-circle-check" : "fa-circle text-slate-300"} text-[10px]`}></i>
                                     {court}
                                   </button>
                                 );
@@ -5272,15 +6286,21 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                           {/* Type specific fields */}
                           {newLockType === "regular" ? (
-                            <div className="space-y-4 pt-3 border-t border-slate-200/80">
-                              <p className="text-xs text-slate-500 leading-relaxed bg-white p-3 rounded-xl border border-slate-200/60">
-                                Wiederkehrende Termine werden wöchentlich für den gewählten Wochentag im Kalender geblockt.
-                              </p>
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-xs text-slate-600 leading-relaxed flex items-start gap-2.5">
+                                <i className="fa-solid fa-circle-info text-[var(--color-primary)] text-sm shrink-0 mt-0.5"></i>
+                                <span>
+                                  {lockContext === "event"
+                                    ? t("admin.closures.recurringEventHelp", "Wiederkehrende Termine werden wöchentlich für den gewählten Wochentag im Kalender als Serientermin eingetragen.")
+                                    : t("admin.closures.recurringHelp", "Wiederkehrende Termine werden wöchentlich für den gewählten Wochentag im Kalender geblockt.")}
+                                </span>
+                              </div>
                               
                               {/* Wochentag */}
                               <div>
-                                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                  Wochentag
+                                <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                  <i className="fa-solid fa-calendar-day text-slate-400 text-[10px]"></i>
+                                  {t("admin.closures.weekday", "Wochentag")}
                                 </label>
                                 <div className="relative">
                                   <select 
@@ -5288,25 +6308,26 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     onChange={(e) =>
                                       setNewLockDay(parseInt(e.target.value))
                                     }
-                                    className="w-full h-10 px-3.5 pr-10 border border-slate-200 rounded-xl bg-white text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none font-normal"
+                                    className="w-full h-9 px-3 pr-8 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all appearance-none cursor-pointer font-sans font-medium"
                                   >
-                                    <option value={1}>Montag</option>
-                                    <option value={2}>Dienstag</option>
-                                    <option value={3}>Mittwoch</option>
-                                    <option value={4}>Donnerstag</option>
-                                    <option value={5}>Freitag</option>
-                                    <option value={6}>Samstag</option>
-                                    <option value={0}>Sonntag</option>
+                                    <option value={1}>{t("admin.closures.weekdayMon")}</option>
+                                    <option value={2}>{t("admin.closures.weekdayTue")}</option>
+                                    <option value={3}>{t("admin.closures.weekdayWed")}</option>
+                                    <option value={4}>{t("admin.closures.weekdayThu")}</option>
+                                    <option value={5}>{t("admin.closures.weekdayFri")}</option>
+                                    <option value={6}>{t("admin.closures.weekdaySat")}</option>
+                                    <option value={0}>{t("admin.closures.weekdaySun")}</option>
                                   </select>
-                                  <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                                  <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                                 </div>
                               </div>
 
                               {/* Uhrzeiten */}
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Von
+                                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <i className="fa-solid fa-clock text-slate-400 text-[10px]"></i>
+                                    {t("admin.closures.fromTime", "Von")}
                                   </label>
                                   <div className="relative">
                                     <select 
@@ -5325,20 +6346,21 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           );
                                         }
                                       }}
-                                      className="w-full h-10 px-3.5 pr-10 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none font-normal"
+                                      className="w-full h-9 px-3 pr-8 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all appearance-none cursor-pointer font-sans font-medium"
                                     >
                                       {TIME_SLOTS.slice(0, -1).map((h) => (
                                         <option key={h} value={h}>
-                                          {h} Uhr
+                                          {h} {t("admin.rules.oclock")}
                                         </option>
                                       ))}
                                     </select>
-                                    <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                                    <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                                   </div>
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Bis
+                                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <i className="fa-solid fa-clock text-slate-400 text-[10px]"></i>
+                                    {t("admin.closures.toTime", "Bis")}
                                   </label>
                                   <div className="relative">
                                     <select 
@@ -5346,24 +6368,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       onChange={(e) =>
                                         setNewLockEndTime(e.target.value)
                                       }
-                                      className="w-full h-10 px-3.5 pr-10 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none font-normal"
+                                      className="w-full h-9 px-3 pr-8 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all appearance-none cursor-pointer font-sans font-medium"
                                     >
                                       {TIME_SLOTS.slice(
                                         TIME_SLOTS.indexOf(newLockStartTime) + 1,
                                       ).map((h) => (
                                         <option key={h} value={h}>
-                                          {h} Uhr
+                                          {h} {t("admin.rules.oclock")}
                                         </option>
                                       ))}
                                     </select>
-                                    <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                                    <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                                   </div>
                                 </div>
                               </div>
 
                               {/* Dauerhaft oder Datum */}
-                              <div className="space-y-3 pt-3 border-t border-slate-200/80">
-                                <label className="flex items-center gap-3 cursor-pointer bg-white p-3 rounded-xl border border-slate-200 hover:border-slate-300">
+                              <div className="pt-2 border-t border-slate-100 space-y-3">
+                                <label className="flex items-center gap-2.5 cursor-pointer bg-slate-50 p-2.5 rounded-xl border border-slate-200 hover:border-slate-300 transition-colors">
                                   <input
                                     type="checkbox"
                                     checked={newLockIsOngoing}
@@ -5372,16 +6394,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     }
                                     className="h-4 w-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
                                   />
-                                  <span className="text-xs font-semibold text-slate-700">
-                                    Dauerhaft (Unbegrenzt)
+                                  <span className="text-xs font-bold text-slate-700">
+                                    {t("admin.closures.permanentCheckbox", "Dauerhaft (Unbegrenzt)")}
                                   </span>
                                 </label>
 
                                 {!newLockIsOngoing && (
-                                  <div className="grid grid-cols-2 gap-3">
+                                  <div className="grid grid-cols-2 gap-3 pt-1">
                                     <div>
-                                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Gültig von
+                                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
+                                        {t("admin.closures.validFrom", "Gültig ab")}
                                       </label>
                                       <input 
                                         type="date"
@@ -5389,12 +6411,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         onChange={(e) =>
                                           setNewLockStartDate(e.target.value)
                                         }
-                                        className="w-full h-10 px-3 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-[var(--color-primary)] transition-all font-normal"
+                                        className="w-full h-9 px-3 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-sans font-medium"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Gültig bis
+                                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
+                                        {t("admin.closures.validTo", "Gültig bis")}
                                       </label>
                                       <input 
                                         type="date"
@@ -5402,7 +6424,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         onChange={(e) =>
                                           setNewLockEndDate(e.target.value)
                                         }
-                                        className="w-full h-10 px-3 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-[var(--color-primary)] transition-all font-normal"
+                                        className="w-full h-9 px-3 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-sans font-medium"
                                       />
                                     </div>
                                   </div>
@@ -5410,14 +6432,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <div className="space-y-4 pt-3 border-t border-slate-200/80">
-                              <p className="text-xs text-slate-500 leading-relaxed bg-white p-3 rounded-xl border border-slate-200/60">
-                                Sperrt die ausgewählten Plätze im angegebenen Zeitraum durchgehend oder zu bestimmten Uhrzeiten.
-                              </p>
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-xs text-slate-600 leading-relaxed flex items-start gap-2.5">
+                                <i className="fa-solid fa-circle-info text-[var(--color-primary)] text-sm shrink-0 mt-0.5"></i>
+                                <span>{t("admin.closures.rangeHelp", "Sperrt die ausgewählten Plätze im angegebenen Zeitraum durchgehend oder zu bestimmten Uhrzeiten.")}</span>
+                              </div>
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Start-Datum
+                                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <i className="fa-solid fa-calendar text-slate-400 text-[10px]"></i>
+                                    {t("admin.closures.startDate", "Start-Datum")}
                                   </label>
                                   <input 
                                     type="date"
@@ -5425,12 +6449,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     onChange={(e) =>
                                       setNewRangeStartDate(e.target.value)
                                     }
-                                    className="w-full h-10 px-3 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-normal"
+                                    className="w-full h-9 px-3 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-sans font-medium"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Ende-Datum
+                                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <i className="fa-solid fa-calendar text-slate-400 text-[10px]"></i>
+                                    {t("admin.closures.endDate", "End-Datum")}
                                   </label>
                                   <input 
                                     type="date"
@@ -5438,14 +6463,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     onChange={(e) =>
                                       setNewRangeEndDate(e.target.value)
                                     }
-                                    className="w-full h-10 px-3 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-normal"
+                                    className="w-full h-9 px-3 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all font-sans font-medium"
                                   />
                                 </div>
                               </div>
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Von (Uhrzeit)
+                                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <i className="fa-solid fa-clock text-slate-400 text-[10px]"></i>
+                                    {t("admin.closures.fromTimeDetailed", "Von (Uhrzeit)")}
                                   </label>
                                   <div className="relative">
                                     <select 
@@ -5453,20 +6479,21 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       onChange={(e) =>
                                         setNewRangeStartTime(e.target.value)
                                       }
-                                      className="w-full h-10 px-3.5 pr-10 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none font-normal"
+                                      className="w-full h-9 px-3 pr-8 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all appearance-none cursor-pointer font-sans font-medium"
                                     >
-                                      {TIME_SLOTS.map((t) => (
-                                        <option key={t} value={t}>
-                                          {t} Uhr
+                                      {TIME_SLOTS.map((slot) => (
+                                        <option key={slot} value={slot}>
+                                          {slot} {t("admin.rules.oclock")}
                                         </option>
                                       ))}
                                     </select>
-                                    <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                                    <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                                   </div>
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Bis (Uhrzeit)
+                                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <i className="fa-solid fa-clock text-slate-400 text-[10px]"></i>
+                                    {t("admin.closures.toTimeDetailed", "Bis (Uhrzeit)")}
                                   </label>
                                   <div className="relative">
                                     <select 
@@ -5474,15 +6501,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       onChange={(e) =>
                                         setNewRangeEndTime(e.target.value)
                                       }
-                                      className="w-full h-10 px-3.5 pr-10 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all appearance-none font-normal"
+                                      className="w-full h-9 px-3 pr-8 border-2 border-slate-200 rounded-xl text-sm bg-slate-50/50 focus:bg-white text-slate-800 outline-none focus:border-[var(--color-primary)] transition-all appearance-none cursor-pointer font-sans font-medium"
                                     >
-                                      {TIME_SLOTS.map((t) => (
-                                        <option key={t} value={t}>
-                                          {t} Uhr
+                                      {TIME_SLOTS.map((slot) => (
+                                        <option key={slot} value={slot}>
+                                          {slot} {t("admin.rules.oclock")}
                                         </option>
                                       ))}
                                     </select>
-                                    <i className="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                                    <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
                                   </div>
                                 </div>
                               </div>
@@ -5491,37 +6518,26 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </div>
 
                         {/* Footer / Buttons */}
-                        <div className="p-4 sm:p-5 border-t border-slate-200 bg-white shrink-0 flex gap-3">
-                          <button
-                            type="button"
-                            onClick={handleCancelLockEdit}
-                            className="flex-1 h-10 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
-                          >
-                            Abbrechen
-                          </button>
+                        <div className="p-4 sm:p-5 border-t border-slate-200 bg-white shrink-0 shadow-[0_-4px_15px_-5px_rgba(0,0,0,0.05)]">
                           {editingLockId ? (
                             <button
                               type="button"
                               onClick={handleSaveLockEdit}
-                              className={`flex-1 h-10 ${
-                                lockContext === "event"
-                                  ? "bg-[var(--color-primary)] hover:brightness-110"
-                                  : "bg-slate-800 hover:bg-slate-900"
-                              } text-white rounded-xl font-semibold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer`}
+                              className="w-full h-11 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                             >
-                              <i className="fa-solid fa-check text-xs"></i> Speichern
+                              <i className="fa-solid fa-floppy-disk text-xs"></i>{" "}
+                              {lockContext === "event"
+                                ? t("admin.closures.saveEvent", "Serientermin speichern")
+                                : t("admin.closures.saveClosure", "Sperre speichern")}
                             </button>
                           ) : (
                             <button
                               type="button"
                               onClick={handleAddLock}
-                              className={`flex-1 h-10 ${
-                                lockContext === "event"
-                                  ? "bg-[var(--color-primary)] hover:brightness-110"
-                                  : "bg-slate-800 hover:bg-slate-900"
-                              } text-white rounded-xl font-semibold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer`}
+                              className="w-full h-11 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                             >
-                              <i className="fa-solid fa-plus text-xs"></i> {lockContext === "event" ? "Serie anlegen" : "Sperre anlegen"}
+                              <i className="fa-solid fa-plus text-xs"></i>{" "}
+                              {lockContext === "event" ? t("admin.closures.saveEvent") : t("admin.closures.saveClosure")}
                             </button>
                           )}
                         </div>
@@ -5540,10 +6556,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-palette text-[var(--color-primary)]"></i> Erscheinungsbild
+                          <i className="fa-solid fa-palette text-[var(--color-primary)]"></i> {t("admin.layout.appearanceTitle")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Passe Vereinsfarben, Logos und Branding-Elemente an.
+                          {t("admin.layout.appearanceSubtitle")}
                         </p>
                       </div>
 
@@ -5551,7 +6567,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-4">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                              Farben
+                              {t("admin.layout.colorsHeading")}
                             </span>
                             <label className="cursor-pointer select-none inline-flex items-center gap-2">
                               <input
@@ -5581,7 +6597,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }}
                               />
                               <span className="text-xs font-medium text-slate-600">
-                                Standard verwenden
+                                {t("admin.layout.useDefault")}
                               </span>
                             </label>
                           </div>
@@ -5591,7 +6607,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           >
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Primärfarbe (HEX-Code)
+                                {t("admin.layout.primaryColor")}
                               </label>
                               <div className="flex gap-2.5">
                                 <div className="relative flex items-center justify-center w-10 h-10 border border-slate-200 rounded-xl overflow-hidden cursor-pointer bg-white shrink-0 shadow-2xs">
@@ -5620,7 +6636,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Akzentfarbe (HEX-Code)
+                                {t("admin.layout.accentColor")}
                               </label>
                               <div className="flex gap-2.5">
                                 <div className="relative flex items-center justify-center w-10 h-10 border border-slate-200 rounded-xl overflow-hidden cursor-pointer bg-white shrink-0 shadow-2xs">
@@ -5649,7 +6665,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Akzentfarbe 2 (z. B. Dunkelblau)
+                                {t("admin.layout.accentColor2")}
                               </label>
                               <div className="flex gap-2.5">
                                 <div className="relative flex items-center justify-center w-10 h-10 border border-slate-200 rounded-xl overflow-hidden cursor-pointer bg-white shrink-0 shadow-2xs">
@@ -5678,7 +6694,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Akzentfarbe 3 (z. B. Hellgrün)
+                                {t("admin.layout.accentColor3")}
                               </label>
                               <div className="flex gap-2.5">
                                 <div className="relative flex items-center justify-center w-10 h-10 border border-slate-200 rounded-xl overflow-hidden cursor-pointer bg-white shrink-0 shadow-2xs">
@@ -5713,7 +6729,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3.5">
                             <div className="flex items-center justify-between">
                               <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                                Logo Anmelde- und Ladebildschirm
+                                {t("admin.layout.logoLogin")}
                               </label>
                               <label className="cursor-pointer select-none inline-flex items-center gap-2">
                                 <input
@@ -5738,7 +6754,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   }}
                                 />
                                 <span className="text-xs font-medium text-slate-600">
-                                  Standard verwenden
+                                  {t("admin.layout.useDefault")}
                                 </span>
                               </label>
                             </div>
@@ -5784,7 +6800,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   />
                                   <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
                                     <label className="bg-white text-slate-800 px-2.5 py-1 rounded-lg font-semibold text-xs cursor-pointer hover:bg-slate-100 shadow-xs">
-                                      <i className="fa-solid fa-upload mr-1"></i> Ändern
+                                      <i className="fa-solid fa-upload mr-1"></i> {t("admin.layout.changeImage")}
                                       <input 
                                         type="file"
                                         className="hidden"
@@ -5819,7 +6835,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3.5">
                             <div className="flex items-center justify-between">
                               <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                                Logo Kopfzeile
+                                {t("admin.layout.logoHeader")}
                               </label>
                               <label className="cursor-pointer select-none inline-flex items-center gap-2">
                                 <input
@@ -5853,7 +6869,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   }}
                                 />
                                 <span className="text-xs font-medium text-slate-600">
-                                  Standard verwenden
+                                  {t("admin.layout.useDefault")}
                                 </span>
                               </label>
                             </div>
@@ -5899,7 +6915,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   />
                                   <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
                                     <label className="bg-white text-slate-800 px-2.5 py-1 rounded-lg font-semibold text-xs cursor-pointer hover:bg-slate-100 shadow-xs">
-                                      <i className="fa-solid fa-upload mr-1"></i> Ändern
+                                      <i className="fa-solid fa-upload mr-1"></i> {t("admin.layout.changeImage")}
                                       <input 
                                         type="file"
                                         className="hidden"
@@ -5936,7 +6952,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="flex items-center justify-between">
                             <div>
                               <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider block">
-                                Favicon (Browsertab-Symbol)
+                                {t("admin.layout.faviconHeading")}
                               </label>
                             </div>
                             <label className="cursor-pointer select-none inline-flex items-center gap-2">
@@ -5971,7 +6987,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }}
                               />
                               <span className="text-xs font-medium text-slate-600">
-                                Standard verwenden
+                                {t("admin.layout.useDefault")}
                               </span>
                             </label>
                           </div>
@@ -5980,13 +6996,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-semibold text-slate-500">
-                                Live-Vorschau (Browsertab)
+                                {t("admin.layout.livePreviewTab")}
                               </span>
                               <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                                 {faviconUrl ===
                                 (DEFAULT_SETTINGS.faviconUrl || "/favicon.svg")
-                                  ? "Standard aktiv"
-                                  : "Eigene Grafik aktiv"}
+                                  ? t("admin.layout.defaultActive")
+                                  : t("admin.layout.customActive")}
                               </span>
                             </div>
 
@@ -6028,7 +7044,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }`}
                               >
                                 <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
-                                <span>Bild hochladen</span>
+                                <span>{t("admin.layout.uploadImage")}</span>
                               </button>
 
                               <button
@@ -6041,7 +7057,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }`}
                               >
                                 <i className="fa-solid fa-link text-xs"></i>
-                                <span>Über URL</span>
+                                <span>{t("admin.layout.viaUrl")}</span>
                               </button>
                             </div>
 
@@ -6060,11 +7076,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                                     <div className="flex-1 min-w-0">
                                       <div className="text-xs font-semibold text-slate-800 truncate">
-                                        Eigenes Favicon hochgeladen
+                                        {t("admin.layout.customFaviconUploaded")}
                                       </div>
                                       <div className="flex items-center gap-2 mt-1.5">
                                         <label className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer">
-                                          Ändern
+                                          {t("admin.layout.changeImage")}
                                           <input 
                                             type="file"
                                             className="hidden"
@@ -6084,7 +7100,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           }}
                                           className="text-xs font-semibold text-red-600 hover:underline cursor-pointer"
                                         >
-                                          Löschen
+                                          {t("admin.layout.remove")}
                                         </button>
                                       </div>
                                     </div>
@@ -6101,7 +7117,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       disabled={uploadingImage.favicon}
                                     />
                                     <i className="fa-solid fa-cloud-arrow-up text-lg text-slate-500 mb-1"></i>
-                                    <span className="text-xs font-semibold text-slate-700">Quadratisches Bild auswählen (PNG, SVG, ICO)</span>
+                                    <span className="text-xs font-semibold text-slate-700">{t("admin.layout.chooseSquareImage")}</span>
                                   </label>
                                 )}
                               </div>
@@ -6123,101 +7139,123 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </div>
 
                         {/* Banner */}
-                        <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3.5">
+                        <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-4">
                           <div className="flex items-center justify-between">
                             <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                              Vereinsbanner
+                              {t("admin.layout.bannerHeading")}
                             </label>
-                            <label className="cursor-pointer select-none inline-flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded cursor-pointer accent-[var(--color-primary)] font-normal"
-                                checked={Boolean(
-                                  useDefaultBanner ||
-                                  !bannerUrl ||
-                                  bannerUrl === defaultBannerImg
-                                )}
-                                onChange={(e) => {
-                                  const isChecked = e.target.checked;
-                                  setUseDefaultBanner(isChecked);
-                                  if (isChecked) {
-                                    setBannerUrl(defaultBannerImg);
-                                  } else {
-                                    const fallback =
-                                      customBannerUrl &&
-                                      customBannerUrl !== defaultBannerImg
-                                        ? customBannerUrl
-                                        : "";
-                                    setBannerUrl(fallback);
-                                    setCustomBannerUrl(fallback);
-                                  }
-                                }}
-                              />
-                              <span className="text-xs font-medium text-slate-600">
-                                Standard verwenden
-                              </span>
-                            </label>
+                            {bannerType === "image" && (
+                              <label className="cursor-pointer select-none inline-flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="w-4 h-4 rounded cursor-pointer accent-[var(--color-primary)] font-normal"
+                                  checked={Boolean(
+                                    useDefaultBanner ||
+                                    !bannerUrl ||
+                                    bannerUrl === defaultBannerImg
+                                  )}
+                                  onChange={(e) => {
+                                    const isChecked = e.target.checked;
+                                    setUseDefaultBanner(isChecked);
+                                    if (isChecked) {
+                                      setBannerUrl(defaultBannerImg);
+                                    } else {
+                                      const fallback =
+                                        customBannerUrl &&
+                                        customBannerUrl !== defaultBannerImg
+                                          ? customBannerUrl
+                                          : "";
+                                      setBannerUrl(fallback);
+                                      setCustomBannerUrl(fallback);
+                                    }
+                                  }}
+                                />
+                                <span className="text-xs font-medium text-slate-600">
+                                  {t("admin.layout.useDefault")}
+                                </span>
+                              </label>
+                            )}
                           </div>
 
-                          <div
-                            className={`transition-opacity ${useDefaultBanner ? "opacity-60" : ""}`}
-                          >
-                            {useDefaultBanner || !customBannerUrl ? (
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  disabled={useDefaultBanner}
-                                  value={useDefaultBanner ? "" : customBannerUrl}
-                                  onChange={(e) => {
-                                    setBannerUrl(e.target.value);
-                                    setCustomBannerUrl(e.target.value);
-                                    if (useDefaultBanner) setUseDefaultBanner(false);
-                                  }}
-                                  className={`flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 outline-none transition-all text-sm font-normal text-slate-800 placeholder:text-slate-400 ${
-                                    useDefaultBanner
-                                      ? "opacity-50 cursor-not-allowed bg-slate-50"
-                                      : ""
-                                  }`}
-                                  placeholder={
-                                    useDefaultBanner
-                                      ? "Standard-Vereinsbanner aktiv"
-                                      : "https://example.com/banner.jpg"
-                                  }
-                                />
-                                <label
-                                  className={`border border-slate-200 rounded-xl px-4 flex items-center justify-center h-10 shrink-0 shadow-2xs ${
-                                    useDefaultBanner
-                                      ? "bg-slate-100 opacity-50 cursor-not-allowed pointer-events-none"
-                                      : "bg-white hover:bg-slate-50 cursor-pointer transition-colors"
-                                  }`}
-                                >
-                                  {uploadingImage.banner ? (
-                                    <i className="fa-solid fa-spinner fa-spin text-sm text-[var(--color-primary)]"></i>
-                                  ) : (
-                                    <i className="fa-solid fa-cloud-arrow-up text-sm text-slate-600"></i>
-                                  )}
+                          {/* Banner Type Selection Tabs */}
+                          <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/60 rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => setBannerType("image")}
+                              className={`py-2 px-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                bannerType === "image"
+                                  ? "bg-white text-[var(--color-primary)] shadow-xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              <i className="fa-regular fa-image"></i>
+                              <span>{t("admin.layout.bannerTypeImage")}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBannerType("color")}
+                              className={`py-2 px-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                bannerType === "color"
+                                  ? "bg-white text-[var(--color-primary)] shadow-xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              <i className="fa-solid fa-fill-drip"></i>
+                              <span>{t("admin.layout.bannerTypeColor")}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBannerType("gradient")}
+                              className={`py-2 px-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                bannerType === "gradient"
+                                  ? "bg-white text-[var(--color-primary)] shadow-xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              <i className="fa-solid fa-circle-half-stroke"></i>
+                              <span>{t("admin.layout.bannerTypeGradient")}</span>
+                            </button>
+                          </div>
+
+                          {/* Mode: Image */}
+                          {bannerType === "image" && (
+                            <div
+                              className={`transition-opacity ${useDefaultBanner ? "opacity-60" : ""}`}
+                            >
+                              {useDefaultBanner || !customBannerUrl ? (
+                                <div className="flex gap-2">
                                   <input
-                                    type="file"
-                                    className="hidden"
-                                    accept="image/*"
-                                    onChange={(e) =>
-                                      handleImageUpload(e, "banner")
+                                    type="text"
+                                    disabled={useDefaultBanner}
+                                    value={useDefaultBanner ? "" : customBannerUrl}
+                                    onChange={(e) => {
+                                      setBannerUrl(e.target.value);
+                                      setCustomBannerUrl(e.target.value);
+                                      if (useDefaultBanner) setUseDefaultBanner(false);
+                                    }}
+                                    className={`flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 outline-none transition-all text-sm font-normal text-slate-800 placeholder:text-slate-400 ${
+                                      useDefaultBanner
+                                        ? "opacity-50 cursor-not-allowed bg-slate-50"
+                                        : ""
+                                    }`}
+                                    placeholder={
+                                      useDefaultBanner
+                                        ? (isNeuhausenClub ? t("admin.layout.defaultBannerActive") : t("admin.layout.noImageDefaultBanner"))
+                                        : "https://example.com/banner.jpg"
                                     }
-                                    disabled={useDefaultBanner || uploadingImage.banner}
                                   />
-                                </label>
-                              </div>
-                            ) : (
-                              <div className="relative group w-full h-28 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center shadow-2xs">
-                                <img
-                                  src={customBannerUrl}
-                                  alt="Banner"
-                                  className="w-full h-full object-cover"
-                                  style={{ objectPosition: bannerPosition }}
-                                />
-                                <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                  <label className="bg-white text-slate-800 px-3 py-1.5 rounded-lg font-semibold text-xs cursor-pointer hover:bg-slate-100 shadow-xs flex items-center gap-1.5">
-                                    <i className="fa-solid fa-upload"></i> Bild ändern
+                                  <label
+                                    className={`border border-slate-200 rounded-xl px-4 flex items-center justify-center h-10 shrink-0 shadow-2xs ${
+                                      useDefaultBanner
+                                        ? "bg-slate-100 opacity-50 cursor-not-allowed pointer-events-none"
+                                        : "bg-white hover:bg-slate-50 cursor-pointer transition-colors"
+                                    }`}
+                                  >
+                                    {uploadingImage.banner ? (
+                                      <i className="fa-solid fa-spinner fa-spin text-sm text-[var(--color-primary)]"></i>
+                                    ) : (
+                                      <i className="fa-solid fa-cloud-arrow-up text-sm text-slate-600"></i>
+                                    )}
                                     <input
                                       type="file"
                                       className="hidden"
@@ -6225,32 +7263,253 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       onChange={(e) =>
                                         handleImageUpload(e, "banner")
                                       }
+                                      disabled={useDefaultBanner || uploadingImage.banner}
                                     />
                                   </label>
+                                </div>
+                              ) : (
+                                <div className="relative group w-full h-28 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center shadow-2xs">
+                                  <img
+                                    src={customBannerUrl}
+                                    alt="Banner"
+                                    className="w-full h-full object-cover"
+                                    style={{ objectPosition: bannerPosition }}
+                                  />
+                                  <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <label className="bg-white text-slate-800 px-3 py-1.5 rounded-lg font-semibold text-xs cursor-pointer hover:bg-slate-100 shadow-xs flex items-center gap-1.5">
+                                      <i className="fa-solid fa-upload"></i> {t("admin.layout.changePicture")}
+                                      <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        onChange={(e) =>
+                                          handleImageUpload(e, "banner")
+                                        }
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setShowBannerPositionModal(true)
+                                      }
+                                      className="bg-white text-slate-800 px-3 py-1.5 rounded-lg font-semibold text-xs cursor-pointer shadow-xs hover:bg-slate-100 flex items-center gap-1.5"
+                                    >
+                                      <i className="fa-solid fa-crop-simple"></i> {t("admin.layout.cropBanner")}
+                                    </button>
+                                  </div>
+                                  {uploadingImage.banner && (
+                                    <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                                      <i className="fa-solid fa-spinner fa-spin text-2xl text-[var(--color-primary)]"></i>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Mode: Solid Color */}
+                          {bannerType === "color" && (
+                            <div className="space-y-3.5 animate-in fade-in duration-200">
+                              <div
+                                className="w-full h-16 sm:h-20 rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex items-center justify-between px-4 text-white relative transition-all"
+                                style={{ backgroundColor: bannerColor }}
+                              >
+                                <div className="flex items-center gap-2 drop-shadow-md">
+                                  {headerLogoUrl || logoUrl ? (
+                                    <img src={headerLogoUrl || logoUrl} alt="Logo" className="w-7 h-7 object-contain" />
+                                  ) : null}
+                                  <span className="font-bold text-sm" style={{ fontFamily: "Georgia, serif" }}>
+                                    {clubName || "Verein"}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-mono bg-black/30 backdrop-blur-xs px-2.5 py-1 rounded-md text-white/95 uppercase font-semibold">
+                                  {bannerColor.toUpperCase()}
+                                </span>
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                                  {t("admin.layout.bannerColorLabel")}
+                                </label>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="color"
+                                    value={bannerColor.startsWith("#") && bannerColor.length === 7 ? bannerColor : "#1b4332"}
+                                    onChange={(e) => setBannerColor(e.target.value)}
+                                    className="w-10 h-10 rounded-xl cursor-pointer border border-slate-200 p-1 bg-white hover:border-[var(--color-primary)] transition-colors shrink-0"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={bannerColor}
+                                    onChange={(e) => setBannerColor(e.target.value)}
+                                    maxLength={7}
+                                    className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 outline-none transition-all text-sm font-mono uppercase text-slate-800"
+                                    placeholder="#1B4332"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                  <span className="text-[10px] text-slate-400 font-medium mr-0.5">{t("admin.layout.quickSelect")}</span>
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setShowBannerPositionModal(true)
-                                    }
-                                    className="bg-white text-slate-800 px-3 py-1.5 rounded-lg font-semibold text-xs cursor-pointer shadow-xs hover:bg-slate-100 flex items-center gap-1.5"
+                                    onClick={() => setBannerColor(primaryColor)}
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
                                   >
-                                    <i className="fa-solid fa-crop-simple"></i> Ausschnitt
+                                    {t("admin.layout.quickPrimary")} ({primaryColor})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBannerColor(accentColor || "#c04d2b")}
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                  >
+                                    {t("admin.layout.quickAccent")} ({accentColor || "#c04d2b"})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBannerColor("#1b4332")}
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                  >
+                                    {t("admin.layout.quickDarkGreen")} (#1B4332)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBannerColor("#0f172a")}
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                  >
+                                    {t("admin.layout.quickNavy")} (#0F172A)
                                   </button>
                                 </div>
-                                {uploadingImage.banner && (
-                                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
-                                    <i className="fa-solid fa-spinner fa-spin text-2xl text-[var(--color-primary)]"></i>
-                                  </div>
-                                )}
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          )}
+
+                          {/* Mode: Gradient */}
+                          {bannerType === "gradient" && (
+                            <div className="space-y-3.5 animate-in fade-in duration-200">
+                              <div
+                                className="w-full h-16 sm:h-20 rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex items-center justify-between px-4 text-white relative transition-all"
+                                style={{
+                                  background: `linear-gradient(to right, ${bannerGradientStart || primaryColor}, ${bannerGradientEnd || "#2d6a4f"})`,
+                                }}
+                              >
+                                <div className="flex items-center gap-2 drop-shadow-md">
+                                  {headerLogoUrl || logoUrl ? (
+                                    <img src={headerLogoUrl || logoUrl} alt="Logo" className="w-7 h-7 object-contain" />
+                                  ) : null}
+                                  <span className="font-bold text-sm" style={{ fontFamily: "Georgia, serif" }}>
+                                    {clubName || "Verein"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[9px] font-mono bg-black/30 backdrop-blur-xs px-2.5 py-1 rounded-md text-white/95 uppercase font-semibold">
+                                  <span>{bannerGradientStart.toUpperCase()}</span>
+                                  <i className="fa-solid fa-arrow-right text-[8px] opacity-70"></i>
+                                  <span>{bannerGradientEnd.toUpperCase()}</span>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-0.5">
+                                {/* Color 1 (Left) */}
+                                <div className="space-y-1.5">
+                                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+                                    <span>{t("admin.layout.colorLeft")}</span>
+                                    <span className="text-[10px] text-slate-400 font-normal">{t("admin.layout.startLabel")}</span>
+                                  </label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="color"
+                                      value={bannerGradientStart.startsWith("#") && bannerGradientStart.length === 7 ? bannerGradientStart : "#1b4332"}
+                                      onChange={(e) => setBannerGradientStart(e.target.value)}
+                                      className="w-10 h-10 rounded-xl cursor-pointer border border-slate-200 p-1 bg-white hover:border-[var(--color-primary)] transition-colors shrink-0"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={bannerGradientStart}
+                                      onChange={(e) => setBannerGradientStart(e.target.value)}
+                                      maxLength={7}
+                                      className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 outline-none transition-all text-sm font-mono uppercase text-slate-800"
+                                      placeholder="#1B4332"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setBannerGradientStart(primaryColor)}
+                                      className="text-[9px] font-semibold px-2 py-0.5 rounded bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                    >
+                                      {t("admin.layout.quickPrimary")} ({primaryColor})
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setBannerGradientStart("#0f172a")}
+                                      className="text-[9px] font-semibold px-2 py-0.5 rounded bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                    >
+                                      {t("admin.layout.quickNavy")}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Color 2 (Right) */}
+                                <div className="space-y-1.5">
+                                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+                                    <span>{t("admin.layout.colorRight")}</span>
+                                    <span className="text-[10px] text-slate-400 font-normal">{t("admin.layout.endLabel")}</span>
+                                  </label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="color"
+                                      value={bannerGradientEnd.startsWith("#") && bannerGradientEnd.length === 7 ? bannerGradientEnd : "#2d6a4f"}
+                                      onChange={(e) => setBannerGradientEnd(e.target.value)}
+                                      className="w-10 h-10 rounded-xl cursor-pointer border border-slate-200 p-1 bg-white hover:border-[var(--color-primary)] transition-colors shrink-0"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={bannerGradientEnd}
+                                      onChange={(e) => setBannerGradientEnd(e.target.value)}
+                                      maxLength={7}
+                                      className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 outline-none transition-all text-sm font-mono uppercase text-slate-800"
+                                      placeholder="#2D6A4F"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setBannerGradientEnd(accentColor || "#c04d2b")}
+                                      className="text-[9px] font-semibold px-2 py-0.5 rounded bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                    >
+                                      {t("admin.layout.quickAccent")} ({accentColor || "#c04d2b"})
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setBannerGradientEnd("#2d6a4f")}
+                                      className="text-[9px] font-semibold px-2 py-0.5 rounded bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
+                                    >
+                                      {t("admin.layout.quickMidGreen")}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex justify-end pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const temp = bannerGradientStart;
+                                    setBannerGradientStart(bannerGradientEnd);
+                                    setBannerGradientEnd(temp);
+                                  }}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200/80 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <i className="fa-solid fa-arrow-right-arrow-left text-[10px]"></i>
+                                  {t("admin.layout.swapColors")}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Webseiten-Link */}
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Webseiten-Link
+                            {t("admin.layout.websiteLink")}
                           </label>
                           <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3">
                             <input 
@@ -6275,7 +7534,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 ></div>
                               </div>
                               <span className="text-xs font-medium text-slate-600 group-hover:text-slate-900">
-                                Website-Link ganz verbergen
+                                {t("admin.layout.hideWebsiteLink")}
                               </span>
                             </label>
                           </div>
@@ -6289,29 +7548,29 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                         <div>
                           <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                            <i className="fa-solid fa-bullhorn text-[var(--color-primary)]"></i> Vereinsnews
+                            <i className="fa-solid fa-bullhorn text-[var(--color-primary)]"></i> {t("admin.layout.newsTitle")}
                           </h3>
                           <p className="text-xs text-slate-500 font-normal mt-0.5">
-                            Aktuelle Kurzmeldung für die obere Kopfzeile.
+                            {t("admin.layout.newsSubtitle")}
                           </p>
                         </div>
 
                         <div className="space-y-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Aktuelle Meldung (im Header sichtbar)
+                              {t("admin.layout.currentNewsLabel")}
                             </label>
                             <textarea
                               value={localNews}
                               onChange={(e) => setLocalNews(e.target.value)}
-                              placeholder="z. B. Die Plätze sind ab heute für die Saison eröffnet!..."
+                              placeholder={t("admin.layout.newsPlaceholder")}
                               className="w-full p-3 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 min-h-[100px] resize-y placeholder:text-slate-400 font-normal"
                             />
                           </div>
 
                           <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-2">
                             <span className="text-[11px] font-semibold text-slate-500">
-                              Meldungs-Vorschau
+                              {t("admin.layout.newsPreview")}
                             </span>
                             {localNews.trim() ? (
                               <div className="bg-[var(--color-accent)] py-2.5 px-4 rounded-xl text-center text-white text-xs font-semibold shadow-2xs">
@@ -6320,7 +7579,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             ) : (
                               <div className="py-3 text-center bg-white border border-dashed border-slate-200 rounded-xl">
                                 <span className="text-slate-400 text-xs font-normal">
-                                  Keine aktive Meldung eingetragen
+                                  {t("admin.layout.noActiveNews")}
                                 </span>
                               </div>
                             )}
@@ -6332,17 +7591,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                         <div>
                           <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                            <i className="fa-solid fa-comment-dots text-[var(--color-primary)]"></i> Willkommensnachricht (Anmeldescreen)
+                            <i className="fa-solid fa-comment-dots text-[var(--color-primary)]"></i> {t("admin.layout.welcomeTitle")}
                           </h3>
                           <p className="text-xs text-slate-500 font-normal mt-0.5">
-                            Begrüßungstext und Hinweise für Besucher auf dem Login-Bildschirm.
+                            {t("admin.layout.welcomeSubtitle")}
                           </p>
                         </div>
 
                         <div className="space-y-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Text für den Begrüßungsbildschirm
+                              {t("admin.layout.welcomeTextLabel")}
                             </label>
                             <RichTextEditorToolbar
                               textareaRef={welcomeTextRef}
@@ -6357,13 +7616,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               className="w-full p-3 rounded-b-xl bg-white border border-slate-200 border-t-0 text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] min-h-[120px] resize-y placeholder:text-slate-400 font-normal"
                             />
                             <p className="text-xs text-slate-400 mt-1">
-                              Wird auf dem Login-Screen angezeigt. Unterstützt Markdown wie **fett**, *kursiv* und Listen.
+                              {t("admin.layout.welcomeHelp")}
                             </p>
                           </div>
 
                           <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-2">
                             <span className="text-[11px] font-semibold text-slate-500">
-                              Live-Vorschau
+                              {t("admin.layout.livePreview")}
                             </span>
                             <div className="p-3 bg-white rounded-xl border border-slate-200/80 max-h-[140px] overflow-y-auto text-xs text-slate-700">
                               <RichTextRenderer text={welcomeMessage} />
@@ -6376,17 +7635,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                         <div>
                           <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                            <i className="fa-solid fa-scale-balanced text-[var(--color-primary)]"></i> Impressum (Rechtliche Angaben)
+                            <i className="fa-solid fa-scale-balanced text-[var(--color-primary)]"></i> {t("admin.layout.impressumTitle")}
                           </h3>
                           <p className="text-xs text-slate-500 font-normal mt-0.5">
-                            Angaben gemäß § 5 TMG für die Vereinsfußzeile.
+                            {t("admin.layout.impressumSubtitle")}
                           </p>
                         </div>
 
                         <div className="space-y-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Inhalt des Impressums
+                              {t("admin.layout.impressumContentLabel")}
                             </label>
                             <RichTextEditorToolbar
                               textareaRef={impressumTextRef}
@@ -6404,7 +7663,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                           <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-2">
                             <span className="text-[11px] font-semibold text-slate-500">
-                              Live-Vorschau
+                              {t("admin.layout.livePreview")}
                             </span>
                             <div className="p-3 bg-white rounded-xl border border-slate-200/80 max-h-[140px] overflow-y-auto text-xs text-slate-700">
                               <RichTextRenderer text={impressum} />
@@ -6427,11 +7686,414 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
                       }`}
                     >
-                      <i className="fa-solid fa-floppy-disk"></i> Speichern
+                      <i className="fa-solid fa-floppy-disk"></i> {t("admin.layout.save")}
                     </button>
                   </div>
                 </div>
               )}
+
+              {/* TAB: TRANSLATION HUB */}
+              {currentTab === "translations" && (() => {
+                const masterLang = settings.i18n?.defaultLanguage || "de";
+                const targetLang = masterLang === "de" ? "en" : "de";
+                const isSecondaryLangActive = (settings.i18n?.supportedLanguages || [masterLang]).includes(targetLang);
+                const targetTrans = translations[targetLang] || {};
+                const uniqueLockReasons = getUniqueLockReasons(settings.recurringLocks, settings.rangeLocks);
+                const activeCourtsList = courtsList.length > 0 ? courtsList : (settings.courts || ["Platz 1", "Platz 2"]);
+                const activeEquipmentList = equipmentList.length > 0 ? equipmentList : (settings.equipmentList || ["Ballmaschine", "Ballkorb"]);
+                const activeLeagues = (settings.leagueSettings?.leagues && settings.leagueSettings.leagues.length > 0)
+                  ? settings.leagueSettings.leagues
+                  : DEFAULT_DYNAMIC_LEAGUES;
+
+                const handleUpdateCategory = (category: "courts" | "equipment" | "lockReasons" | "categories" | "leagues", key: string, value: string) => {
+                  setTranslations((prev) => {
+                    const currentLangTrans = prev[targetLang] || {};
+                    const catMap = { ...((currentLangTrans[category] as Record<string, string>) || {}) };
+                    if (value.trim()) {
+                      catMap[key] = value;
+                    } else {
+                      delete catMap[key];
+                    }
+                    return {
+                      ...prev,
+                      [targetLang]: {
+                        ...currentLangTrans,
+                        [category]: catMap,
+                      },
+                    };
+                  });
+                };
+
+                const handleUpdateField = (field: "welcomeMessage" | "news", value: string) => {
+                  setTranslations((prev) => {
+                    const currentLangTrans = prev[targetLang] || {};
+                    return {
+                      ...prev,
+                      [targetLang]: {
+                        ...currentLangTrans,
+                        [field]: value,
+                      },
+                    };
+                  });
+                };
+
+                return (
+                  <div className="space-y-5 lg:space-y-6 animate-in fade-in duration-300">
+                    {/* Header Card */}
+                    <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                            <i className="fa-solid fa-language text-[var(--color-primary)]"></i>{" "}
+                            {t("admin.translationHub.title")}
+                          </h3>
+                          <p className="text-xs text-slate-500 font-normal mt-0.5">
+                            {t("admin.translationHub.subtitle")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            {t("admin.translationHub.master")}{" "}
+                            <strong className="uppercase">{masterLang}</strong>
+                          </span>
+                          <i className="fa-solid fa-arrow-right text-slate-400 text-xs"></i>
+                          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--color-primary)]/10 text-[var(--color-primary)] border border-[var(--color-primary)]/20">
+                            {t("admin.translationHub.targetLanguage")}{" "}
+                            <strong className="uppercase">{targetLang}</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {!isSecondaryLangActive && (
+                        <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-800">
+                          <div className="flex items-center gap-2">
+                            <i className="fa-solid fa-circle-info text-amber-600 shrink-0"></i>
+                            <span>
+                              {t("admin.translationHub.targetLangNotice", { lang: targetLang.toUpperCase() })}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAllowOtherLanguage(true);
+                              setMessage({
+                                text: t("admin.translationHub.secondaryActivatedToast"),
+                                type: "success",
+                              });
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 transition shadow-xs cursor-pointer shrink-0"
+                          >
+                            {t("admin.translationHub.activateNow")}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 1: COURTS */}
+                    <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                      <div className="border-b border-slate-100 pb-3">
+                        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <i className="fa-solid fa-layer-group text-[var(--color-primary)] text-xs"></i>
+                          {t("admin.translationHub.courtsTitle")} ({activeCourtsList.length})
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {t("admin.translationHub.courtsSubtitle")}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {activeCourtsList.map((court) => {
+                          const translatedVal = targetTrans.courts?.[court] || "";
+                          return (
+                            <div
+                              key={court}
+                              className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <span className="text-xs font-bold text-slate-800 truncate block">
+                                  {court}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  {t("admin.translationHub.original")} ({masterLang.toUpperCase()})
+                                </span>
+                              </div>
+                              <div className="w-full sm:w-56 shrink-0">
+                                <input
+                                  type="text"
+                                  value={translatedVal}
+                                  placeholder={court}
+                                  onChange={(e) => handleUpdateCategory("courts", court, e.target.value)}
+                                  className="w-full h-8 px-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* SECTION: EQUIPMENT */}
+                    <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                      <div className="border-b border-slate-100 pb-3">
+                        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <i className="fa-solid fa-boxes-stacked text-[var(--color-primary)] text-xs"></i>
+                          {t("admin.translationHub.equipmentTitle")} ({activeEquipmentList.length})
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {t("admin.translationHub.equipmentSubtitle")}
+                        </p>
+                      </div>
+
+                      {activeEquipmentList.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-2">
+                          {t("admin.translationHub.noEquipment")}
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {activeEquipmentList.map((item) => {
+                            const translatedVal = targetTrans.equipment?.[item] || "";
+                            return (
+                              <div
+                                key={item}
+                                className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold text-slate-800 truncate block">
+                                    {item}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    {t("admin.translationHub.original")} ({masterLang.toUpperCase()})
+                                  </span>
+                                </div>
+                                <div className="w-full sm:w-56 shrink-0">
+                                  <input
+                                    type="text"
+                                    value={translatedVal}
+                                    placeholder={item}
+                                    onChange={(e) => handleUpdateCategory("equipment", item, e.target.value)}
+                                    className="w-full h-8 px-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 2: LOCK REASONS */}
+                    <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                      <div className="border-b border-slate-100 pb-3">
+                        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <i className="fa-solid fa-ban text-[var(--color-primary)] text-xs"></i>
+                          {t("admin.translationHub.lockReasonsTitle")} ({uniqueLockReasons.length})
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {t("admin.translationHub.lockReasonsSubtitle")}
+                        </p>
+                      </div>
+
+                      {uniqueLockReasons.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-2">
+                          {t("admin.translationHub.noLockReasons")}
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {uniqueLockReasons.map((reason) => {
+                            const translatedVal = targetTrans.lockReasons?.[reason] || "";
+                            return (
+                              <div
+                                key={reason}
+                                className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold text-slate-800 truncate block">
+                                    {reason}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    {t("admin.translationHub.original")} ({masterLang.toUpperCase()})
+                                  </span>
+                                </div>
+                                <div className="w-full sm:w-56 shrink-0">
+                                  <input
+                                    type="text"
+                                    value={translatedVal}
+                                    placeholder={reason}
+                                    onChange={(e) => handleUpdateCategory("lockReasons", reason, e.target.value)}
+                                    className="w-full h-8 px-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 3: ARBEITSEINSATZ KATEGORIEN */}
+                    {modules.arbeitseinsaetze && (
+                      <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                        <div className="border-b border-slate-100 pb-3">
+                          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            <i className="fa-solid fa-briefcase text-[var(--color-primary)] text-xs"></i>
+                            {t("admin.translationHub.aeCategoriesTitle")} ({aeCategories.length})
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {t("admin.translationHub.aeCategoriesSubtitle")}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {aeCategories.map((cat) => {
+                            const translatedVal = targetTrans.categories?.[cat] || "";
+                            return (
+                              <div
+                                key={cat}
+                                className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold text-slate-800 truncate block">
+                                    {cat}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    {t("admin.translationHub.original")} ({masterLang.toUpperCase()})
+                                  </span>
+                                </div>
+                                <div className="w-full sm:w-56 shrink-0">
+                                  <input
+                                    type="text"
+                                    value={translatedVal}
+                                    placeholder={cat}
+                                    onChange={(e) => handleUpdateCategory("categories", cat, e.target.value)}
+                                    className="w-full h-8 px-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SECTION 4: LEAGUES */}
+                    {modules.league && (
+                      <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                        <div className="border-b border-slate-100 pb-3">
+                          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            <i className="fa-solid fa-trophy text-[var(--color-primary)] text-xs"></i>
+                            {t("admin.translationHub.leaguesTitle")} ({activeLeagues.length})
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {t("admin.translationHub.leaguesSubtitle")}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {activeLeagues.map((lg) => {
+                            const translatedVal = targetTrans.leagues?.[lg.name] || "";
+                            return (
+                              <div
+                                key={lg.id || lg.name}
+                                className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold text-slate-800 truncate block">
+                                    {lg.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    {t("admin.translationHub.original")} ({masterLang.toUpperCase()})
+                                  </span>
+                                </div>
+                                <div className="w-full sm:w-56 shrink-0">
+                                  <input
+                                    type="text"
+                                    value={translatedVal}
+                                    placeholder={lg.name}
+                                    onChange={(e) => handleUpdateCategory("leagues", lg.name, e.target.value)}
+                                    className="w-full h-8 px-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SECTION 5: GENERAL TEXTS */}
+                    <div className="bg-white p-5 sm:p-6 lg:p-7 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                      <div className="border-b border-slate-100 pb-3">
+                        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <i className="fa-solid fa-newspaper text-[var(--color-primary)] text-xs"></i>
+                          {t("admin.translationHub.generalTextsTitle")}
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {t("admin.translationHub.generalTextsSubtitle")}
+                        </p>
+                      </div>
+
+                      {/* Welcome Message */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-700 block">
+                          {t("admin.translationHub.welcomeMessageLabel")} ({targetLang.toUpperCase()})
+                        </label>
+                        <p className="text-[11px] text-slate-400">
+                          {t("admin.translationHub.original")} ({masterLang.toUpperCase()}): {welcomeMessage || settings.welcomeMessage || t("admin.translationHub.noText")}
+                        </p>
+                        <textarea
+                          rows={3}
+                          value={targetTrans.welcomeMessage || ""}
+                          placeholder={t("admin.translationHub.welcomePlaceholder")}
+                          onChange={(e) => handleUpdateField("welcomeMessage", e.target.value)}
+                          className="w-full p-2.5 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800 leading-relaxed"
+                        />
+                      </div>
+
+                      {/* News */}
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        <label className="text-xs font-bold text-slate-700 block">
+                          {t("admin.translationHub.newsLabel")} ({targetLang.toUpperCase()})
+                        </label>
+                        <p className="text-[11px] text-slate-400">
+                          {t("admin.translationHub.original")} ({masterLang.toUpperCase()}): {localNews || settings.news || t("admin.translationHub.noNews")}
+                        </p>
+                        <input
+                          type="text"
+                          value={targetTrans.news || ""}
+                          placeholder={t("admin.translationHub.newsPlaceholder")}
+                          onChange={(e) => handleUpdateField("news", e.target.value)}
+                          className="w-full h-9 px-2.5 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tab Save Action */}
+                    <div className="border-t border-slate-200/80 pt-5 flex justify-end gap-3">
+                      {isTabDirty("translations") && (
+                        <button
+                          type="button"
+                          onClick={() => handleDiscardTab("translations")}
+                          className="h-10 px-4 rounded-xl font-semibold text-xs border border-slate-300 text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                        >
+                          {t("admin.translationHub.discard")}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={!isTabDirty("translations")}
+                        onClick={() => handleSaveTab("translations")}
+                        className={`h-10 px-6 rounded-xl font-semibold text-xs transition-all shadow-xs flex items-center gap-2 cursor-pointer ${
+                          isTabDirty("translations")
+                            ? "bg-[var(--color-primary)] text-white hover:brightness-110"
+                            : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+                        }`}
+                      >
+                        <i className="fa-solid fa-floppy-disk"></i> {t("admin.translationHub.save")}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* TAB 4: BENUTZER (Spielerverwaltung) */}
               {currentTab === "users" && (
@@ -6442,14 +8104,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
                           <i className="fa-solid fa-users text-[var(--color-primary)]"></i>{" "}
-                          Mitgliederverwaltung
+                          {t("admin.users.title")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          {Object.keys(users).length}{" "}
-                          {Object.keys(users).length === 1
-                            ? "Mitglied"
-                            : "Mitglieder"}{" "}
-                          registriert
+                          {nonSuperAdminUsers.length}{" "}
+                          {nonSuperAdminUsers.length === 1
+                            ? t("admin.users.memberSingular")
+                            : t("admin.users.memberPlural")}{" "}
+                          {t("admin.users.registered")}
                         </p>
                       </div>
                       <button
@@ -6465,7 +8127,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             email: "",
                             phone: "",
                             birthDate: "",
-                            showContactInfo: true,
+                            showContactInfo: false,
+                            onboarding_pending: true,
                             isSuspended: false,
                           });
                           setInlineEditingUserId(null);
@@ -6477,8 +8140,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           className={`fa-solid ${showUserForm ? "fa-xmark" : "fa-user-plus"}`}
                         ></i>{" "}
                         {showUserForm
-                          ? "Abbrechen"
-                          : "Neues Mitglied hinzufügen"}
+                          ? t("common.cancel")
+                          : t("admin.users.addMember")}
                       </button>
                     </div>
 
@@ -6488,7 +8151,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
                           <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
                             <i className="fa-solid fa-user-plus text-[var(--color-primary)]"></i>
-                            <span>Neues Mitglied hinzufügen</span>
+                            <span>{t("admin.users.addMember")}</span>
                           </div>
                         </div>
 
@@ -6513,12 +8176,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="space-y-3">
                           <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1.5">
                             <i className="fa-solid fa-address-card text-xs"></i>
-                            1. Persönliche Daten (Pflichtfelder)
+                            {t("admin.users.formSection1")}
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Vorname <span className="text-red-500">*</span>
+                                {t("admin.users.fieldFirstName")} <span className="text-red-500">*</span>
                               </label>
                               <input
                                 type="text"
@@ -6536,7 +8199,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Nachname <span className="text-red-500">*</span>
+                                {t("admin.users.fieldLastName")} <span className="text-red-500">*</span>
                               </label>
                               <input
                                 type="text"
@@ -6554,7 +8217,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Geschlecht <span className="text-red-500">*</span>
+                                {t("admin.users.fieldGender")} <span className="text-red-500">*</span>
                               </label>
                               <select
                                 value={editingUser.gender || "m"}
@@ -6566,16 +8229,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }
                                 className="w-full h-10 px-3.5 border border-slate-200 bg-white rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all cursor-pointer text-sm text-slate-800 font-normal"
                               >
-                                <option value="m">männlich</option>
-                                <option value="w">weiblich</option>
+                                <option value="m">{t("admin.users.fieldGenderMale")}</option>
+                                <option value="w">{t("admin.users.fieldGenderFemale")}</option>
                               </select>
                             </div>
                             <div>
                               <label className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                                <span>Geburtsdatum</span>
+                                <span>{t("admin.users.fieldBirthDate")}</span>
                                 {editingUser.birthDate && calculateAge(editingUser.birthDate) !== null && (
                                   <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                                    {calculateAge(editingUser.birthDate)} J. {calculateAge(editingUser.birthDate)! < 18 ? "(Jugend/U18)" : "(Erwachsen)"}
+                                    {calculateAge(editingUser.birthDate)} {t("admin.users.ageYears")} {calculateAge(editingUser.birthDate)! < 18 ? t("admin.users.ageYouth") : t("admin.users.ageAdult")}
                                   </span>
                                 )}
                               </label>
@@ -6596,6 +8259,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all text-sm text-slate-800 font-normal"
                               />
                             </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                                {t("admin.users.fieldLanguage")}
+                              </label>
+                              <select
+                                value={editingUser.language || settings.i18n?.defaultLanguage || "de"}
+                                onChange={(e) =>
+                                  setEditingUser({
+                                    ...editingUser,
+                                    language: e.target.value as "de" | "en",
+                                  })
+                                }
+                                className="w-full h-10 px-3.5 border border-slate-200 bg-white rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all cursor-pointer text-sm text-slate-800 font-normal"
+                              >
+                                <option value="de">Deutsch (DE)</option>
+                                <option value="en">English (EN)</option>
+                              </select>
+                            </div>
                           </div>
                         </div>
 
@@ -6603,56 +8284,29 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="space-y-3">
                           <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1.5">
                             <i className="fa-solid fa-address-book text-xs"></i>
-                            2. Kontaktinformationen (Optional)
+                            {t("admin.users.formSection2")}
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                              <div className="flex justify-between items-center mb-1.5">
-                                <label className="block text-xs font-semibold text-slate-700">
-                                  E-Mail-Adresse {!editingUser.is_placeholder_email && <span className="text-red-500">*</span>}
-                                </label>
-                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!editingUser.is_placeholder_email}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setEditingUser({
-                                        ...editingUser,
-                                        is_placeholder_email: checked,
-                                        email: checked ? "" : editingUser.email,
-                                      });
-                                    }}
-                                    className="w-3.5 h-3.5 accent-[var(--color-primary)] rounded font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                                  />
-                                  <span className="text-xs font-medium text-slate-600">
-                                    Keine E-Mail vorhanden
-                                  </span>
-                                </label>
-                              </div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                                {t("admin.users.fieldEmail")} <span className="text-slate-400 font-normal normal-case">({t("common.optional")})</span>
+                              </label>
                               <input
                                 type="email"
-                                disabled={!!editingUser.is_placeholder_email}
-                                value={editingUser.is_placeholder_email ? "" : (editingUser.email || "")}
+                                value={editingUser.email || ""}
                                 onChange={(e) =>
                                   setEditingUser({
                                     ...editingUser,
                                     email: e.target.value,
-                                    is_placeholder_email: false,
                                   })
                                 }
-                                required={!editingUser.is_placeholder_email}
-                                className={`w-full h-10 px-3.5 border border-slate-200 rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all text-sm ${
-                                  editingUser.is_placeholder_email
-                                    ? "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
-                                    : "bg-white text-slate-800"
-                                }`}
-                                placeholder={editingUser.is_placeholder_email ? "[Keine E-Mail hinterlegt]" : "name@beispiel.de"}
+                                className="w-full h-10 px-3.5 border border-slate-200 rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all text-sm bg-white text-slate-800"
+                                placeholder="name@beispiel.de"
                               />
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Telefonnummer <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                                {t("admin.users.fieldPhone")} <span className="text-slate-400 font-normal normal-case">({t("common.optional")})</span>
                               </label>
                               <input
                                 type="tel"
@@ -6674,12 +8328,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="space-y-3">
                           <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1.5">
                             <i className="fa-solid fa-key text-xs"></i>
-                            3. Zugangsdaten &amp; Passwort
+                            {t("admin.users.formSection3")}
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Benutzername (Login) <span className="text-red-500">*</span>
+                                {t("admin.users.fieldUsername")} <span className="text-red-500">*</span>
                               </label>
                               <input
                                 type="text"
@@ -6697,7 +8351,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Rolle <span className="text-red-500">*</span>
+                                {t("admin.users.fieldRole")} <span className="text-red-500">*</span>
                               </label>
                               <select
                                 value={editingUser.role || Role.USER}
@@ -6709,13 +8363,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }
                                 className="w-full h-10 px-3.5 border border-slate-200 bg-white rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all cursor-pointer text-sm text-slate-800 font-normal"
                               >
-                                <option value={Role.MITGLIED}>Mitglied (Standard)</option>
-                                <option value={Role.ADMIN}>Vereinsadministrator</option>
+                                <option value={Role.MITGLIED}>{t("admin.users.roleStandard")}</option>
+                                <option value={Role.ADMIN}>{t("admin.users.roleClubAdmin")}</option>
                               </select>
                             </div>
                             <div className="md:col-span-2">
                               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Passwort <span className="text-red-500">*</span>
+                                {t("admin.users.fieldPassword")} <span className="text-red-500">*</span>
                               </label>
                               <div className="flex items-center gap-2">
                                 <input
@@ -6729,7 +8383,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     })
                                   }
                                   className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl bg-white outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all text-sm font-mono text-slate-800 placeholder:font-sans placeholder:text-slate-400"
-                                  placeholder="Passwort eingeben..."
+                                  placeholder={t("admin.users.passwordPlaceholder")}
                                   required
                                 />
                                 <button
@@ -6747,16 +8401,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     });
                                   }}
                                   className="h-10 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
-                                  title="Einmalpasswort generieren"
+                                  title={t("admin.users.passwordGenerateTitle")}
                                 >
                                   <i className="fa-solid fa-key"></i>
-                                  <span>Generieren</span>
+                                  <span>{t("admin.users.passwordGenerate")}</span>
                                 </button>
                               </div>
                               {editingUser.mustChangePassword && (
                                 <p className="text-xs text-amber-700 mt-1.5 font-medium flex items-center gap-1">
                                   <i className="fa-solid fa-circle-info text-[11px]"></i>
-                                  Benutzer wird beim nächsten Login zur Passwortänderung aufgefordert.
+                                  {t("admin.users.passwordMustChange")}
                                 </p>
                               )}
                             </div>
@@ -6767,13 +8421,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="space-y-3">
                           <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1.5">
                             <i className="fa-solid fa-user-shield text-xs"></i>
-                            4. Privatsphäre &amp; App-Anzeige
+                            {t("admin.users.formSection4")}
                           </h4>
                           <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/80">
                             <label className="flex items-center gap-3 cursor-pointer group select-none">
                               <input
                                 type="checkbox"
-                                checked={editingUser.showContactInfo !== false}
+                                checked={!!editingUser.showContactInfo}
                                 onChange={(e) =>
                                   setEditingUser({
                                     ...editingUser,
@@ -6784,10 +8438,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               />
                               <div>
                                 <span className="text-xs font-semibold text-slate-800 group-hover:text-slate-900 block">
-                                  Kontaktdaten freigeben
+                                  {t("admin.users.privacyShareContact")}
                                 </span>
                                 <span className="text-xs text-slate-500 block font-normal">
-                                  Meine E-Mail und Telefonnummer in Börse/Rangliste für Vereinsmitglieder anzeigen
+                                  {t("admin.users.privacyShareContactDesc")}
                                 </span>
                               </div>
                             </label>
@@ -6806,15 +8460,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               />
                               <div>
                                 <span className="text-xs font-semibold text-slate-800 group-hover:text-slate-900 flex items-center gap-1.5">
-                                  <span>Onboarding ausstehend</span>
+                                  <span>{t("admin.users.privacyOnboardingPending")}</span>
                                   {editingUser.onboarding_pending && (
                                     <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
-                                      Aktiv
+                                      {t("common.active")}
                                     </span>
                                   )}
                                 </span>
                                 <span className="text-xs text-slate-500 block font-normal">
-                                  Beim nächsten Login des Mitglieds wird das Onboardingmodal automatisch angezeigt
+                                  {t("admin.users.privacyOnboardingPendingDesc")}
                                 </span>
                               </div>
                             </label>
@@ -6830,10 +8484,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               </div>
                               <div className="space-y-0.5">
                                 <h5 className="font-bold text-amber-950 text-xs sm:text-sm leading-tight">
-                                  Ein Benutzer mit diesem Namen / dieser E-Mail existiert bereits im Ligasystem.
+                                  {t("admin.users.duplicateTitle")}
                                 </h5>
                                 <p className="text-xs text-amber-800 font-normal">
-                                  Es wurde eine Übereinstimmung mit einem bestehenden Benutzerkonto gefunden.
+                                  {t("admin.users.duplicateDesc")}
                                 </p>
                               </div>
                             </div>
@@ -6857,7 +8511,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     {cand.hasAdminInOtherClub && (
                                       <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100/90 border border-amber-300 rounded-lg text-amber-950 font-semibold text-xs">
                                         <i className="fa-solid fa-shield-halved text-amber-600"></i>
-                                        <span>Hinweis: Dieser Benutzer ist in einem anderen Verein als Administrator registriert.</span>
+                                        <span>{t("admin.users.duplicateAdminWarning")}</span>
                                       </div>
                                     )}
                                   </div>
@@ -6886,7 +8540,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             email: "",
                                             phone: "",
                                             birthDate: "",
-                                            showContactInfo: true,
+                                            showContactInfo: false,
+                                            onboarding_pending: true,
                                             isSuspended: false,
                                           });
                                           setShowUserForm(false);
@@ -6901,7 +8556,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       className="flex-1 bg-[var(--color-primary)] hover:brightness-110 text-white px-4 h-10 rounded-xl font-semibold text-xs transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
                                     >
                                       <i className="fa-solid fa-link"></i>
-                                      Bestehenden Benutzer verknüpfen (Empfohlen)
+                                      {t("admin.users.duplicateLink")}
                                     </button>
 
                                     <button
@@ -6912,7 +8567,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       }}
                                       className="h-10 px-4 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-xs transition-colors border border-slate-200 text-center cursor-pointer"
                                     >
-                                      Trotzdem neues Profil anlegen
+                                      {t("admin.users.duplicateCreate")}
                                     </button>
                                   </div>
                                 </div>
@@ -6927,7 +8582,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             onClick={() => setShowUserForm(false)}
                             className="h-10 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
                           >
-                            Abbrechen
+                            {t("common.cancel")}
                           </button>
                           <button
                             type="button"
@@ -6935,7 +8590,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             className="h-10 px-5 bg-[var(--color-primary)] text-white hover:brightness-110 rounded-xl font-semibold text-xs shadow-xs transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
                           >
                             <i className="fa-solid fa-user-plus"></i>
-                            <span>Mitglied hinzufügen</span>
+                            <span>{t("admin.users.addMemberSubmit")}</span>
                           </button>
                         </div>
                       </div>
@@ -6947,7 +8602,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                         <input 
                           type="text"
-                          placeholder="Mitglieder durchsuchen (Name, Rolle, Login)..."
+                          placeholder={t("admin.users.searchPlaceholder")}
                           value={userSearchQuery}
                           onChange={(e) => setUserSearchQuery(e.target.value)}
                           className="w-full h-10 pl-10 pr-9 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 outline-none text-sm transition-all shadow-2xs font-normal placeholder:text-slate-400 text-slate-800"
@@ -6965,7 +8620,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2.5 h-10 shrink-0 shadow-2xs">
                         <span className="text-xs font-semibold text-slate-500 flex items-center gap-1.5 pl-1">
                           <i className="fa-solid fa-arrow-down-a-z text-slate-400"></i>
-                          <span>Sortieren:</span>
+                          <span>{t("admin.users.sortBy")}</span>
                         </span>
                         <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg">
                           <button
@@ -6977,7 +8632,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 : "text-slate-600 hover:text-slate-900"
                             }`}
                           >
-                            A-Z
+                            {t("admin.users.sortAlpha")}
                           </button>
                           <button
                             type="button"
@@ -6988,7 +8643,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 : "text-slate-600 hover:text-slate-900"
                             }`}
                           >
-                            Nach Typ
+                            {t("admin.users.sortByType")}
                           </button>
                         </div>
                       </div>
@@ -7002,20 +8657,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         }
                         title={
                           userSortOrder === "asc"
-                            ? "Aufsteigend sortieren"
-                            : "Absteigend sortieren"
+                            ? t("admin.users.sortAscTitle")
+                            : t("admin.users.sortDescTitle")
                         }
                         className="h-10 px-3.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer shadow-2xs active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
                       >
                         {userSortOrder === "asc" ? (
                           <>
                             <i className="fa-solid fa-arrow-up-wide-short text-[var(--color-primary)]"></i>
-                            <span>Aufst.</span>
+                            <span>{t("admin.users.sortAsc")}</span>
                           </>
                         ) : (
                           <>
                             <i className="fa-solid fa-arrow-down-wide-short text-[var(--color-primary)]"></i>
-                            <span>Abst.</span>
+                            <span>{t("admin.users.sortDesc")}</span>
                           </>
                         )}
                       </button>
@@ -7030,10 +8685,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </span>
                           <div>
                             <h4 className="text-xs font-black uppercase text-emerald-900 tracking-wider">
-                              {selectedUserIds.size} {selectedUserIds.size === 1 ? "Benutzer markiert" : "Benutzer markiert"}
+                              {selectedUserIds.size} {t("admin.users.bulkSelected")}
                             </h4>
                             <p className="text-[10px] text-emerald-700 font-medium">
-                              Massen-Aktion für die ausgewählten Mitglieder ausführen.
+                              {t("admin.users.bulkAction")}
                             </p>
                           </div>
                         </div>
@@ -7045,14 +8700,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                           >
                             <i className="fa-solid fa-paper-plane text-xs"></i>
-                            <span>Aktivierungs-Mails an {selectedUserIds.size} ausgewählte Benutzer senden</span>
+                            <span>{t("admin.users.actionSendActivation")} ({selectedUserIds.size})</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => setSelectedUserIds(new Set())}
                             className="px-3.5 py-2.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
                           >
-                            Abwählen
+                            {t("admin.users.bulkDeselect")}
                           </button>
                         </div>
                       </div>
@@ -7078,12 +8733,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               setSelectedUserIds(next);
                             }}
                             className="w-4 h-4 text-[var(--color-primary)] bg-white border-slate-300 rounded focus:ring-[var(--color-primary)] cursor-pointer accent-[var(--color-primary)]"
-                            title="Alle auf dieser Seite auswählen"
+                            title={t("admin.users.selectAll")}
                           />
                         </div>
-                        <div className="col-span-2">Rolle &amp; Status</div>
-                        <div className="col-span-6">Vollständiger Name / Login</div>
-                        <div className="col-span-3 text-right">Aktionen</div>
+                        <div className="col-span-3">{t("admin.users.colName")}</div>
+                        <div className="col-span-2">{t("admin.users.colUsername")}</div>
+                        <div className="col-span-2">{t("admin.users.colEmail")}</div>
+                        <div className="col-span-2">{t("admin.users.colRole")}</div>
+                        <div className="col-span-2 text-right">{t("admin.users.colActions")}</div>
                       </div>
 
                       <div className="divide-y divide-slate-100">
@@ -7097,25 +8754,36 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 className="p-5 sm:p-6 bg-slate-50/70 border-b border-slate-200/80 space-y-5 text-left animate-in fade-in duration-200"
                               >
                                 <div className="flex justify-between items-center pb-3 border-b border-slate-200/60">
-                                  <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                                  <div className="flex items-center gap-2.5 text-slate-900 font-bold text-sm">
                                     <i className="fa-solid fa-user-pen text-[var(--color-primary)]"></i>
-                                    <span>Mitglied bearbeiten: {u.klarname || u.name}</span>
+                                    <span>{t("admin.users.editMember")}: {u.klarname || u.name}</span>
+                                    {editingUser.isSuspended ? (
+                                      <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 text-[11px] font-semibold rounded-full flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                        Gesperrt
+                                      </span>
+                                    ) : (editingUser.lastLogin || editingUser.last_login || editingUser.lastLoginAt) ? (
+                                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200/80 text-[11px] font-semibold rounded-full flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                        Aktiv
+                                      </span>
+                                    ) : null}
                                   </div>
                                   <div className="flex gap-2">
                                     <button
                                       type="button"
                                       onClick={() => setInlineEditingUserId(null)}
-                                      className="h-9 px-3.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl font-semibold text-xs text-slate-700 transition-colors cursor-pointer shadow-2xs"
+                                      className="h-10 px-4 min-w-[105px] justify-center bg-white border border-slate-200 hover:bg-slate-50 rounded-xl font-semibold text-xs text-slate-700 transition-colors cursor-pointer shadow-2xs flex items-center"
                                     >
                                       Abbrechen
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleSaveUser()}
-                                      className="h-9 px-4 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                                      className="h-10 px-5 min-w-[175px] justify-center bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
                                     >
-                                      <i className="fa-solid fa-floppy-disk"></i>
-                                      <span>Sichern</span>
+                                      <i className="fa-solid fa-floppy-disk text-xs"></i>
+                                      <span>Änderungen speichern</span>
                                     </button>
                                   </div>
                                 </div>
@@ -7235,47 +8903,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   </h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                      <div className="flex justify-between items-center mb-1.5">
-                                        <label className="block text-xs font-semibold text-slate-700">
-                                          E-Mail-Adresse {!editingUser.is_placeholder_email && <span className="text-red-500">*</span>}
-                                        </label>
-                                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                          <input
-                                            type="checkbox"
-                                            checked={!!editingUser.is_placeholder_email}
-                                            onChange={(e) => {
-                                              const checked = e.target.checked;
-                                              setEditingUser({
-                                                ...editingUser,
-                                                is_placeholder_email: checked,
-                                                email: checked ? "" : editingUser.email,
-                                              });
-                                            }}
-                                            className="w-3.5 h-3.5 accent-[var(--color-primary)] rounded font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
-                                          />
-                                          <span className="text-xs font-medium text-slate-600">
-                                            Keine E-Mail vorhanden
-                                          </span>
-                                        </label>
-                                      </div>
+                                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                                        E-Mail-Adresse <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                                      </label>
                                       <input
                                         type="email"
-                                        disabled={!!editingUser.is_placeholder_email}
-                                        value={editingUser.is_placeholder_email ? "" : (editingUser.email || "")}
+                                        value={editingUser.email || ""}
                                         onChange={(e) =>
                                           setEditingUser({
                                             ...editingUser,
                                             email: e.target.value,
-                                            is_placeholder_email: false,
                                           })
                                         }
-                                        required={!editingUser.is_placeholder_email}
-                                        className={`w-full h-10 px-3.5 border border-slate-200 rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all text-sm ${
-                                          editingUser.is_placeholder_email
-                                            ? "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
-                                            : "bg-white text-slate-800"
-                                        }`}
-                                        placeholder={editingUser.is_placeholder_email ? "[Keine E-Mail hinterlegt]" : "name@beispiel.de"}
+                                        className="w-full h-10 px-3.5 border border-slate-200 rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all text-sm bg-white text-slate-800"
+                                        placeholder="name@beispiel.de"
                                       />
                                     </div>
                                     <div>
@@ -7307,7 +8948,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                       <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Benutzername (Login) <span className="text-red-500">*</span>
+                                        Benutzername <span className="text-red-500">*</span>
                                       </label>
                                       <input
                                         type="text"
@@ -7337,7 +8978,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         }
                                         className="w-full h-10 px-3.5 border border-slate-200 bg-white rounded-xl outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all cursor-pointer text-sm text-slate-800 font-normal"
                                       >
-                                        <option value={Role.MITGLIED}>Mitglied (Standard)</option>
+                                        <option value={Role.MITGLIED}>{t("admin.users.roleStandard")}</option>
                                         <option value={Role.ADMIN}>Vereinsadministrator</option>
                                       </select>
                                     </div>
@@ -7401,6 +9042,102 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       )}
                                     </div>
                                   </div>
+
+                                  {/* E-Mail-Zugangslinks & Schnellauslöser */}
+                                  {(() => {
+                                    const trimmedEmail = (editingUser.email || "").trim();
+                                    const hasEmail = Boolean(trimmedEmail.length > 0 && trimmedEmail.includes("@"));
+
+                                    let activationDisabled = false;
+                                    let activationReason = "";
+                                    let resetDisabled = false;
+                                    let resetReason = "";
+                                    let commonReason = "";
+
+                                    if (!hasEmail) {
+                                      activationDisabled = true;
+                                      resetDisabled = true;
+                                      commonReason = "E-Mail-Adresse erforderlich";
+                                      activationReason = "E-Mail-Adresse erforderlich";
+                                      resetReason = "E-Mail-Adresse erforderlich";
+                                    } else if (clubEmailStatus.isPaused) {
+                                      activationDisabled = true;
+                                      resetDisabled = true;
+                                      commonReason = "E-Mail-System im Verein pausiert";
+                                      activationReason = "E-Mail-System im Verein pausiert";
+                                      resetReason = "E-Mail-System im Verein pausiert";
+                                    } else {
+                                      if (!clubEmailStatus.activationActive) {
+                                        activationDisabled = true;
+                                        activationReason = "Aktivierungsmails im Verein deaktiviert";
+                                      }
+                                      if (!clubEmailStatus.resetActive) {
+                                        resetDisabled = true;
+                                        resetReason = "Passwortreset im Verein deaktiviert";
+                                      }
+                                      if (activationDisabled && resetDisabled) {
+                                        commonReason = "E-Mail-Vorlagen im Verein deaktiviert";
+                                      } else if (activationDisabled) {
+                                        commonReason = activationReason;
+                                      } else if (resetDisabled) {
+                                        commonReason = resetReason;
+                                      }
+                                    }
+
+                                    const targetUserForMail: User = {
+                                      ...u,
+                                      ...editingUser,
+                                      email: editingUser.email,
+                                    };
+
+                                    return (
+                                      <div className="pt-2.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div className="flex flex-col">
+                                          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                            <i className="fa-regular fa-paper-plane text-slate-400 text-xs"></i>
+                                            <span>Zugangslinks per E-Mail:</span>
+                                          </span>
+                                          {commonReason && (
+                                            <span className="text-[11px] text-slate-400 font-normal mt-0.5">
+                                              Hinweis: {commonReason}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <button
+                                            type="button"
+                                            disabled={activationDisabled}
+                                            onClick={() => openSendActivationModal(targetUserForMail)}
+                                            title={activationReason ? `Aktivierungsmail: ${activationReason}` : "Aktivierungsmail an Mitglied senden"}
+                                            className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                              activationDisabled
+                                                ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60"
+                                                : "bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400 shadow-2xs cursor-pointer"
+                                            }`}
+                                          >
+                                            <i className="fa-regular fa-envelope text-[11px]"></i>
+                                            <span>Aktivierungsmail</span>
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            disabled={resetDisabled}
+                                            onClick={() => openSendResetModal(targetUserForMail)}
+                                            title={resetReason ? `Passwortreset: ${resetReason}` : "Passwortreset-Mail an Mitglied senden"}
+                                            className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                              resetDisabled
+                                                ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60"
+                                                : "bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400 shadow-2xs cursor-pointer"
+                                            }`}
+                                          >
+                                            <i className="fa-solid fa-arrows-rotate text-[11px]"></i>
+                                            <span>Passwort-Reset</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
 
                                 {/* 4. PRIVATSPHÄRE & APP-ANZEIGE */}
@@ -7413,7 +9150,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     <label className="flex items-center gap-3 cursor-pointer group select-none">
                                       <input
                                         type="checkbox"
-                                        checked={editingUser.showContactInfo !== false}
+                                        checked={!!editingUser.showContactInfo}
                                         onChange={(e) =>
                                           setEditingUser({
                                             ...editingUser,
@@ -7458,72 +9195,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         </span>
                                       </div>
                                     </label>
-                                  </div>
-                                </div>
-
-                                {/* 5. SYSTEM & KONTO-STATUS */}
-                                <div className="space-y-3">
-                                  <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1.5">
-                                    <i className="fa-solid fa-shield-halved text-xs"></i>
-                                    5. System &amp; Konto-Status
-                                  </h4>
-
-                                  {/* Timestamps & Auth Info */}
-                                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-3 text-xs">
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                      <div>
-                                        <span className="text-xs font-medium text-slate-500 block">Konto-Status</span>
-                                        <span className="font-semibold text-slate-900 mt-0.5 block">
-                                          {editingUser.isSuspended
-                                            ? "Gesperrt"
-                                            : editingUser.lastLogin || editingUser.last_login || editingUser.lastLoginAt
-                                            ? "Aktiv"
-                                            : "Eingeladen (Noch nie eingeloggt)"}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-xs font-medium text-slate-500 block">Aktivierungsmail gesendet</span>
-                                        <span className="font-semibold text-slate-900 mt-0.5 block">
-                                          {editingUser.activationSentAt
-                                            ? `${new Date(editingUser.activationSentAt).toLocaleDateString("de-DE")} ${new Date(editingUser.activationSentAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`
-                                            : "Noch nicht versendet"}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-xs font-medium text-slate-500 block">Passwortreset gesendet</span>
-                                        <span className="font-semibold text-slate-900 mt-0.5 block">
-                                          {editingUser.passwordResetSentAt
-                                            ? `${new Date(editingUser.passwordResetSentAt).toLocaleDateString("de-DE")} ${new Date(editingUser.passwordResetSentAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`
-                                            : "Keine Anfrage"}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {/* Direct Action Triggers inside detail view */}
-                                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-                                      <button
-                                        type="button"
-                                        onClick={() => openSendActivationModal(editingUser as User)}
-                                        className="h-8 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200/80 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                                      >
-                                        <i className="fa-solid fa-paper-plane text-[11px]"></i>
-                                        <span>Aktivierungsmail {editingUser.activationSentAt ? "erneut senden" : "jetzt senden"}</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => openSendResetModal(editingUser as User)}
-                                        className="h-8 px-3 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200/80 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                                      >
-                                        <i className="fa-solid fa-key text-[11px]"></i>
-                                        <span>Passwortreset-Mail senden</span>
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="bg-red-50/70 p-4 rounded-xl border border-red-200/80">
-                                    <label className="flex items-center gap-3 cursor-pointer select-none">
+                                    <label className="flex items-center gap-3 cursor-pointer group select-none pt-2 border-t border-slate-100">
                                       <input
                                         type="checkbox"
+                                        id="inline-user-is-suspended"
                                         checked={!!editingUser.isSuspended}
                                         onChange={(e) =>
                                           setEditingUser({
@@ -7531,36 +9206,58 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             isSuspended: e.target.checked,
                                           })
                                         }
-                                        className="w-4 h-4 text-red-600 bg-white border-red-300 rounded focus:ring-red-600 accent-red-600"
+                                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 accent-rose-600"
                                       />
                                       <div>
-                                        <span className="text-xs font-semibold text-red-700 block">
-                                          Benutzerkonto sperren (Login verhindern)
+                                        <span className="text-xs font-semibold text-slate-800 group-hover:text-rose-700 flex items-center gap-1.5">
+                                          <span>Benutzerkonto sperren</span>
+                                          {editingUser.isSuspended && (
+                                            <span className="px-1.5 py-0.2 bg-rose-100 text-rose-700 text-[10px] font-bold rounded">
+                                              Gesperrt
+                                            </span>
+                                          )}
                                         </span>
-                                        <span className="text-xs text-red-600/80 block font-normal">
-                                          Der Benutzer kann sich vorübergehend nicht mehr im System anmelden.
+                                        <span className="text-xs text-slate-500 block font-normal">
+                                          Anmeldung für dieses Mitglied vorübergehend deaktivieren
                                         </span>
                                       </div>
                                     </label>
                                   </div>
                                 </div>
 
-                                <div className="flex gap-2 pt-3 justify-end border-t border-slate-200/60">
-                                  <button
-                                    type="button"
-                                    onClick={() => setInlineEditingUserId(null)}
-                                    className="h-10 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
-                                  >
-                                    Abbrechen
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveUser()}
-                                    className="h-10 px-5 bg-[var(--color-primary)] text-white hover:brightness-110 rounded-xl font-semibold text-xs shadow-xs transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <i className="fa-solid fa-floppy-disk"></i>
-                                    <span>Änderungen sichern</span>
-                                  </button>
+                                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-200/60">
+                                  <div>
+                                    {editingUser && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setInlineEditingUserId(null);
+                                          handleDeleteUser(editingUser.name);
+                                        }}
+                                        className="h-10 px-4 bg-red-50 hover:bg-red-600 text-red-700 hover:text-white border border-red-200/80 rounded-xl font-semibold text-xs transition-colors flex items-center gap-2 cursor-pointer shadow-2xs active:scale-95"
+                                      >
+                                        <i className="fa-solid fa-trash text-xs"></i>
+                                        <span>Mitglied löschen</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setInlineEditingUserId(null)}
+                                      className="h-10 px-4 min-w-[105px] justify-center bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer shadow-2xs flex items-center"
+                                    >
+                                      Abbrechen
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveUser()}
+                                      className="h-10 px-5 min-w-[175px] justify-center bg-[var(--color-primary)] text-white hover:brightness-110 rounded-xl font-semibold text-xs shadow-xs transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <i className="fa-solid fa-floppy-disk text-xs"></i>
+                                      <span>Änderungen speichern</span>
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -7589,179 +9286,118 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 />
                               </div>
 
-                              {/* 2. Rolle & Status */}
-                              <div className="md:col-span-2 flex flex-col gap-1.5 items-start">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest text-white ${
-                                    u.role === Role.ADMIN ? "bg-[var(--color-accent)]" : "bg-slate-500"
-                                  }`}
-                                >
-                                  {u.role === Role.ADMIN ? "Admin" : "Mitglied"}
-                                </span>
-                                {u.isSuspended ? (
-                                  <span className="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest text-white bg-red-600 flex items-center gap-1">
-                                    <i className="fa-solid fa-lock text-[8px]"></i>
-                                    Gesperrt
-                                  </span>
-                                ) : isInvitedOrNeverLoggedIn ? (
-                                  <span
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-800 bg-amber-100 border border-amber-200"
-                                    title={
-                                      u.activationSentAt
-                                        ? `Aktivierungsmail gesendet am ${new Date(u.activationSentAt).toLocaleDateString("de-DE")}`
-                                        : "Noch nie eingeloggt / Eingeladen"
-                                    }
-                                  >
-                                    <i className="fa-solid fa-clock text-[8px] text-amber-600"></i>
-                                    <span>Eingeladen</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200">
-                                    <i className="fa-solid fa-check text-[8px] text-emerald-600"></i>
-                                    <span>Aktiv</span>
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* 3. Name / Login / Email */}
-                              <div
-                                className={`md:col-span-6 text-base font-semibold break-words flex items-center gap-3 ${
-                                  u.isSuspended ? "text-slate-400 line-through" : "text-slate-800"
-                                }`}
-                              >
+                              {/* 2. Name */}
+                              <div className="md:col-span-3 flex items-center gap-3 min-w-0">
                                 <UserAvatar user={u} size="md" />
-                                <div className="flex flex-col justify-center min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-bold text-sm text-slate-900 truncate">
+                                <div className="flex flex-col justify-center min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span
+                                      className={`font-semibold text-sm truncate ${
+                                        u.isSuspended ? "text-slate-400 line-through" : "text-slate-900"
+                                      }`}
+                                    >
                                       {u.lastName || u.firstName
                                         ? `${u.lastName || ""}, ${u.firstName || ""}`
                                             .trim()
                                             .replace(/^,|,$/, "")
                                         : u.name}
                                     </span>
-                                    <span
-                                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                        u.gender === "w"
-                                          ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                          : "bg-blue-50 text-blue-700 border border-blue-200"
-                                      }`}
-                                    >
-                                      {u.gender === "w" ? "♀ Damen" : "♂ Herren"}
+                                    <span className="text-xs text-slate-400 font-normal">
+                                      ({u.gender === "w" ? "Damen" : "Herren"})
                                     </span>
                                     {(() => {
                                       const age = calculateAge(u.birthDate);
                                       if (age !== null) {
                                         return (
                                           <span
-                                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                              age < 18
-                                                ? "bg-amber-100 text-amber-900 border border-amber-300 font-extrabold"
-                                                : "bg-slate-100 text-slate-700 border border-slate-200"
-                                            }`}
+                                            className="text-xs text-slate-400 font-normal"
                                             title={`Geburtsdatum: ${u.birthDate}`}
                                           >
-                                            <i className="fa-solid fa-cake-candles text-[9px] text-amber-600"></i>
-                                            {age} J. {age < 18 ? `(U${age < 14 ? "14" : "18"})` : ""}
+                                            • {age} {t("admin.users.ageYears")} {age < 18 ? `(U${age < 14 ? "14" : "18"})` : ""}
                                           </span>
                                         );
                                       }
                                       return null;
                                     })()}
                                   </div>
-
-                                  <div className="text-xs text-slate-500 font-normal mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <span>
-                                      Login:{" "}
-                                      <span className="font-semibold text-slate-700 bg-slate-100 rounded px-1">
-                                        {u.name}
-                                      </span>
-                                    </span>
-                                    {u.is_placeholder_email ||
-                                    (u.email && u.email.startsWith("no-email.") && u.email.endsWith("@internal.app")) ? (
-                                      <span className="text-slate-400 italic">• [Keine E-Mail]</span>
-                                    ) : u.email ? (
-                                      <span className="text-slate-600">• {u.email}</span>
-                                    ) : (
-                                      <span className="text-slate-400 italic">• [Keine E-Mail]</span>
-                                    )}
-
-                                    {/* Activation Sent Timestamp Badge */}
-                                    {u.activationSentAt && isInvitedOrNeverLoggedIn && (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                        <i className="fa-solid fa-paper-plane text-[8px] text-amber-600"></i>
-                                        <span>
-                                          Aktivierung gesendet:{" "}
-                                          {new Date(u.activationSentAt).toLocaleDateString("de-DE")}
-                                        </span>
-                                      </span>
-                                    )}
-                                    {u.passwordResetSentAt && (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                        <i className="fa-solid fa-key text-[8px] text-blue-600"></i>
-                                        <span>
-                                          Reset: {new Date(u.passwordResetSentAt).toLocaleDateString("de-DE")}
-                                        </span>
-                                      </span>
-                                    )}
-
-                                    <span>•</span>
-                                    <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 rounded-md px-1.5 py-0.5 shadow-2xs">
-                                      <span className="font-mono text-[9px] font-bold text-slate-500 uppercase tracking-tight">
-                                        Passwort:
-                                      </span>
-                                      <span className="font-mono text-[10px] font-bold text-slate-800">
-                                        {revealedPasswords[u.name] ? u.password || "Keins" : "••••••••"}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setRevealedPasswords((prev) => ({
-                                            ...prev,
-                                            [u.name]: !prev[u.name],
-                                          }));
-                                        }}
-                                        className="text-slate-400 hover:text-slate-700 focus:outline-none cursor-pointer p-0.5 rounded transition-colors"
-                                        title={
-                                          revealedPasswords[u.name]
-                                            ? "Passwort verbergen"
-                                            : "Passwort anzeigen"
-                                        }
-                                      >
-                                        <i
-                                          className={`fa-solid ${revealedPasswords[u.name] ? "fa-eye-slash" : "fa-eye"} text-[10px]`}
-                                        ></i>
-                                      </button>
-                                    </span>
-                                  </div>
                                 </div>
                               </div>
 
-                              {/* 4. Aktionen */}
-                              <div className="md:col-span-3 flex justify-end items-center gap-1.5">
-                                {isInvitedOrNeverLoggedIn ? (
+                              {/* 3. Benutzername & Passwort */}
+                              <div className="md:col-span-2 flex flex-col justify-center min-w-0">
+                                <span className="text-sm text-slate-600 font-normal truncate" title={u.name}>
+                                  {u.name}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-xs text-slate-400 font-normal mt-0.5">
+                                  <span className="font-mono">
+                                    {revealedPasswords[u.name] ? u.password || t("admin.users.passwordNone") : "••••••••"}
+                                  </span>
                                   <button
                                     type="button"
-                                    onClick={() => openSendActivationModal(u)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer shrink-0"
-                                    title="Aktivierungsmail an Mitglied senden"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setRevealedPasswords((prev) => ({
+                                        ...prev,
+                                        [u.name]: !prev[u.name],
+                                      }));
+                                    }}
+                                    className="text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer p-0.5 transition-colors"
+                                    title={
+                                      revealedPasswords[u.name]
+                                        ? t("admin.users.passwordHide")
+                                        : t("admin.users.passwordShow")
+                                    }
                                   >
-                                    <i className="fa-solid fa-paper-plane text-[10px]"></i>
-                                    <span className="hidden xl:inline">
-                                      {u.activationSentAt ? "Erneut senden" : "Aktivieren"}
-                                    </span>
+                                    <i
+                                      className={`fa-solid ${revealedPasswords[u.name] ? "fa-eye-slash" : "fa-eye"} text-[10px]`}
+                                    ></i>
                                   </button>
+                                </div>
+                              </div>
+
+                              {/* 4. E-Mail */}
+                              <div className="md:col-span-2 flex items-center min-w-0">
+                                {u.is_placeholder_email ||
+                                (u.email && u.email.startsWith("no-email.") && u.email.endsWith("@internal.app")) ||
+                                !u.email ? (
+                                  <span className="text-sm text-slate-400 italic truncate">
+                                    {t("admin.users.noEmail")}
+                                  </span>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => openSendResetModal(u)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer shrink-0"
-                                    title="Passwortreset-Mail an Mitglied senden"
-                                  >
-                                    <i className="fa-solid fa-key text-[10px]"></i>
-                                    <span className="hidden xl:inline">Reset-Mail</span>
-                                  </button>
+                                  <span className="text-sm text-slate-600 font-normal truncate" title={u.email}>
+                                    {u.email}
+                                  </span>
                                 )}
+                              </div>
+
+                              {/* 5. Rolle */}
+                              <div className="md:col-span-2 flex flex-col justify-center min-w-0">
+                                <span className="font-medium text-sm text-slate-900 truncate">
+                                  {u.role === Role.ADMIN ? t("admin.users.roleAdmin") : t("admin.users.roleMember")}
+                                </span>
+                                {u.isSuspended && (
+                                  <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium mt-0.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
+                                    <span>{t("admin.users.statusSuspended")}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 6. Aktionen */}
+                              <div className="md:col-span-2 flex justify-end items-center gap-1.5">
+                                {((u.id !== currentUser.id && u.name !== currentUser.name) ||
+                                  (currentUser.id && currentUser.id.startsWith("temp-admin-"))) &&
+                                  onActAsUser && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onActAsUser(u)}
+                                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                      title={t("admin.users.actionActAs")}
+                                    >
+                                      <i className="fa-solid fa-user-secret text-xs text-slate-500"></i>
+                                      <span className="hidden xl:inline">{t("admin.users.actionActAs")}</span>
+                                    </button>
+                                  )}
 
                                 <button
                                   type="button"
@@ -7769,106 +9405,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     setEditingUser({
                                       ...u,
                                       showContactInfo: u.showContactInfo !== false,
-                                      onboarding_pending: !!u.onboarding_pending,
+                                      onboarding_pending: !!(u.onboarding_pending ?? u.onboardingPending),
+                                      onboardingPending: !!(u.onboarding_pending ?? u.onboardingPending),
                                       gender: u.gender || "m",
                                     });
                                     setInlineEditingUserId(u.name);
                                   }}
-                                  className="w-8 h-8 rounded-lg bg-slate-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors flex items-center justify-center shadow-2xs shrink-0 cursor-pointer"
-                                  title="Bearbeiten"
+                                  className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition-colors flex items-center justify-center shadow-2xs shrink-0 cursor-pointer"
+                                  title={t("common.edit")}
                                 >
                                   <i className="fa-solid fa-pen-to-square text-xs"></i>
                                 </button>
-
-                                {/* 3-Punkte Menü */}
-                                <div className="relative inline-block text-left">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActiveActionMenuUserId(
-                                        activeActionMenuUserId === u.name ? null : u.name
-                                      );
-                                    }}
-                                    className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition-colors flex items-center justify-center shadow-2xs cursor-pointer shrink-0"
-                                    title="Aktionsmenü öffnen"
-                                  >
-                                    <i className="fa-solid fa-ellipsis-vertical text-xs"></i>
-                                  </button>
-
-                                  {activeActionMenuUserId === u.name && (
-                                    <div
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-40 text-left animate-in fade-in zoom-in-95 duration-150"
-                                    >
-                                      <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                        E-Mail-Aktionen
-                                      </div>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => openSendActivationModal(u)}
-                                        className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 flex items-center gap-2 cursor-pointer transition-colors"
-                                      >
-                                        <i className="fa-solid fa-paper-plane text-emerald-600 text-[11px] w-4 text-center"></i>
-                                        <span>
-                                          {u.activationSentAt
-                                            ? "Aktivierungsmail erneut senden"
-                                            : "Aktivierungsmail senden"}
-                                        </span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => openSendResetModal(u)}
-                                        className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-800 flex items-center gap-2 cursor-pointer transition-colors"
-                                      >
-                                        <i className="fa-solid fa-key text-blue-600 text-[11px] w-4 text-center"></i>
-                                        <span>Passwortreset-Mail senden</span>
-                                      </button>
-
-                                      <div className="my-1 border-t border-slate-100"></div>
-                                      <div className="px-3 py-1 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                        Verwaltung
-                                      </div>
-
-                                      {((u.id !== currentUser.id && u.name !== currentUser.name) ||
-                                        (currentUser.id && currentUser.id.startsWith("temp-admin-"))) &&
-                                        onActAsUser && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setActiveActionMenuUserId(null);
-                                              onActAsUser(u);
-                                            }}
-                                            className="w-full px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center gap-2 cursor-pointer transition-colors"
-                                          >
-                                            <i className="fa-solid fa-user-secret text-emerald-600 text-[11px] w-4 text-center"></i>
-                                            <span>Als Mitglied agieren</span>
-                                          </button>
-                                        )}
-
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setActiveActionMenuUserId(null);
-                                          handleDeleteUser(u.name);
-                                        }}
-                                        className="w-full px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer transition-colors"
-                                      >
-                                        <i className="fa-solid fa-trash text-red-600 text-[11px] w-4 text-center"></i>
-                                        <span>Mitglied löschen</span>
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
                               </div>
                             </div>
                           );
                         })}
                         {sortedAndFilteredUsers.length === 0 && (
                           <div className="p-8 text-center text-slate-400 font-bold text-sm">
-                            Keine Mitglieder gefunden{" "}
+                            {t("admin.users.noMembersFound")}{" "}
                             {userSearchQuery && `für "${userSearchQuery}"`}
                           </div>
                         )}
@@ -7877,8 +9431,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       {totalUserPages > 1 && (
                         <div className="flex justify-between items-center bg-slate-50 h-8 px-3 py-1 border-t border-slate-100 font-sans font-medium">
                           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                            Seite {userPage} von {totalUserPages} (
-                            {sortedAndFilteredUsers.length} Mitglieder gesamt)
+                            {t("admin.users.pageOf").replace("{page}", String(userPage)).replace("{total}", String(totalUserPages))} ({sortedAndFilteredUsers.length} {t("admin.users.memberPlural")})
                           </div>
                           <div className="flex gap-2">
                             <button
@@ -7890,7 +9443,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-colors"
                             >
                               <i className="fa-solid fa-chevron-left mr-1"></i>{" "}
-                              Zurück
+                              {t("admin.users.pagePrev")}
                             </button>
                             <button
                               type="button"
@@ -7902,7 +9455,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }
                               className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-colors"
                             >
-                              Weiter{" "}
+                              {t("admin.users.pageNext")}{" "}
                               <i className="fa-solid fa-chevron-right ml-1"></i>
                             </button>
                           </div>
@@ -7955,14 +9508,40 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       )}
 
                       <div className="relative">
-                        <input className="hidden p-2 placeholder: placeholder: placeholder: font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                        <input
+                          type="file"
                           id="csv-upload"
+                          ref={fileInputRef}
+                          className="hidden"
+                          accept=".csv,text/csv,text/plain"
+                          onChange={handleFileUpload}
+                          onClick={(e) => {
+                            (e.target as HTMLInputElement).value = "";
+                          }}
                         />
                         <label
                           htmlFor="csv-upload"
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setIsDraggingCsv(true);
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            setIsDraggingCsv(false);
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setIsDraggingCsv(false);
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) {
+                              processCsvFile(file);
+                            }
+                          }}
                           className={`flex flex-col items-center justify-center gap-4 w-full p-8 border-2 rounded-3xl hover:border-[var(--color-primary)] hover:bg-white transition-all cursor-pointer group bg-white/50 ${
                             selectedFileName
                               ? "border-[#10b981] bg-emerald-50 border-solid ring-4 ring-emerald-500/10"
+                              : isDraggingCsv
+                              ? "border-[var(--color-primary)] bg-orange-50/50 border-dashed ring-4 ring-orange-500/10"
                               : "border-dashed border-slate-300"
                           }`}
                         >
@@ -7970,24 +9549,34 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             className={`fa-solid ${
                               selectedFileName
                                 ? "fa-file-circle-check text-[#10b981] animate-bounce"
+                                : isDraggingCsv
+                                ? "fa-cloud-arrow-up text-[var(--color-primary)] scale-110"
                                 : "fa-cloud-arrow-up text-slate-400 group-hover:text-[var(--color-primary)]"
-                            } text-3xl`}
+                            } text-3xl transition-transform`}
                           ></i>
                           <div className="text-center">
                             <span
                               className={`block font-black text-[10px] uppercase tracking-widest ${
                                 selectedFileName
                                   ? "text-[#10b981]"
+                                  : isDraggingCsv
+                                  ? "text-[var(--color-primary)] font-bold"
                                   : "text-slate-500 group-hover:text-[var(--color-primary)]"
                               }`}
                             >
                               {selectedFileName
                                 ? "✓ DATEI ERFOLGREICH GEWÄHLT"
+                                : isDraggingCsv
+                                ? "CSV-DATEI HIER LOSLASSEN"
                                 : "Mitglieder-CSV zur Einrichtung hochladen"}
                             </span>
-                            {selectedFileName && (
+                            {selectedFileName ? (
                               <span className="block mt-1.5 text-xs text-slate-700 font-extrabold uppercase tracking-tight">
                                 {selectedFileName}
+                              </span>
+                            ) : (
+                              <span className="block mt-1 text-[11px] text-slate-400 font-normal">
+                                Klicken, um Datei auszuwählen oder per Drag & Drop ablegen
                               </span>
                             )}
                           </div>
@@ -8009,21 +9598,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </div>
                       )}
                     </div>
-                    <div className="p-4 bg-[var(--color-accent-3)]/10 border border-[var(--color-accent-3)]/20 rounded-2xl text-[9px] font-bold text-slate-600 mt-6 leading-relaxed">
-                      <p className="uppercase font-black text-[var(--color-primary)] mb-1">
-                        <i className="fa-solid fa-lightbulb"></i> CSV-IMPORT
-                        FORMAT HINWEIS
+                    <div className="p-4 bg-[var(--color-accent-3)]/10 border border-[var(--color-accent-3)]/20 rounded-2xl text-[11px] font-semibold text-slate-700 mt-6 leading-relaxed">
+                      <p className="uppercase font-black text-[var(--color-primary)] mb-1 text-xs">
+                        <i className="fa-solid fa-lightbulb"></i> CSV-IMPORT FORMAT HINWEIS
                       </p>
                       Die Datei muss eine Tabellen-CSV sein mit dem Header{" "}
-                      <code className="bg-white/70 px-1 py-0.5 rounded text-black">
+                      <code className="bg-white/80 px-1.5 py-0.5 rounded text-slate-900 font-mono text-[11px]">
                         Benutzername;Passwort;Rolle;Vorname;Nachname;Email;Telefon;Geschlecht
                       </code>{" "}
                       (Spaltentrennung via Komma oder Semikolon). Als Rolle sind{" "}
-                      <code className="bg-white/70 px-1 py-0.5 rounded text-black">
+                      <code className="bg-white/80 px-1.5 py-0.5 rounded text-slate-900 font-mono text-[11px]">
                         user
                       </code>{" "}
                       und{" "}
-                      <code className="bg-white/70 px-1 py-0.5 rounded text-black">
+                      <code className="bg-white/80 px-1.5 py-0.5 rounded text-slate-900 font-mono text-[11px]">
                         admin
                       </code>{" "}
                       erlaubt.
@@ -8073,16 +9661,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                       <div className="text-left">
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-calendar-check text-[var(--color-primary)]"></i> Einzelne Termine &amp; Buchungen verwalten
+                          <i className="fa-solid fa-calendar-check text-[var(--color-primary)]"></i> {t("admin.database.appointmentsTitle")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Reservierte Stunden &amp; Sperren ansehen, bearbeiten oder löschen
+                          {t("admin.database.appointmentsSubtitle")}
                         </p>
                       </div>
 
                       {/* Summary Metric */}
                       <div className="px-3.5 py-1.5 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-700">
-                        Gesamt: {filteredAppointments.length} Einträge
+                        {t("admin.database.totalEntries").replace("{count}", String(filteredAppointments.length))}
                       </div>
                     </div>
 
@@ -8091,7 +9679,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       {/* Search query */}
                       <div className="md:col-span-5 space-y-1 text-left">
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Termine durchsuchen
+                          {t("admin.database.searchAppointments")}
                         </label>
                         <div className="relative">
                           <input 
@@ -8100,7 +9688,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             onChange={(e) =>
                               setBookingSearchQuery(e.target.value)
                             }
-                            placeholder="Spieler, Plätze, Kommentare, Datum..."
+                            placeholder={t("admin.database.searchAppointmentsPlaceholder")}
                             className="w-full h-10 pl-9 pr-4 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 transition-all font-normal placeholder:text-slate-400"
                           />
                           <i className="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
@@ -8110,7 +9698,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       {/* Filter by Type */}
                       <div className="md:col-span-4 space-y-1 text-left">
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Kategorie / Zeitraum
+                          {t("admin.database.categoryPeriod")}
                         </label>
                         <select 
                           value={bookingFilterType}
@@ -8119,20 +9707,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           }
                           className="w-full h-10 px-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 cursor-pointer font-normal"
                         >
-                          <option value="all">Alle Belegungen</option>
-                          <option value="future">Nur Zukünftige</option>
-                          <option value="past">Nur Vergangene</option>
+                          <option value="all">{t("admin.database.filterAll")}</option>
+                          <option value="future">{t("admin.database.filterFuture")}</option>
+                          <option value="past">{t("admin.database.filterPast")}</option>
                           <option value="bookings">
-                            Nur Spieltermine (Mitglieder)
+                            {t("admin.database.filterBookings")}
                           </option>
-                          <option value="locks">Nur Platz-Sperrungen</option>
+                          <option value="locks">{t("admin.database.filterLocks")}</option>
                         </select>
                       </div>
 
                       {/* Filter by Court */}
                       <div className="md:col-span-3 space-y-1 text-left">
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Spezifischer Platz
+                          {t("admin.database.specificCourt")}
                         </label>
                         <select 
                           value={bookingFilterCourt}
@@ -8141,7 +9729,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           }
                           className="w-full h-10 px-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 cursor-pointer font-normal"
                         >
-                          <option value="all">Alle Plätze</option>
+                          <option value="all">{t("admin.database.allCourts")}</option>
                           {settings.courts?.map((court) => (
                             <option key={court} value={court}>
                               {court}
@@ -8155,10 +9743,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden shadow-2xs">
                       {/* Table header (hidden on mobile) */}
                       <div className="hidden md:grid grid-cols-12 gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-700 text-left">
-                        <div className="col-span-3">Datum &amp; Uhrzeit</div>
-                        <div className="col-span-2">Platz</div>
-                        <div className="col-span-5">Spielbelegung Details</div>
-                        <div className="col-span-2 text-right">Aktionen</div>
+                        <div className="col-span-3">{t("admin.database.colDateTime")}</div>
+                        <div className="col-span-2">{t("admin.database.colCourt")}</div>
+                        <div className="col-span-5">{t("admin.database.colDetails")}</div>
+                        <div className="col-span-2 text-right">{t("admin.database.colActions")}</div>
                       </div>
 
                       <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
@@ -8205,7 +9793,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               {/* Court column */}
                               <div className="col-span-2 md:block flex justify-between items-center bg-slate-50 md:bg-transparent px-2.5 py-1.5 md:p-0 rounded-lg">
                                 <span className="block md:hidden text-xs font-semibold text-slate-500">
-                                  Platz
+                                  {t("admin.database.colCourt")}
                                 </span>
                                 <span className="font-semibold text-xs text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
                                   {bk.court}
@@ -8218,17 +9806,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   <div>
                                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                                       <i className="fa-solid fa-lock"></i>{" "}
-                                      Adminsperrung
+                                      {t("admin.database.adminLock")}
                                     </span>
                                     <p className="text-xs font-semibold text-rose-800 mt-1">
-                                      {bk.reason || "Platz gesperrt"}
+                                      {bk.reason || t("admin.database.courtLocked")}
                                     </p>
                                   </div>
                                 ) : (
                                   <div className="space-y-1">
                                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
                                       <i className="fa-solid fa-users"></i>{" "}
-                                      Spielbelegung
+                                      {t("admin.database.memberBooking")}
                                     </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
                                       {bk.players && bk.players.length > 0 ? (
@@ -8242,19 +9830,19 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         ))
                                       ) : (
                                         <span className="text-xs text-slate-400 italic">
-                                          Keine Spieler eingetragen
+                                          {t("admin.database.noPlayersEntered")}
                                         </span>
                                       )}
                                     </div>
                                     {creatorName && (
                                       <p className="text-[11px] text-slate-400 font-normal mt-0.5">
-                                        Gebucht von: {creatorName}
+                                        {t("admin.database.bookedBy")} {creatorName}
                                       </p>
                                     )}
                                     {bk.hasBallMachine && (
                                       <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md mt-1 border border-emerald-200/60">
                                         <i className="fa-solid fa-microchip"></i>{" "}
-                                        Mit Ballmaschine
+                                        {t("admin.database.withBallMachine")}
                                       </div>
                                     )}
                                     {bk.comment && (
@@ -8274,7 +9862,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     handleStartEditAdminBooking(bk)
                                   }
                                   className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 hover:bg-[var(--color-primary)] hover:text-white transition-all flex items-center justify-center shadow-2xs shrink-0 cursor-pointer"
-                                  title="Termin bearbeiten"
+                                  title={t("admin.database.editBooking")}
                                 >
                                   <i className="fa-solid fa-pen text-xs"></i>
                                 </button>
@@ -8284,7 +9872,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     handleDeleteAdminBooking(bk.id)
                                   }
                                   className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center shadow-2xs shrink-0 border border-rose-100 cursor-pointer"
-                                  title="Termin löschen"
+                                  title={t("admin.database.deleteBooking")}
                                 >
                                   <i className="fa-solid fa-trash-can text-xs"></i>
                                 </button>
@@ -8295,8 +9883,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                         {paginatedAppointments.length === 0 && (
                           <div className="p-8 text-center text-slate-400 font-medium text-xs italic">
-                            Keine Reservierungen oder Termine für die
-                            Filterkriterien gefunden.
+                            {t("admin.database.noAppointmentsFound")}
                           </div>
                         )}
                       </div>
@@ -8305,8 +9892,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       {bkTotalPages > 1 && (
                         <div className="flex justify-between items-center bg-slate-50 px-4 py-2.5 border-t border-slate-200">
                           <div className="text-xs text-slate-500 font-medium text-left">
-                            Seite {bookingPage} von {bkTotalPages} (
-                            {filteredAppointments.length} gefundene Termine)
+                            {t("admin.users.pageOf").replace("{page}", String(bookingPage)).replace("{total}", String(bkTotalPages))} (
+                            {t("admin.database.appointmentsFound").replace("{count}", String(filteredAppointments.length))})
                           </div>
                           <div className="flex gap-2">
                             <button
@@ -8318,7 +9905,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               className="h-8 px-3 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-colors cursor-pointer"
                             >
                               <i className="fa-solid fa-chevron-left mr-1"></i>{" "}
-                              Zurück
+                              {t("common.back")}
                             </button>
                             <button
                               type="button"
@@ -8330,7 +9917,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }
                               className="h-8 px-3 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-colors cursor-pointer"
                             >
-                              Weiter{" "}
+                              {t("admin.users.pageNext")}{" "}
                               <i className="fa-solid fa-chevron-right ml-1"></i>
                             </button>
                           </div>
@@ -8347,7 +9934,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="bg-slate-900 p-5 sm:p-6 text-white flex justify-between items-center">
                           <div className="text-left">
                             <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
-                              <i className="fa-solid fa-edit text-[var(--color-primary)]"></i> Einzeltermin bearbeiten
+                              <i className="fa-solid fa-edit text-[var(--color-primary)]"></i> {t("admin.database.editModalTitle")}
                             </h3>
                             <p className="text-xs text-slate-400 font-mono mt-0.5">
                               ID: {editingAdminBooking.id}
@@ -8370,7 +9957,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           {/* Booking/Lock Type Switcher Toggle */}
                           <div className="space-y-1.5 text-left">
                             <label className="block text-xs font-semibold text-slate-700 mb-1">
-                              Typ der Belegung
+                              {t("admin.database.bookingType")}
                             </label>
                             <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
                               <button
@@ -8383,7 +9970,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }`}
                               >
                                 <i className="fa-solid fa-users"></i>{" "}
-                                Spieltermin
+                                {t("admin.database.matchSlot")}
                               </button>
                               <button
                                 type="button"
@@ -8394,7 +9981,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     : "text-slate-600 hover:text-slate-900"
                                 }`}
                               >
-                                <i className="fa-solid fa-lock"></i> Adminsperre
+                                <i className="fa-solid fa-lock"></i> {t("admin.database.adminLockSlot")}
                               </button>
                             </div>
                           </div>
@@ -8404,7 +9991,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             {/* Date */}
                             <div className="space-y-1 text-left">
                               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                Datum
+                                {t("common.date")}
                               </label>
                               <input 
                                 type="date"
@@ -8418,7 +10005,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             {/* Start Time */}
                             <div className="space-y-1 text-left">
                               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                Uhrzeit
+                                {t("common.time")}
                               </label>
                               <select 
                                 value={editBkTime}
@@ -8427,7 +10014,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               >
                                 {TIME_SLOTS.map((slot) => (
                                   <option key={slot} value={slot}>
-                                    {slot} Uhr
+                                    {slot}
                                   </option>
                                 ))}
                               </select>
@@ -8436,7 +10023,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             {/* Court selection */}
                             <div className="space-y-1 text-left">
                               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                Platz
+                                {t("common.court")}
                               </label>
                               <select 
                                 value={editBkCourt}
@@ -8456,7 +10043,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           {editBkIsLocked ? (
                             <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-200 text-left">
                               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                Sperrgrund{" "}
+                                {t("admin.database.lockReason")}{" "}
                                 <span className="text-rose-500">*</span>
                               </label>
                               <input 
@@ -8466,7 +10053,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onChange={(e) =>
                                   setEditBkReason(e.target.value)
                                 }
-                                placeholder="z.B. Verbandspiel, Training, Platzpflege"
+                                placeholder={t("admin.database.lockReasonPlaceholder")}
                                 className="w-full h-10 px-3.5 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/10 transition-all font-normal placeholder:text-slate-400"
                               />
                             </div>
@@ -8476,7 +10063,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               {/* Players List with Suggestion Autocomplete */}
                               <div className="space-y-1.5 relative text-left">
                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                  Eingetragene Spieler ({editBkPlayers.length})
+                                  {t("admin.database.registeredPlayers")} ({editBkPlayers.length})
                                 </label>
 
                                 {/* Existing Players List visual tags */}
@@ -8501,7 +10088,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   ))}
                                   {editBkPlayers.length === 0 && (
                                     <span className="text-xs text-slate-400 italic">
-                                      Noch keine Spieler hinzugefügt.
+                                      {t("admin.database.noPlayersYet")}
                                     </span>
                                   )}
                                 </div>
@@ -8518,7 +10105,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     onFocus={() =>
                                       setEditBkShowSuggestions(true)
                                     }
-                                    placeholder="Spielernamen eingeben oder suchen..."
+                                    placeholder={t("admin.database.searchPlayerPlaceholder")}
                                     className="flex-1 h-10 px-3.5 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-slate-800 transition-all font-normal placeholder:text-slate-400"
                                   />
                                   <button
@@ -8531,7 +10118,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     disabled={!editBkNewPlayerQuery.trim()}
                                     className="h-10 px-4 bg-slate-900 text-white font-semibold text-xs rounded-xl hover:bg-[var(--color-primary)] disabled:opacity-40 select-none active:scale-95 transition-all cursor-pointer"
                                   >
-                                    Hinzufügen
+                                    {t("common.confirm")}
                                   </button>
                                 </div>
 
@@ -8571,7 +10158,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 {/* Comment */}
                                 <div className="space-y-1">
                                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                    Notiz / Kommentar
+                                    {t("admin.database.commentNote")}
                                   </label>
                                   <input 
                                     type="text"
@@ -8579,7 +10166,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     onChange={(e) =>
                                       setEditBkComment(e.target.value)
                                     }
-                                    placeholder="z.B. Gastspieler"
+                                    placeholder={t("admin.database.commentPlaceholder")}
                                     className="w-full h-10 px-3.5 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-slate-800 transition-all font-normal placeholder:text-slate-400"
                                   />
                                 </div>
@@ -8604,7 +10191,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                       className="text-xs font-semibold text-slate-800 cursor-pointer user-select-none flex items-center gap-1.5"
                                     >
                                       <i className="fa-solid fa-microchip text-[var(--color-primary)] text-xs"></i>{" "}
-                                      Ballmaschine nutzen
+                                      {t("admin.database.useBallMachine")}
                                     </label>
                                   </div>
                                 )}
@@ -8619,7 +10206,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               onClick={() => setEditingAdminBooking(null)}
                               className="flex-1 h-10 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl transition-all text-center cursor-pointer flex items-center justify-center"
                             >
-                              Abbrechen
+                              {t("common.cancel")}
                             </button>
                             <button
                               type="submit"
@@ -8630,7 +10217,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }`}
                             >
                               <i className="fa-solid fa-check"></i>
-                              <span>{editBkIsLocked ? "Sperre speichern" : "Buchung speichern"}</span>
+                              <span>{editBkIsLocked ? t("admin.database.saveLock") : t("admin.database.saveBooking")}</span>
                             </button>
                           </div>
                         </form>
@@ -8643,10 +10230,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="border-b border-slate-100 pb-4">
                       <div className="text-left">
                         <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          <i className="fa-solid fa-share-nodes text-[var(--color-primary)]"></i> Öffentliche Wochenplan-Freigabe
+                          <i className="fa-solid fa-share-nodes text-[var(--color-primary)]"></i> {t("admin.database.calendarShareTitle")}
                         </h3>
                         <p className="text-xs text-slate-500 font-normal mt-0.5">
-                          Kalender per iFrame auf Vereinswebsite einbetten
+                          {t("admin.database.calendarShareSubtitle")}
                         </p>
                       </div>
                     </div>
@@ -8655,10 +10242,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="flex items-center justify-between p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl">
                         <div className="text-left">
                           <h4 className="text-xs font-semibold text-slate-900">
-                            Öffentlichen Direktlink aktivieren
+                            {t("admin.database.enableDirectLink")}
                           </h4>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            Schaltet den Zugriff ohne Login für externe Aufrufer frei.
+                            {t("admin.database.enableDirectLinkDesc")}
                           </p>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -8689,7 +10276,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="flex items-center justify-between p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl">
                         <div className="text-left">
                           <h4 className="text-xs font-semibold text-slate-900">
-                            Spielernamen öffentlich anzeigen
+                            {t("admin.database.showNamesPublic")}
                           </h4>
                           <p className="text-xs text-slate-500 mt-0.5">
                             {settings?.publicCalendar?.showNames ? (
@@ -8724,7 +10311,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div>
                             <div className="flex items-center justify-between mb-1.5">
                               <label className="block text-xs font-semibold text-emerald-900">
-                                Öffentlicher Direktlink
+                                {t("admin.database.directLink")}
                               </label>
                               <a
                                 href={`${window.location.origin}/public/calendar/woche/${settings.publicCalendar.token}`}
@@ -8732,7 +10319,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 rel="noopener noreferrer"
                                 className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1.5"
                               >
-                                Testen <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                                {t("admin.database.testLink")} <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
                               </a>
                             </div>
                             <input
@@ -8744,7 +10331,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-emerald-900 mb-1.5">
-                              HTML iFrame-Code zur Einbettung
+                              {t("admin.database.iframeCode")}
                             </label>
                             <textarea
                               readOnly
@@ -8769,16 +10356,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   <div className="bg-white rounded-2xl border border-rose-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                     <div className="border-b border-rose-100 pb-4 text-left">
                       <h3 className="text-base font-bold text-rose-900 tracking-tight flex items-center gap-2">
-                        <i className="fa-solid fa-triangle-exclamation text-rose-600"></i> Sicherheits-Bereinigungen
+                        <i className="fa-solid fa-triangle-exclamation text-rose-600"></i> {t("admin.database.safetyTitle")}
                       </h3>
                       <p className="text-xs text-slate-500 font-normal mt-0.5">
-                        Datenlöschung &amp; Wartungstasks
+                        {t("admin.database.safetySubtitle")}
                       </p>
                     </div>
 
                     <div className="space-y-4 text-left">
                       <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                        Als Administrator kannst du Buchungszeiträume selektiv löschen, um das System sauber zu halten oder eine neue Saison vorzubereiten.
+                        {t("admin.database.safetyDesc")}
                       </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -8790,7 +10377,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="flex items-center gap-3">
                             <i className="fa-solid fa-calendar-xmark text-lg text-rose-500 group-hover:text-white shrink-0"></i>
                             <span className="text-xs font-semibold">
-                              Reservierungen in Zeitraum bereinigen
+                              {t("admin.database.cleansePeriod")}
                             </span>
                           </div>
                           <i className="fa-solid fa-arrow-right text-xs opacity-50 group-hover:opacity-100 transition-opacity"></i>
@@ -8804,7 +10391,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="flex items-center gap-3">
                             <i className="fa-solid fa-users-slash text-lg text-rose-500 group-hover:text-white shrink-0"></i>
                             <span className="text-xs font-semibold">
-                              Alle registrierten Mitglieder löschen
+                              {t("admin.database.cleanseUsers")}
                             </span>
                           </div>
                           <i className="fa-solid fa-arrow-right text-xs opacity-50 group-hover:opacity-100 transition-opacity"></i>
@@ -8817,10 +10404,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                     <div className="border-b border-slate-100 pb-4 text-left">
                       <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <i className="fa-solid fa-file-export text-[var(--color-primary)]"></i> Buchungsexport (CSV / JSON)
+                        <i className="fa-solid fa-file-export text-[var(--color-primary)]"></i> {t("admin.database.exportTitle")}
                       </h3>
                       <p className="text-xs text-slate-500 font-normal mt-0.5">
-                        Reservierungsdaten herunterladen
+                        {t("admin.database.exportSubtitle")}
                       </p>
                     </div>
 
@@ -8832,7 +10419,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Von Datum (optional)
+                            {t("admin.database.fromDate")}
                           </label>
                           <input 
                             type="date"
@@ -8844,7 +10431,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Bis Datum (optional)
+                            {t("admin.database.toDate")}
                           </label>
                           <input 
                             type="date"
@@ -8867,7 +10454,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             className="text-xs font-semibold text-rose-600 hover:text-rose-800 flex items-center gap-1.5 cursor-pointer"
                           >
                             <i className="fa-solid fa-circle-xmark"></i>{" "}
-                            Zeitraum zurücksetzen
+                            {t("admin.database.resetPeriod")}
                           </button>
                         </div>
                       )}
@@ -8879,7 +10466,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           className="flex-1 h-10 px-5 rounded-xl bg-[var(--color-primary)] hover:brightness-110 text-white font-semibold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <i className="fa-solid fa-file-csv text-sm"></i>
-                          CSV-Export herunterladen
+                          {t("admin.database.downloadCsv")}
                         </button>
                         <button
                           type="button"
@@ -8887,7 +10474,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           className="flex-1 h-10 px-5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <i className="fa-solid fa-file-code text-sm text-blue-600"></i>
-                          JSON-Export herunterladen
+                          {t("admin.database.downloadJson")}
                         </button>
                       </div>
                     </div>
@@ -9294,10 +10881,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="text-left">
                       <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
                         <i className="fa-solid fa-calendar-days text-[var(--color-primary)]"></i>{" "}
-                        Veranstaltungen verwalten
+                        {t("admin.tournaments.title")}
                       </h3>
                       <p className="text-xs text-slate-500 font-normal mt-0.5">
-                        Definieren Sie hier Turniere, Events oder andere Aktivitäten. Spieler können sich direkt im Kalender-Menü dafür an- und abmelden.
+                        {t("admin.tournaments.subtitle")}
                       </p>
                     </div>
                   </div>
@@ -9312,14 +10899,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <h4 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
                           <i className="fa-solid fa-pen-to-square text-[var(--color-primary)]"></i>
                           {editingTournamentId
-                            ? "Event bearbeiten"
-                            : "Neues Event anlegen"}
+                            ? t("admin.tournaments.editEvent")
+                            : t("admin.tournaments.newEvent")}
                         </h4>
 
                         {/* Titel (Pflichtfeld) */}
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Name der Veranstaltung{" "}
+                            {t("admin.tournaments.eventName")}{" "}
                             <span className="text-rose-500">*</span>
                           </label>
                           <input 
@@ -9327,7 +10914,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             required
                             value={eventTitle}
                             onChange={(e) => setEventTitle(e.target.value)}
-                            placeholder="z.B. Sommerfest, Schleiferlturnier"
+                            placeholder={t("admin.tournaments.eventNamePlaceholder")}
                             className="w-full h-10 px-3.5 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-slate-800 transition-all font-normal placeholder:text-slate-400"
                           />
                         </div>
@@ -9335,7 +10922,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Datum (Optional) */}
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Datum (optional)
+                            {t("admin.tournaments.dateOptional")}
                           </label>
                           <input 
                             type="date"
@@ -9349,7 +10936,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Startzeit (optional)
+                              {t("admin.tournaments.startTime")}
                             </label>
                             <input 
                               type="time"
@@ -9362,7 +10949,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </div>
                           <div className="space-y-1">
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                              Endzeit (optional)
+                              {t("admin.tournaments.endTime")}
                             </label>
                             <input 
                               type="time"
@@ -9378,7 +10965,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-1">
                               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                Anmeldung ab (optional)
+                                {t("admin.tournaments.regStart")}
                               </label>
                               <input 
                                 type="date"
@@ -9391,7 +10978,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                Anmeldung bis (optional)
+                                {t("admin.tournaments.regEnd")}
                               </label>
                               <input 
                                 type="date"
@@ -9408,7 +10995,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div className="space-y-1">
                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                  Abmeldung ab (optional)
+                                  {t("admin.tournaments.deregStart")}
                                 </label>
                                 <input 
                                   type="date"
@@ -9421,7 +11008,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               </div>
                               <div className="space-y-1">
                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                  Abmeldung bis (optional)
+                                  {t("admin.tournaments.deregEnd")}
                                 </label>
                                 <input 
                                   type="date"
@@ -9439,14 +11026,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Beschreibung (Optional) */}
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                            Beschreibung (optional)
+                            {t("admin.tournaments.description")}
                           </label>
                           <textarea
                             value={eventDescription}
                             onChange={(e) =>
                               setEventDescription(e.target.value)
                             }
-                            placeholder="Details, Ablauf, Verpflegung..."
+                            placeholder={t("admin.tournaments.descriptionPlaceholder")}
                             rows={3}
                             className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-white outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 resize-y placeholder:font-normal placeholder:text-slate-400 font-normal transition-all"
                           />
@@ -9455,10 +11042,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Hide expired events (optional, default: true) */}
                         <div className="pt-2 border-t border-slate-100 space-y-1.5">
                           <label className="block text-xs font-semibold text-slate-700">
-                            Archivierung &amp; Anzeige
+                            {t("admin.tournaments.archiveHeading")}
                           </label>
                           <span className="block text-xs text-slate-500 font-normal leading-normal">
-                            Soll die Veranstaltung nach Verstreichen des Datums für Spieler ausgeblendet werden?
+                            {t("admin.tournaments.archiveDesc")}
                           </span>
                           <div className="flex gap-4 pt-1">
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
@@ -9469,7 +11056,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onChange={() => setEventHideExpired(true)}
                                 className="w-4 h-4 accent-[var(--color-primary)] cursor-pointer"
                               />
-                              <span>Ja (Standard)</span>
+                              <span>{t("admin.tournaments.yesDefault")}</span>
                             </label>
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
                               <input
@@ -9479,7 +11066,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onChange={() => setEventHideExpired(false)}
                                 className="w-4 h-4 accent-[var(--color-primary)] cursor-pointer"
                               />
-                              <span>Nein</span>
+                              <span>{t("admin.tournaments.no")}</span>
                             </label>
                           </div>
                         </div>
@@ -9487,10 +11074,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Allow registration comments (optional, default: false) */}
                         <div className="pt-2 border-t border-slate-100 space-y-1.5">
                           <label className="block text-xs font-semibold text-slate-700">
-                            Kommentarfeld
+                            {t("admin.tournaments.commentHeading")}
                           </label>
                           <span className="block text-xs text-slate-500 font-normal leading-normal">
-                            Kommentarfeld bei der Anmeldung zulassen? (z.B. für Essenswünsche, Mitbringsel)
+                            {t("admin.tournaments.commentDesc")}
                           </span>
                           <div className="flex gap-4 pt-1">
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
@@ -9501,7 +11088,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onChange={() => setEventAllowComment(true)}
                                 className="w-4 h-4 accent-[var(--color-primary)] cursor-pointer"
                               />
-                              <span>Ja</span>
+                              <span>{t("admin.tournaments.yes")}</span>
                             </label>
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
                               <input
@@ -9511,7 +11098,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onChange={() => setEventAllowComment(false)}
                                 className="w-4 h-4 accent-[var(--color-primary)] cursor-pointer"
                               />
-                              <span>Nein (Standard)</span>
+                              <span>{t("admin.tournaments.noDefault")}</span>
                             </label>
                           </div>
                         </div>
@@ -9519,12 +11106,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Maximale Teilnehmerzahl (optional) */}
                         <div className="pt-2 border-t border-slate-100 space-y-1.5">
                           <label className="block text-xs font-semibold text-slate-700">
-                            Max. Teilnehmerzahl (optional)
+                            {t("admin.tournaments.maxParticipants")}
                           </label>
                           <input 
                             type="number"
                             min="1"
-                            placeholder="Kein Limit"
+                            placeholder={t("admin.tournaments.noLimit")}
                             value={eventMaxParticipants}
                             onChange={(e) =>
                               setEventMaxParticipants(e.target.value)
@@ -9536,10 +11123,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {/* Anmeldungen sperren */}
                         <div className="pt-2 border-t border-slate-100 space-y-1.5">
                           <label className="block text-xs font-semibold text-slate-700">
-                            Anmeldungen sperren?
+                            {t("admin.tournaments.blockRegHeading")}
                           </label>
                           <span className="block text-xs text-slate-500 font-normal leading-normal">
-                            Sperrt die Registrierung für normale Spieler, ohne dass das Event ausgeblendet wird.
+                            {t("admin.tournaments.blockRegDesc")}
                           </span>
                           <div className="flex gap-4 pt-1">
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
@@ -9552,7 +11139,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }
                                 className="w-4 h-4 accent-[var(--color-primary)] cursor-pointer"
                               />
-                              <span>Ja</span>
+                              <span>{t("admin.tournaments.yes")}</span>
                             </label>
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
                               <input
@@ -9564,7 +11151,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 }
                                 className="w-4 h-4 accent-[var(--color-primary)] cursor-pointer"
                               />
-                              <span>Nein (Standard)</span>
+                              <span>{t("admin.tournaments.noDefault")}</span>
                             </label>
                           </div>
                         </div>
@@ -9577,8 +11164,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           >
                             <i className="fa-solid fa-check"></i>{" "}
                             {editingTournamentId
-                              ? "Speichern"
-                              : "Event anlegen"}
+                              ? t("admin.tournaments.save")
+                              : t("admin.tournaments.create")}
                           </button>
                           {(editingTournamentId ||
                             eventTitle ||
@@ -9589,7 +11176,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               onClick={resetEventForm}
                               className="h-10 px-4 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center cursor-pointer"
                             >
-                              Abbrechen
+                              {t("admin.tournaments.cancel")}
                             </button>
                           )}
                         </div>
@@ -9600,12 +11187,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <div className="lg:col-span-2 space-y-6">
                       <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4 text-left">
                         <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
-                          <i className="fa-solid fa-list text-[var(--color-primary)]"></i> Geplante Veranstaltungen ({tournaments.length})
+                          <i className="fa-solid fa-list text-[var(--color-primary)]"></i> {t("admin.tournaments.scheduledEventsCount", { count: tournaments.length })}
                         </h4>
 
                         {tournaments.length === 0 ? (
                           <p className="text-xs text-slate-400 py-8 italic text-center font-medium">
-                            Keine geplanten Veranstaltungen gefunden.
+                            {t("admin.tournaments.noEvents")}
                           </p>
                         ) : (
                           <div className="space-y-4">
@@ -9643,7 +11230,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           </span>
                                         ) : (
                                           <span className="flex items-center gap-1 bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md text-xs font-medium">
-                                            Kein festes Datum
+                                            {t("admin.tournaments.noFixedDate")}
                                           </span>
                                         )}
 
@@ -9652,7 +11239,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             <i className="fa-regular fa-clock text-slate-400"></i>{" "}
                                             {t.startTime}{" "}
                                             {t.endTime ? `- ${t.endTime}` : ""}{" "}
-                                            Uhr
+                                            {t("admin.rules.oclock")}
                                           </span>
                                         )}
 
@@ -9660,14 +11247,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         t.maxParticipants > 0 ? (
                                           <span className="flex items-center gap-1 bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-md text-xs font-semibold border border-emerald-200/80">
                                             <i className="fa-solid fa-users text-[11px]"></i>{" "}
-                                            Max. {t.maxParticipants}
+                                            {t("admin.tournaments.maxCount", { count: t.maxParticipants })}
                                           </span>
                                         ) : null}
 
                                         {t.isRegistrationBlocked && (
                                           <span className="flex items-center gap-1 bg-rose-50 text-rose-700 px-2 py-0.5 rounded-md text-xs font-semibold border border-rose-200">
                                             <i className="fa-solid fa-lock text-[11px]"></i>{" "}
-                                            Anmeldungen gesperrt
+                                            {t("admin.tournaments.registrationsBlocked")}
                                           </span>
                                         )}
                                       </div>
@@ -9684,7 +11271,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         type="button"
                                         onClick={() => handleStartEditEvent(t)}
                                         className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 hover:bg-[var(--color-primary)] hover:text-white flex items-center justify-center transition-colors text-xs shadow-2xs cursor-pointer"
-                                        title="Bearbeiten"
+                                        title={t("admin.tournaments.edit")}
                                       >
                                         <i className="fa-solid fa-pen"></i>
                                       </button>
@@ -9693,18 +11280,18 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         onClick={() => {
                                           if (
                                             confirm(
-                                              `Veranstaltung "${t.title}" wirklich löschen?`,
+                                              t("admin.tournaments.deleteConfirm", { title: t.title })
                                             )
                                           ) {
                                             onDeleteTournament(t.id);
                                             setMessage({
-                                              text: `Veranstaltung "${t.title}" erfolgreich gelöscht.`,
+                                              text: t("admin.tournaments.deleteSuccess", { title: t.title }),
                                               type: "success",
                                             });
                                           }
                                         }}
                                         className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white flex items-center justify-center transition-colors text-xs shadow-2xs border border-rose-100 cursor-pointer"
-                                        title="Löschen"
+                                        title={t("admin.tournaments.delete")}
                                       >
                                         <i className="fa-solid fa-trash-can"></i>
                                       </button>
@@ -9718,27 +11305,27 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         className={`text-[11px] font-medium px-2.5 py-0.5 rounded-md border ${(t.hideExpired ?? true) ? "bg-slate-100 border-slate-200 text-slate-600" : "bg-amber-50 border-amber-200 text-amber-700"}`}
                                       >
                                         {(t.hideExpired ?? true)
-                                          ? "Nach Ablauf ausblenden: Ja"
-                                          : "Nach Ablauf ausblenden: Nein"}
+                                          ? t("admin.tournaments.hideExpiredYes")
+                                          : t("admin.tournaments.hideExpiredNo")}
                                       </span>
                                       <span
                                         className={`text-[11px] font-medium px-2.5 py-0.5 rounded-md border ${t.allowComment ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-slate-100 border-slate-200 text-slate-600"}`}
                                       >
                                         {t.allowComment
-                                          ? "Kommentarfeld zulässig: Ja"
-                                          : "Kommentarfeld zulässig: Nein"}
+                                          ? t("admin.tournaments.commentsAllowedYes")
+                                          : t("admin.tournaments.commentsAllowedNo")}
                                       </span>
                                     </div>
 
                                     {/* Participants lists */}
                                     <div>
                                       <span className="block text-xs font-semibold text-slate-700 mb-2">
-                                        Angemeldete Spieler ({t.participants?.length || 0})
+                                        {t("admin.tournaments.registeredPlayersCount", { count: t.participants?.length || 0 })}
                                       </span>
                                       {!t.participants ||
                                       t.participants.length === 0 ? (
                                         <span className="text-xs text-slate-400 italic">
-                                          Noch keine Anmeldungen vorhanden.
+                                          {t("admin.tournaments.noRegistrations")}
                                         </span>
                                       ) : (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -9787,16 +11374,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   onUpdateSettings={onUpdateSettings}
                 />
               )}
-
-              {/* TAB 8: UPDATES / CHANGELOG */}
-              {currentTab === "updates" && (
-                <AdminChangelog settings={settings} />
-              )}
-
-              {/* TAB 9: HANDBUCH / SYSTEM-DOKUMENTATION */}
-              {currentTab === "handbuch" && (
-                <AdminDocumentation />
-              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -9807,10 +11384,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 sm:p-7 max-w-sm w-full shadow-xl border border-slate-200/80 animate-in zoom-in duration-200 text-left">
             <h3 className="text-amber-600 font-bold text-base flex items-center gap-2">
-              <i className="fa-solid fa-circle-exclamation"></i> Ungespeicherte Änderungen
+              <i className="fa-solid fa-circle-exclamation"></i> {t("admin.unsavedModal.title")}
             </h3>
             <p className="text-xs text-slate-600 my-4 leading-relaxed font-normal">
-              Du hast in der aktuellen Kategorie ungespeicherte Änderungen vorgenommen. Möchtest du diese vor dem Wechsel speichern?
+              {t("admin.unsavedModal.desc")}
             </p>
             <div className="flex flex-col gap-2 pt-1">
               <button
@@ -9822,7 +11399,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 }}
                 className="w-full h-10 bg-[var(--color-primary)] hover:brightness-110 text-white rounded-xl font-semibold text-xs transition-colors cursor-pointer flex items-center justify-center shadow-xs"
               >
-                Speichern &amp; Wechseln
+                {t("admin.unsavedModal.saveAndSwitch")}
               </button>
               <button
                 type="button"
@@ -9833,14 +11410,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 }}
                 className="w-full h-10 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer flex items-center justify-center"
               >
-                Änderungen verwerfen &amp; Wechseln
+                {t("admin.unsavedModal.discardAndSwitch")}
               </button>
               <button
                 type="button"
                 onClick={() => setPendingTab(null)}
                 className="w-full h-10 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer flex items-center justify-center"
               >
-                Auf aktueller Seite bleiben
+                {t("admin.unsavedModal.stay")}
               </button>
             </div>
           </div>
@@ -9854,12 +11431,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             <div className="bg-rose-600 p-6 text-white">
               <h3 className="text-base font-bold flex items-center gap-2.5">
                 <i className="fa-solid fa-shield-virus text-lg"></i>{" "}
-                Sicherheits-Bestätigung
+                {t("admin.deleteModal.securityConfirmation")}
               </h3>
               <p className="text-xs text-rose-100 mt-1 font-normal">
                 {showDeleteModal === "bookings"
-                  ? "Reservierungs-Bereinigung"
-                  : "Mitglieder-Bereinigung (Bulk)"}
+                  ? t("admin.deleteModal.bookingsPurge")
+                  : t("admin.deleteModal.membersPurge")}
               </p>
             </div>
 
@@ -9868,8 +11445,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <i className="fa-solid fa-circle-exclamation text-rose-600 text-base mt-0.5 shrink-0"></i>
                 <p className="text-xs font-medium text-rose-900 leading-relaxed">
                   {showDeleteModal === "bookings"
-                    ? "Bist du absolut sicher? Alle passenden Reservierungen werden unwiderruflich gelöscht!"
-                    : "Bist du absolut sicher? ALLE registrierten Mitglieder werden unwiderruflich gelöscht (außer dein eigener Administrator-Account, damit du eingeloggt bleibst)!"}
+                    ? t("admin.deleteModal.bookingsWarning")
+                    : t("admin.deleteModal.membersWarning")}
                 </p>
               </div>
 
@@ -9877,7 +11454,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <div className="grid grid-cols-2 gap-3 bg-slate-50/70 p-4 rounded-xl border border-slate-200/80">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Ab Datum
+                      {t("admin.deleteModal.fromDate")}
                     </label>
                     <input 
                       type="date"
@@ -9893,7 +11470,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Bis Datum
+                      {t("admin.deleteModal.toDate")}
                     </label>
                     <input 
                       type="date"
@@ -9909,7 +11486,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   </div>
                   <div className="col-span-2">
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Platz wählen (optional)
+                      {t("admin.deleteModal.selectCourt")}
                     </label>
                     <select 
                       value={deleteRange.court}
@@ -9921,7 +11498,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       }
                       className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/10 text-slate-800 cursor-pointer transition-all font-normal"
                     >
-                      <option value="all">Alle Plätze</option>
+                      <option value="all">{t("admin.deleteModal.allCourts")}</option>
                       {courtsList.map((court, i) => (
                         <option key={i} value={court}>
                           {court}
@@ -9934,16 +11511,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
               <div className="space-y-1.5 text-center pt-2">
                 <label className="block text-xs font-semibold text-slate-700">
-                  Eingabe zur Bestätigung:{" "}
+                  {t("admin.deleteModal.confirmPrompt")}{" "}
                   <span className="text-rose-600 font-bold tracking-wider">
-                    LÖSCHEN
+                    {t("admin.deleteModal.confirmWord")}
                   </span>
                 </label>
                 <input 
                   type="text"
                   value={deleteConfirmText}
                   onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  placeholder="LÖSCHEN"
+                  placeholder={t("admin.deleteModal.confirmWord")}
                   className="w-full h-10 px-4 border-2 border-rose-200 rounded-xl text-center text-rose-600 tracking-widest outline-none focus:border-rose-600 focus:bg-rose-50/50 transition-all uppercase font-semibold text-sm"
                 />
               </div>
@@ -9951,11 +11528,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               <div className="flex gap-3 pt-3">
                 <button
                   type="button"
-                  disabled={deleteConfirmText !== "LÖSCHEN"}
+                  disabled={
+                    deleteConfirmText.trim().toUpperCase() !== "LÖSCHEN" &&
+                    deleteConfirmText.trim().toUpperCase() !== t("admin.deleteModal.confirmWord").toUpperCase()
+                  }
                   onClick={executeBulkDelete}
                   className="flex-1 h-10 bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-xs font-semibold text-xs active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center cursor-pointer"
                 >
-                  Unwiderruflich Löschen
+                  {t("admin.deleteModal.purgeSubmit")}
                 </button>
                 <button
                   type="button"
@@ -9965,7 +11545,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   }}
                   className="h-10 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center"
                 >
-                  Abbruch
+                  {t("admin.deleteModal.cancel")}
                 </button>
               </div>
             </div>
@@ -9986,18 +11566,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
           <div className="relative w-full md:max-w-md h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-10 text-left">
             {/* Header */}
             <div className="bg-slate-950 px-6 py-5 flex items-center justify-between text-white shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20 shrink-0">
-                  <i className="fa-solid fa-user-minus text-red-500"></i>
-                </div>
-                <div>
-                  <h3 className="font-black tracking-widest uppercase text-xs sm:text-sm">
-                    Mitglied löschen
-                  </h3>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
-                    Mitgliederverwaltung
-                  </p>
-                </div>
+              <div>
+                <h3 className="font-black tracking-widest uppercase text-xs sm:text-sm">
+                  {t("admin.users.deleteTitle")}
+                </h3>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                  {t("admin.users.deleteManageTitle")}
+                </p>
               </div>
               <button
                 type="button"
@@ -10018,7 +11593,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     Achtung: Unwiderruflich!
                   </h4>
                   <p className="text-[11px] text-red-700 font-semibold leading-relaxed mt-1">
-                    Sind Sie sicher, dass Sie dieses Mitglied dauerhaft löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.
+                    {t("admin.users.deleteConfirm")}
                   </p>
                 </div>
               </div>
@@ -10026,14 +11601,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               {/* Member Details */}
               <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Details zum Mitglied
+                  {t("admin.users.deleteMemberDetails")}
                 </h4>
 
                 <div className="bg-slate-50 border border-slate-200/50 rounded-xl p-4 space-y-4">
                   {/* Name */}
                   <div className="space-y-1">
                     <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Vollständiger Name
+                      {t("admin.users.colName")}
                     </span>
                     <span className="text-sm font-bold text-slate-800">
                       {userToDeleteConfirm.klarname || userToDeleteConfirm.name}
@@ -10043,7 +11618,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   {/* Username */}
                   <div className="space-y-1">
                     <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Benutzername (Login)
+                      {t("admin.users.fieldUsername")}
                     </span>
                     <span className="inline-block font-mono bg-slate-200 rounded px-2 py-0.5 text-[10px] font-black text-slate-700">
                       {userToDeleteConfirm.name}
@@ -10053,11 +11628,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   {/* Email */}
                   <div className="space-y-1">
                     <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      E-Mail-Adresse
+                      {t("admin.users.fieldEmail")}
                     </span>
                     <span className="text-xs font-semibold text-slate-700">
                       {userToDeleteConfirm.email || (
-                        <span className="italic text-slate-400">Keine E-Mail hinterlegt</span>
+                        <span className="italic text-slate-400">{t("admin.users.noEmail")}</span>
                       )}
                     </span>
                   </div>
@@ -10065,11 +11640,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   {/* Phone */}
                   <div className="space-y-1">
                     <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Telefonnummer
+                      {t("admin.users.fieldPhone")}
                     </span>
                     <span className="text-xs font-semibold text-slate-700">
                       {userToDeleteConfirm.phone || (
-                        <span className="italic text-slate-400">Keine Nummer hinterlegt</span>
+                        <span className="italic text-slate-400">{t("admin.users.noEmail")}</span>
                       )}
                     </span>
                   </div>
@@ -10077,7 +11652,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   {/* Role */}
                   <div className="space-y-1">
                     <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Rolle & Rechte
+                      {t("admin.users.fieldRole")}
                     </span>
                     <span className="inline-block text-xs font-bold text-slate-700 bg-slate-200/60 px-2 py-0.5 rounded-full capitalize">
                       {userToDeleteConfirm.role}
@@ -10088,28 +11663,28 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
               {/* Informative text */}
               <p className="text-xs text-slate-500 font-semibold leading-relaxed">
-                Nach dem Löschen wird der Login-Zugang für dieses Mitglied sofort gesperrt. Bereits getätigte Reservierungen bleiben zur Planungsstabilität unter neutralem Namen sichtbar.
+                {t("admin.users.deleteWarning")}
               </p>
             </div>
 
             {/* Bottom Actions Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex gap-3 shrink-0">
+            <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex shrink-0">
               <button
                 type="button"
-                onClick={() => setUserToDeleteConfirm(null)}
-                className="flex-1 py-3 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs uppercase tracking-widest transition-colors cursor-pointer text-center"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
+                disabled={isDeletingUser}
                 onClick={() => {
                   executeDeleteUser(userToDeleteConfirm);
-                  setUserToDeleteConfirm(null);
                 }}
-                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-md hover:shadow-lg transition-all active:scale-95 cursor-pointer text-center"
+                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold text-xs uppercase tracking-widest shadow-md hover:shadow-lg transition-all active:scale-95 cursor-pointer text-center disabled:opacity-50"
               >
-                Mitglied löschen
+                {isDeletingUser ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <i className="fa-solid fa-spinner animate-spin"></i>
+                    <span>Wird gelöscht...</span>
+                  </span>
+                ) : (
+                  t("admin.users.deleteSubmit")
+                )}
               </button>
             </div>
           </div>
@@ -10122,8 +11697,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
           <div className="border-none outline-none bg-white rounded-2xl shadow-sm max-w-4xl w-full -200/80 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-[var(--color-primary)] text-white p-6 flex justify-between items-center z-10 shadow-md">
               <h3 className="font-black tracking-widest uppercase text-lg flex items-center gap-3">
-                <i className="fa-solid fa-crop-simple"></i> Banner-Ausschnitt
-                wählen
+                <i className="fa-solid fa-crop-simple"></i> {t("admin.layout.bannerPositionTitle")}
               </h3>
               <button
                 type="button"
@@ -10158,15 +11732,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   "100% 100%",
                 ].map((pos) => {
                   const labelMap: Record<string, string> = {
-                    "0% 0%": "Oben Links",
-                    "50% 0%": "Oben Mitte",
-                    "100% 0%": "Oben Rechts",
-                    "0% 50%": "Mitte Links",
-                    "50% 50%": "Zentriert",
-                    "100% 50%": "Mitte Rechts",
-                    "0% 100%": "Unten Links",
-                    "50% 100%": "Unten Mitte",
-                    "100% 100%": "Unten Rechts",
+                    "0% 0%": t("admin.layout.posTopLeft"),
+                    "50% 0%": t("admin.layout.posTopCenter"),
+                    "100% 0%": t("admin.layout.posTopRight"),
+                    "0% 50%": t("admin.layout.posCenterLeft"),
+                    "50% 50%": t("admin.layout.posCenter"),
+                    "100% 50%": t("admin.layout.posCenterRight"),
+                    "0% 100%": t("admin.layout.posBottomLeft"),
+                    "50% 100%": t("admin.layout.posBottomCenter"),
+                    "100% 100%": t("admin.layout.posBottomRight"),
                   };
                   return (
                     <button
@@ -10185,7 +11759,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 onClick={() => setShowBannerPositionModal(false)}
                 className="w-full py-2.5 rounded-xl bg-[var(--color-accent-2)] text-white font-black uppercase tracking-widest shadow-md hover:bg-black transition-colors"
               >
-                Übernehmen
+                {t("admin.layout.bannerPositionApply")}
               </button>
             </div>
           </div>
@@ -10198,7 +11772,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             <h2 className="text-base font-black text-[#1b4332] uppercase tracking-tight flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <i className="fa-solid fa-user-shield text-amber-600"></i>
-                Ein Benutzer mit diesem Namen / dieser E-Mail existiert bereits im Ligasystem.
+                {t("admin.duplicateModal.title")}
               </span>
               <button
                 onClick={() => setDuplicateCandidatesModal(null)}
@@ -10209,7 +11783,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             </h2>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 leading-relaxed font-semibold">
-              Es wurde eine Übereinstimmung mit einem bestehenden Benutzerkonto gefunden. Zur Vermeidung von Duplikaten kannst du das bestehende Profil direkt mit deinem Verein verknüpfen.
+              {t("admin.duplicateModal.alert")}
             </div>
 
             <div className="space-y-3">
@@ -10224,14 +11798,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         {cand.firstName} {cand.lastName}
                       </h4>
                       <span className="text-[10px] text-slate-400 font-mono block">
-                        System-ID: {cand.personId}
+                        {t("admin.duplicateModal.systemId")} {cand.personId}
                       </span>
                     </div>
 
                     {cand.hasAdminInOtherClub && (
                       <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 border border-amber-300 rounded-lg text-amber-900 font-bold text-[10px]">
                         <i className="fa-solid fa-shield-halved text-amber-600"></i>
-                        <span>Hinweis: Dieser Benutzer ist in einem anderen Verein als Administrator registriert.</span>
+                        <span>{t("admin.duplicateModal.adminInOtherClub")}</span>
                       </div>
                     )}
                   </div>
@@ -10246,7 +11820,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           Role.MITGLIED
                         );
                         setMessage({
-                          text: `Bestehender Benutzer "${cand.firstName} ${cand.lastName}" wurde erfolgreich mit diesem Verein verknüpft (Standard-Rolle: Mitglied).`,
+                          text: t("admin.duplicateModal.linkSuccess", { name: `${cand.firstName} ${cand.lastName}` }),
                           type: "success",
                         });
                         setEditingUser({
@@ -10257,12 +11831,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           lastName: "",
                           email: "",
                           phone: "",
+                          showContactInfo: false,
+                          onboarding_pending: true,
                         });
                         setShowUserForm(false);
                         setDuplicateCandidatesModal(null);
                       } catch (err: any) {
                         setMessage({
-                          text: err.message || "Fehler beim Verknüpfen des Benutzers.",
+                          text: err.message || t("admin.duplicateModal.linkError"),
                           type: "error",
                         });
                       }
@@ -10270,7 +11846,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     className="w-full bg-[#1b4332] hover:bg-[#153326] text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <i className="fa-solid fa-link text-emerald-300"></i>
-                    Bestehenden Benutzer zum Verein einladen / verknüpfen (Empfohlen)
+                    {t("admin.duplicateModal.linkBtn")}
                   </button>
                 </div>
               ))}
@@ -10282,7 +11858,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 onClick={() => setDuplicateCandidatesModal(null)}
                 className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors border border-slate-200 cursor-pointer"
               >
-                Abbrechen
+                {t("admin.duplicateModal.cancel")}
               </button>
               <button
                 type="button"
@@ -10292,7 +11868,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 }}
                 className="flex-1 py-3 bg-slate-800 hover:bg-black text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-colors border border-slate-800 cursor-pointer"
               >
-                Trotzdem neues Profil anlegen
+                {t("admin.duplicateModal.createAnyway")}
               </button>
             </div>
           </div>
@@ -10328,17 +11904,17 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <div>
                   <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
                     {authMailModal.mode === "bulk"
-                      ? `Massen-Aktivierung: E-Mails an ${authMailModal.userIds?.length || 0} Mitglieder senden`
+                      ? t("admin.authMailModal.bulkTitle", { count: authMailModal.userIds?.length || 0 })
                       : authMailModal.type === "activation"
-                      ? "Aktivierungsmail senden"
-                      : "Passwortreset-Mail senden"}
+                      ? t("admin.authMailModal.activationTitle")
+                      : t("admin.authMailModal.resetTitle")}
                   </h3>
                   <p className="text-xs text-slate-600 font-medium mt-0.5">
                     {authMailModal.mode === "bulk"
-                      ? "Einwegtoken generieren und Einladungs-Mails mit Aktivierungslink zustellen."
+                      ? t("admin.authMailModal.bulkDesc")
                       : authMailModal.type === "activation"
-                      ? "Generiert einen sicheren Einwegtoken (24h) zur erstmaligen Passwortvergabe."
-                      : "Generiert einen sicheren Reset-Token (1h) zum Zurücksetzen des Passworts."}
+                      ? t("admin.authMailModal.activationDesc")
+                      : t("admin.authMailModal.resetDesc")}
                   </p>
                 </div>
               </div>
@@ -10371,7 +11947,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 return (
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      Empfänger
+                      {t("admin.authMailModal.recipients")}
                     </label>
                     <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
@@ -10384,12 +11960,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 u.role === Role.ADMIN ? "bg-[var(--color-accent)]" : "bg-slate-500"
                               }`}
                             >
-                              {u.role === Role.ADMIN ? "Admin" : "Mitglied"}
+                              {u.role === Role.ADMIN ? t("admin.authMailModal.adminRole") : t("admin.authMailModal.memberRole")}
                             </span>
                           </div>
                           <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
                             <span>
-                              Login:{" "}
+                              {t("admin.authMailModal.loginLabel")}{" "}
                               <span className="font-semibold text-slate-700 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
                                 {u.name}
                               </span>
@@ -10400,7 +11976,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 hasValidEmail ? "font-medium text-slate-700" : "text-rose-600 font-bold"
                               }
                             >
-                              {u.email || "[Keine E-Mail hinterlegt]"}
+                              {u.email || t("admin.authMailModal.noEmailSet")}
                             </span>
                           </div>
                         </div>
@@ -10419,11 +11995,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               isInvitedOrNeverLoggedIn ? "fa-clock" : "fa-check"
                             } text-[9px]`}
                           ></i>
-                          {isInvitedOrNeverLoggedIn ? "Noch nie eingeloggt / Eingeladen" : "Aktiv"}
+                          {isInvitedOrNeverLoggedIn ? t("admin.authMailModal.neverLoggedIn") : t("admin.authMailModal.active")}
                         </span>
                         {u.activationSentAt && (
                           <span className="text-[10px] text-slate-400 mt-1 block">
-                            Zuletzt gesendet: {new Date(u.activationSentAt).toLocaleDateString("de-DE")}
+                            {t("admin.authMailModal.lastSent", { date: new Date(u.activationSentAt).toLocaleDateString() })}
                           </span>
                         )}
                       </div>
@@ -10433,8 +12009,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2.5">
                         <i className="fa-solid fa-triangle-exclamation text-rose-600 text-sm shrink-0"></i>
                         <span>
-                          Für dieses Mitglied ist keine gültige E-Mail-Adresse hinterlegt. Bitte pflege die
-                          Adresse vor dem Versand in den Benutzerdaten ein.
+                          {t("admin.authMailModal.invalidEmailWarning")}
                         </span>
                       </div>
                     )}
@@ -10447,10 +12022,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      Empfänger ({authMailModal.userIds?.length || 0} ausgewählt)
+                      {t("admin.authMailModal.recipientsSelected", { count: authMailModal.userIds?.length || 0 })}
                     </label>
                     <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
-                      Massen-Aktivierung
+                      {t("admin.authMailModal.bulkBadge")}
                     </span>
                   </div>
                   <div className="max-h-40 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-2 divide-y divide-slate-100">
@@ -10476,7 +12051,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               hasValidEmail ? "text-slate-600 text-[11px]" : "text-rose-600 text-[11px] font-bold"
                             }
                           >
-                            {u.email || "[Keine E-Mail]"}
+                            {u.email || t("admin.authMailModal.noEmailSet")}
                           </span>
                         </div>
                       );
@@ -10489,7 +12064,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Verwendete Vorlage & Event
+                    {t("admin.authMailModal.templateTitle")}
                   </label>
                   <button
                     type="button"
@@ -10505,7 +12080,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         authMailModal.previewOpen ? "fa-eye-slash" : "fa-eye"
                       } text-[10px]`}
                     ></i>
-                    <span>{authMailModal.previewOpen ? "Vorschau schließen" : "Vorabansicht anzeigen"}</span>
+                    <span>{authMailModal.previewOpen ? t("admin.authMailModal.closePreview") : t("admin.authMailModal.showPreview")}</span>
                   </button>
                 </div>
 
@@ -10520,30 +12095,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <span className="font-extrabold text-sm text-slate-900">
                             {authMailModal.activeTemplate?.name ||
                               (authMailModal.type === "activation"
-                                ? "Standard Initiale Passwortvergabe"
-                                : "Standard Passwort zurücksetzen")}
+                                ? t("admin.authMailModal.defaultActivationTemplate")
+                                : t("admin.authMailModal.defaultResetTemplate"))}
                           </span>
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-600 bg-white border border-slate-200">
-                            System
+                            {t("admin.authMailModal.systemBadge")}
                           </span>
                         </div>
                         <span className="text-[11px] text-slate-500 font-medium block">
-                          Event:{" "}
+                          {t("admin.authMailModal.eventLabel")}{" "}
                           {authMailModal.type === "activation"
-                            ? "Initiale Passwortvergabe"
-                            : "Passwort zurücksetzen"}
+                            ? t("admin.authMailModal.eventActivation")
+                            : t("admin.authMailModal.eventReset")}
                         </span>
                       </div>
                     </div>
 
                     <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-xl bg-emerald-100/70 border border-emerald-200 text-emerald-900 text-xs font-bold">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                      <span>Aktiv zugewiesen</span>
+                      <span>{t("admin.authMailModal.activelyAssigned")}</span>
                     </div>
                   </div>
 
                   <div className="pt-2 border-t border-slate-200 text-xs text-slate-700 flex flex-col gap-1">
-                    <span className="text-[10px] font-bold uppercase text-slate-400">Betreffzeile:</span>
+                    <span className="text-[10px] font-bold uppercase text-slate-400">{t("admin.authMailModal.subjectLabel")}</span>
                     <span className="font-semibold text-slate-800 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200">
                       {authMailModal.activeTemplate?.subject ||
                         (authMailModal.type === "activation"
@@ -10556,13 +12131,13 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   <div className="flex items-center gap-2 text-[11px] text-slate-600 bg-white p-2 rounded-xl border border-slate-200">
                     <i className="fa-solid fa-link text-emerald-600 text-xs"></i>
                     <span>
-                      Dynamischer Token-Link:{" "}
+                      {t("admin.authMailModal.dynamicTokenNotice")}{" "}
                       <code className="font-mono text-emerald-800 font-bold bg-emerald-50 px-1 rounded">
                         {authMailModal.type === "activation"
                           ? "{{activation_link}}"
                           : "{{password_reset_link}}"}
                       </code>{" "}
-                      (Gültigkeit: {authMailModal.type === "activation" ? "24 Stunden" : "1 Stunde"})
+                      {authMailModal.type === "activation" ? t("admin.authMailModal.validity24h") : t("admin.authMailModal.validity1h")}
                     </span>
                   </div>
                 </div>
@@ -10571,7 +12146,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 {authMailModal.previewOpen && (
                   <div className="mt-3 bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-inner animate-in fade-in duration-150">
                     <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600 font-medium">
-                      <span>Vorabansicht der E-Mail (Beispiel-Empfänger)</span>
+                      <span>{t("admin.authMailModal.previewHeader")}</span>
                       <span className="text-[10px] font-bold text-slate-400 uppercase">HTML & Text</span>
                     </div>
                     <div className="p-4 max-h-72 overflow-y-auto bg-slate-50/50">
@@ -10582,7 +12157,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         />
                       ) : (
                         <div className="text-xs text-slate-600 whitespace-pre-wrap font-sans">
-                          {authMailPreview?.text || "Vorschau wird geladen..."}
+                          {authMailPreview?.text || t("admin.authMailModal.loadingPreview")}
                         </div>
                       )}
                     </div>
@@ -10599,7 +12174,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 disabled={authMailModal.loading}
                 className="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
               >
-                Abbrechen
+                {t("admin.authMailModal.cancel")}
               </button>
               <button
                 type="button"
@@ -10622,7 +12197,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 {authMailModal.loading ? (
                   <>
                     <i className="fa-solid fa-spinner fa-spin text-sm"></i>
-                    <span>Wird versendet...</span>
+                    <span>{t("admin.authMailModal.sending")}</span>
                   </>
                 ) : (
                   <>
@@ -10633,8 +12208,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     ></i>
                     <span>
                       {authMailModal.mode === "bulk"
-                        ? `Jetzt an ${authMailModal.userIds?.length || 0} Mitglieder senden`
-                        : "Jetzt senden"}
+                        ? t("admin.authMailModal.sendBulkSubmit", { count: authMailModal.userIds?.length || 0 })
+                        : t("admin.authMailModal.sendSingleSubmit")}
                     </span>
                   </>
                 )}

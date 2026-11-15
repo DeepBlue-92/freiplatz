@@ -1,11 +1,13 @@
 import type { UserNotificationSettings } from "./types/notifications";
 
-export enum Role {
-  ADMIN = "admin",
-  USER = "mitglied",
-  MITGLIED = "mitglied",
-  SUPER_ADMIN = "super-admin",
-}
+export const Role = {
+  ADMIN: "admin",
+  USER: "mitglied",
+  MITGLIED: "mitglied",
+  SUPER_ADMIN: "super-admin",
+} as const;
+
+export type Role = (typeof Role)[keyof typeof Role];
 
 export type Gender = "m" | "w"; // m = Herren, w = Damen
 
@@ -60,6 +62,7 @@ export interface Person {
   avatarColor?: string | null; // Freie Farbwahl für Icon-Avatar (z.B. "#1b4332", "#2563eb")
   onboarding_pending?: boolean; // Indicates if member onboarding is required
   onboardingPending?: boolean; // CamelCase alias for onboarding_pending
+  language?: "de" | "en"; // Bevorzugte Benutzersprache ('de' oder 'en')
   showAiAssistant?: boolean; // Clubassistent ('Ace') aktivieren (Default: true)
   has_seen_ace_welcome?: boolean; // Whether the user has seen the Ace welcome callout bubble
   notification_settings?: UserNotificationSettings; // Notification event subscriptions
@@ -74,6 +77,8 @@ export interface Person {
   passwordResetSentAt?: string | null;
   passwordResetToken?: string | null;
   passwordResetTokenExpiresAt?: string | null;
+  status?: string; // 'active' | 'inactive' | 'blocked'
+  partnerStats?: { [year: string]: { [partnerUserId: string]: number } }; // Jahresbezogene Buchungshäufigkeiten von Spielpartnern
 }
 
 export type OnboardingFieldPermission = "HIDDEN" | "READ_ONLY" | "EDITABLE";
@@ -114,6 +119,14 @@ export interface Mitgliedschaft {
   createdAt?: string;
 }
 
+export interface EquipmentResource {
+  id: string;
+  nameKey: string;
+  name?: string;
+  icon?: string;
+  descriptionKey?: string;
+}
+
 export interface Booking {
   id: string;
   date: string;
@@ -124,17 +137,24 @@ export interface Booking {
   isEvent?: boolean;
   reason?: string;
   guestCount?: number;
+  adultGuestCount?: number;
+  youthGuestCount?: number;
   guestFeePaid?: boolean;
   isPaid?: boolean;
+  paidDate?: string | null;
   createdBy?: string;
   bookedBy?: string;
   userId?: string;
   editingBookingId?: string;
   actionPerformedBy?: string;
   impersonatedBy?: string;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
   color?: string;
   hasBallMachine?: boolean;
+  selectedResourceIds?: string[];
   parentLockId?: string;
+  lockGroupId?: string;
   comment?: string;
   group_token?: string;
   parentBookingId?: string;
@@ -192,6 +212,22 @@ export interface RankingState {
   viewMode?: "pyramid" | "list";
 }
 
+export interface TournamentProposedDate {
+  id: string;
+  date: string;       // YYYY-MM-DD
+  startTime: string;  // HH:mm
+  endTime?: string;    // HH:mm
+}
+
+export type PollVoteStatus = "yes" | "maybe" | "no";
+
+export interface TournamentPollVote {
+  userId: string;
+  userName: string;
+  votes: Record<string, PollVoteStatus>; // dateId -> status
+  updatedAt?: string;
+}
+
 export interface Tournament {
   id: string;
   title: string;
@@ -211,6 +247,19 @@ export interface Tournament {
   deletedAt?: string | null;
   auditLog?: any[];
   registrationComments?: Record<string, string>;
+  isPoll?: boolean;
+  pollStatus?: "open" | "finalized";
+  allowMaybe?: boolean;
+  proposedDates?: TournamentProposedDate[];
+  pollVotes?: Record<string, TournamentPollVote>;
+  finalizedDateId?: string | null;
+}
+
+export interface ArbeitsEinsatzAuditEntry {
+  timestamp: string;
+  userId: string;
+  userName?: string;
+  action: string;
 }
 
 export interface ArbeitsEinsatz {
@@ -224,6 +273,8 @@ export interface ArbeitsEinsatz {
   userFullName: string;
   createdBy: string;
   createdAt: string;
+  coWorkers?: string[];
+  auditLog?: ArbeitsEinsatzAuditEntry[];
 }
 
 export interface PlannedWorkShift {
@@ -351,12 +402,21 @@ export type FeeCalculationMode = 'SIMPLE' | 'ADVANCED';
 export interface RuleAction {
   type: 'PER_COURT_HOUR' | 'PER_GUEST' | 'PER_GUEST_HOUR' | 'FREE';
   amount_cents: number;
+  youth_amount_cents?: number | null; // Optional abweichender Tarif für jugendliche Gäste (in Cents)
 }
 
 export interface ConditionRow {
   id: string;
   logicOperator?: 'AND' | 'OR'; // Row-level operator for row 2+ (default 'AND')
-  field: 'anzahl_gaeste' | 'anzahl_mitglieder' | 'anzahl_gesamt' | 'dauer_minuten';
+  field:
+    | 'anzahl_gaeste'
+    | 'anzahl_erwachsene_gaeste'
+    | 'anzahl_jugendliche_gaeste'
+    | 'anzahl_jugendliche_gesamt'
+    | 'anzahl_mitglieder'
+    | 'anzahl_gesamt'
+    | 'anzahl_slots'
+    | 'dauer_minuten';
   operator: 'EQUALS' | 'NOT_EQUALS' | 'GREATER_THAN_EQUAL' | 'LESS_THAN_EQUAL' | 'GREATER_THAN' | 'LESS_THAN';
   value: number | null;
 }
@@ -372,25 +432,32 @@ export interface AdvancedRule {
 
 export interface ClubFeeSettings {
   fee_calculation_mode: FeeCalculationMode; // Default: 'SIMPLE'
+  youth_age_threshold?: number; // Altersgrenze (Standard: 18). Personen jünger als dieser Wert zählen als Kinder/Jugendliche
   
-  // Existing simple mode configuration (preserve untouched!)
+  // Simple mode configuration
   simple_config?: {
     rate_type: 'PER_COURT_HOUR' | 'PER_GUEST' | 'PER_GUEST_HOUR';
     amount_cents: number;
+    youth_amount_cents?: number | null;
   };
 
   // New advanced mode configuration
   advanced_config?: {
     rules: AdvancedRule[];
-    default_rule: RuleAction; // Standard-Regel (Greift, wenn keine obige Regel zutrifft)
+    default_rule: RuleAction; // Standardregel (Greift, wenn keine obige Regel zutrifft)
   };
 }
 
 export interface BookingFeeContext {
   anzahl_gaeste: number;
+  anzahl_erwachsene_gaeste?: number;
+  anzahl_jugendliche_gaeste?: number;
+  anzahl_jugendliche_mitglieder?: number;
+  anzahl_jugendliche_gesamt?: number;
   anzahl_mitglieder: number;
   anzahl_gesamt: number;
   dauer_minuten: number;
+  anzahl_slots?: number;
 }
 
 export interface BookingFeeCalculationResult {
@@ -403,10 +470,16 @@ export interface BookingFeeCalculationResult {
   ratePerUnitEuro: number;
   unitLabel: string;
   description: string;
+  appliedRateText?: string;
+  ruleSentence?: string; // Human-readable natural language rule explanation
 }
 
 export interface GlobalSystemSettings {
   chatbotEnabled?: boolean;
+  leagueTitle?: string;
+  leagueSubtitle?: string;
+  leagueBannerUrl?: string;
+  leagueBannerPosition?: string;
   lastUpdated?: string;
   updatedBy?: string;
 }
@@ -428,11 +501,14 @@ export interface BentoItem {
   content: string; // Rich Text (formatted text/markdown/paragraphs)
   default_view?: "day" | "week"; // For worklet_courts
   eyebrow?: string; // Optional custom eyebrow badge (e.g. "GUTEN ABEND,")
-  image_url?: string; // For hero_banner (direct image web URL)
+  image_url?: string; // For hero_banner and rich_text (direct image web URL)
+  image_position_x?: number; // Focal point X percentage (0-100, default 50)
+  image_position_y?: number; // Focal point Y percentage (0-100, default 50)
+  image_scale?: number; // Image zoom percentage (100-250, default 100)
   bg_color_start?: string; // For hero_banner (left background color hex)
   bg_color_end?: string; // For hero_banner (gradient transition color hex)
-  cta_text?: string; // For hero_banner (optional button label)
-  cta_link?: string; // For hero_banner (optional button link / view)
+  cta_text?: string; // For hero_banner & rich_text (optional button label)
+  cta_link?: string; // For hero_banner & rich_text (optional button link / view)
   city?: string; // For worklet_weather
   latitude?: number; // For worklet_weather
   longitude?: number; // For worklet_weather

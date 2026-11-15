@@ -6,7 +6,7 @@ import {
   Gender,
   ClubOnboardingSettings,
 } from "../types";
-import { saveUser, ClubSettings } from "../services/db";
+import { saveUser, ClubSettings, DEFAULT_SETTINGS } from "../services/db";
 import { OnboardingHero } from "./onboarding/OnboardingHero";
 import { OnboardingBentoCards } from "./onboarding/OnboardingBentoCards";
 import { AlertCircle, ArrowRight } from "lucide-react";
@@ -15,6 +15,8 @@ interface MemberOnboardingModalProps {
   currentUser: User;
   settings: ClubSettings;
   currentClubId: string;
+  logoUrl?: string | null;
+  clubName?: string;
   onSuccess: (updatedUser: User) => void;
   onClose?: () => void;
 }
@@ -23,9 +25,82 @@ export const MemberOnboardingModal: React.FC<MemberOnboardingModalProps> = ({
   currentUser,
   settings,
   currentClubId,
+  logoUrl,
+  clubName,
   onSuccess,
   onClose,
 }) => {
+  const activeLogoUrl = React.useMemo(() => {
+    // 1. Explicitly passed logoUrl
+    if (logoUrl) return logoUrl;
+
+    const isNeuhausen = (currentClubId || "").toLowerCase().includes("neuhausen");
+
+    // 2. Settings attached to modal
+    const explicitLogo =
+      settings.customHeaderLogoUrl ||
+      settings.headerLogoUrl ||
+      settings.customLogoUrl ||
+      settings.logoUrl;
+    if (explicitLogo && (isNeuhausen || explicitLogo !== DEFAULT_SETTINGS.logoUrl)) {
+      return explicitLogo;
+    }
+
+    // 3. User's clubs (match by active tenant currentClubId, NEVER by default/first club)
+    if (currentUser?.clubs && Array.isArray(currentUser.clubs)) {
+      const normalizedCurrent = (currentClubId || "").toLowerCase().replace(/\s/g, "");
+      const matchedClub = currentUser.clubs.find((c: any) => {
+        const cId = (c.vereinsId || c.id || c.clubId || "").toLowerCase().replace(/\s/g, "");
+        return cId === normalizedCurrent;
+      });
+      if (matchedClub) {
+        const l =
+          (matchedClub as any).customHeaderLogoUrl ||
+          (matchedClub as any).headerLogoUrl ||
+          (matchedClub as any).customLogoUrl ||
+          matchedClub.logoUrl;
+        if (l) return l;
+      }
+    }
+
+    // 4. Cached target or badge for current tenant
+    try {
+      const switchingTargetStr = localStorage.getItem("v2_switching_target_club");
+      if (switchingTargetStr) {
+        const parsed = JSON.parse(switchingTargetStr);
+        if (parsed?.vereinsId === currentClubId && parsed.logoUrl) {
+          return parsed.logoUrl;
+        }
+      }
+      const cachedBadgeStr = localStorage.getItem(`v2_club_badge_${currentClubId}`);
+      if (cachedBadgeStr) {
+        const cached = JSON.parse(cachedBadgeStr);
+        if (cached?.logoUrl) return cached.logoUrl;
+      }
+      const clubsCacheStr = localStorage.getItem("v2_clubs_cache");
+      if (clubsCacheStr) {
+        const clubs = JSON.parse(clubsCacheStr);
+        const match = clubs.find(
+          (c: any) =>
+            (c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, "") ===
+            (currentClubId || "").toLowerCase().replace(/\s/g, "")
+        );
+        const l =
+          match?.customHeaderLogoUrl ||
+          match?.headerLogoUrl ||
+          match?.customLogoUrl ||
+          match?.logoUrl;
+        if (l) return l;
+      }
+    } catch {}
+
+    // 5. Fallback for Neuhausen or explicit fallback
+    if (isNeuhausen) {
+      return DEFAULT_SETTINGS.logoUrl;
+    }
+
+    return explicitLogo || null;
+  }, [logoUrl, settings, currentClubId, currentUser]);
   const onboardingConfig: ClubOnboardingSettings = settings.club_onboarding_settings || {
     enable_onboarding: false,
     auto_enable_for_new_users: true,
@@ -173,6 +248,7 @@ export const MemberOnboardingModal: React.FC<MemberOnboardingModalProps> = ({
           : {}),
         // By confirming, onboarding is marked as completed
         onboarding_pending: false,
+        onboardingPending: false,
       };
 
       await saveUser(currentClubId, updatedUser);
@@ -211,7 +287,7 @@ export const MemberOnboardingModal: React.FC<MemberOnboardingModalProps> = ({
         exit={{ opacity: 0, scale: 0.95, y: 14 }}
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         id="member-onboarding-modal"
-        className="w-full md:max-w-4xl lg:max-w-5xl bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden my-auto flex flex-col max-h-[95vh] md:max-h-[90vh]"
+        className="w-full md:max-w-4xl lg:max-w-5xl bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden my-auto flex flex-col max-h-[95vh] md:max-h-[90vh] md:min-h-[580px]"
       >
         <div className="flex flex-col md:grid md:grid-cols-12 md:gap-7 lg:gap-8 items-stretch p-4 sm:p-6 lg:p-7 overflow-y-auto md:overflow-hidden h-full">
           {/* LEFT COLUMN (Hero / Welcome - md:col-span-5) */}
@@ -221,6 +297,8 @@ export const MemberOnboardingModal: React.FC<MemberOnboardingModalProps> = ({
               welcomeDescription={onboardingConfig.welcome_description}
               primaryColor={primaryColor}
               showAnimation={true}
+              logoUrl={activeLogoUrl}
+              clubName={clubName || settings.clubName}
             />
           </div>
 

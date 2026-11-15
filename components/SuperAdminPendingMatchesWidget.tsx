@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { recalculateLeaguePointsFrom } from '../services/league';
 import { formatRelativeDate } from '../utils/date';
 import { resolveClubName } from '../services/clubHelper';
+import { useTranslation } from 'react-i18next';
 
 export interface SuperAdminPendingMatchesWidgetProps {
   allMatches: LeagueMatch[];
@@ -18,6 +19,7 @@ export default function SuperAdminPendingMatchesWidget({
   allPersons,
   currentUser,
 }: SuperAdminPendingMatchesWidgetProps) {
+  const { t } = useTranslation();
   const [selectedMatch, setSelectedMatch] = useState<LeagueMatch | null>(null);
   const [cancellingMatch, setCancellingMatch] = useState<LeagueMatch | null>(null);
 
@@ -51,14 +53,11 @@ export default function SuperAdminPendingMatchesWidget({
             <i className="fa-solid fa-triangle-exclamation"></i>
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
-              Offene Ergebnis-Eingaben
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                {pendingMatches.length}
-              </span>
+            <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+              {t("superadmin.pendingScoresTitle")}
             </h2>
             <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5">
-              Spiele, deren Termin bereits in der Vergangenheit liegt, für die aber noch kein Ergebnis eingetragen wurde.
+              {t("superadmin.pendingScoresSubtitle")}
             </p>
           </div>
         </div>
@@ -68,11 +67,11 @@ export default function SuperAdminPendingMatchesWidget({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-200 text-slate-500 text-[10px] uppercase tracking-widest font-black">
-              <th className="py-2.5 px-3">Status</th>
-              <th className="py-2.5 px-3">Termin</th>
-              <th className="py-2.5 px-3">Spieler 1</th>
-              <th className="py-2.5 px-3">Spieler 2</th>
-              <th className="py-2.5 px-3 text-right">Aktionen</th>
+              <th className="py-2.5 px-3">{t("superadmin.colStatusBadge")}</th>
+              <th className="py-2.5 px-3">{t("superadmin.colMatchDate", "Termin")}</th>
+              <th className="py-2.5 px-3">{t("superadmin.colPlayer1", "Spieler 1")}</th>
+              <th className="py-2.5 px-3">{t("superadmin.colPlayer2", "Spieler 2")}</th>
+              <th className="py-2.5 px-3 text-right">{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody className="text-xs font-semibold text-slate-700">
@@ -90,21 +89,21 @@ export default function SuperAdminPendingMatchesWidget({
                   <td className="py-3 px-3">
                     {isOlderThan24h ? (
                       <span className="text-[9px] px-2 py-0.5 bg-rose-100 text-rose-700 rounded-full uppercase font-black border border-rose-200">
-                        &gt; 24H ÜBERFÄLLIG
+                        {t("superadmin.matchOverdue", "> 24H ÜBERFÄLLIG")}
                       </span>
                     ) : (
                       <span className="text-[9px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full uppercase font-black border border-amber-200">
-                        OFFEN
+                        {t("superadmin.matchOpen", "OFFEN")}
                       </span>
                     )}
                   </td>
                   <td className="py-3 px-3">
                     <span className="flex flex-col">
                       <span className="font-bold text-slate-800">
-                        {match.scheduledDate ? formatRelativeDate(match.scheduledDate) : 'Unbekannt'}
+                        {match.scheduledDate ? formatRelativeDate(match.scheduledDate) : t("superadmin.unknown", "Unbekannt")}
                       </span>
                       <span className="text-[10px] text-slate-500">
-                        {match.scheduledStartTime || '00:00'} Uhr
+                        {match.scheduledStartTime || '00:00'} {t("superadmin.timeOClock", "Uhr")}
                       </span>
                     </span>
                   </td>
@@ -114,15 +113,15 @@ export default function SuperAdminPendingMatchesWidget({
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => setCancellingMatch(match)}
-                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-lg border border-rose-200 transition-colors"
+                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-lg border border-rose-200 transition-colors cursor-pointer"
                       >
-                        Stornieren
+                        {t("superadmin.matchCancel", "Stornieren")}
                       </button>
                       <button
                         onClick={() => setSelectedMatch(match)}
-                        className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 text-[10px] font-black uppercase tracking-wider rounded-lg border border-slate-200 hover:border-emerald-200 transition-colors"
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 text-[10px] font-black uppercase tracking-wider rounded-lg border border-slate-200 hover:border-emerald-200 transition-colors cursor-pointer"
                       >
-                        Ergebnis eintragen
+                        {t("superadmin.matchEnterResult", "Ergebnis eintragen")}
                       </button>
                     </div>
                   </td>

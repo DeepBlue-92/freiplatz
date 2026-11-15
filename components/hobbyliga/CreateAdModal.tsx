@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { Users } from 'lucide-react';
 import { User, LeaguePartnerSearch } from '../../types';
 
 interface CreateAdModalProps {
@@ -19,6 +21,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
   onSave,
   onDelete,
 }) => {
+  const { t } = useTranslation();
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
@@ -86,7 +89,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!availabilityText.trim()) {
-      setError('Bitte gib deine Verfügbarkeit an.');
+      setError(t('spielpartner.modal.errorAvailability', 'Bitte gib deine Verfügbarkeit an.'));
       return;
     }
     setError(null);
@@ -96,7 +99,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
       handleClose();
     } catch (err) {
       console.error(err);
-      setError('Fehler beim Speichern der Anzeige.');
+      setError(t('spielpartner.modal.errorSave', 'Fehler beim Speichern der Anzeige.'));
     } finally {
       setSaving(false);
     }
@@ -114,7 +117,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
       handleClose();
     } catch (err) {
       console.error(err);
-      setError('Fehler beim Löschen der Anzeige.');
+      setError(t('spielpartner.modal.errorDelete', 'Fehler beim Löschen der Anzeige.'));
     } finally {
       setDeleting(false);
     }
@@ -163,27 +166,30 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
           </div>
 
           <div className="relative z-10">
-            <div className="flex items-center gap-2 text-white/80 text-[10px] font-black uppercase tracking-widest mb-1">
-              <i className="fa-solid fa-bullhorn text-amber-300"></i>
-              <span>Hobbyliga Schwarzes Brett</span>
-            </div>
-            <h3 className="text-xl font-black tracking-tight leading-tight">
-              {existingSearch ? 'Anzeige bearbeiten' : 'Anzeige aufgeben'}
+            <h3 className="text-xl font-bold uppercase tracking-tight leading-none mb-1 text-white">
+              {existingSearch
+                ? t('spielpartner.modal.editTitle', 'Anzeige bearbeiten')
+                : t('spielpartner.modal.createTitle', 'Anzeige aufgeben')}
             </h3>
+            <p className="text-[11px] font-bold text-white/90 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 opacity-80" />
+              <span>{t('spielpartner.modal.subtitle', 'Spielpartner suchen')}</span>
+            </p>
           </div>
 
           <button
+            type="button"
             onClick={handleClose}
-            className="text-white/80 hover:text-white transition-colors bg-white/10 hover:bg-white/20 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm shrink-0 relative z-10 text-base font-medium"
-            title="Schließen"
+            className="text-white/80 hover:text-white transition-colors bg-white/10 hover:bg-white/20 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm shrink-0 relative z-10 text-base font-medium cursor-pointer"
+            title={t('common.close', 'Schließen')}
           >
             <i className="fa-solid fa-xmark"></i>
           </button>
         </div>
 
         {/* Content Form Area */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 text-slate-700 flex flex-col justify-between">
-          <div className="space-y-6">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col justify-between overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 text-slate-700">
             {error && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-bold flex items-center gap-2 animate-pulse">
                 <i className="fa-solid fa-circle-exclamation text-rose-500 text-base"></i>
@@ -194,33 +200,33 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
             {/* Availability Text */}
             <div className="space-y-1.5">
               <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
-                Wann passt es dir normalerweise? <span className="text-rose-500">*</span>
+                {t('spielpartner.modal.availabilityLabel', 'Wann passt es dir normalerweise?')} <span className="text-rose-500">*</span>
               </label>
               <textarea
-                rows={4}
+                rows={10}
                 value={availabilityText}
                 onChange={(e) => setAvailabilityText(e.target.value)}
-                placeholder="z. B. Meistens Samstagvormittag oder unter der Woche ab 18 Uhr."
-                className="w-full h-8 px-3 py-1 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 transition resize-none placeholder:font-normal placeholder:text-slate-400 font-sans font-medium"
+                placeholder={t('spielpartner.modal.availabilityPlaceholder', 'z. B. Meistens Samstagvormittag oder unter der Woche ab 18 Uhr. Gerne auch für regelmäßiges Training oder lockere Doppel.')}
+                className="w-full p-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 transition resize-y placeholder:font-normal placeholder:text-slate-400 font-sans font-medium min-h-[200px]"
                 required
               />
               <p className="text-[11px] font-medium text-slate-400">
-                Beschreibe deine zeitliche Flexibilität oder gewünschte Spieltage.
+                {t('spielpartner.modal.availabilityHelp', 'Beschreibe deine zeitliche Flexibilität oder gewünschte Spieltage.')}
               </p>
             </div>
 
             {/* Expiration Date */}
             <div className="space-y-2">
               <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
-                Sichtbar bis (Ablaufdatum)
+                {t('spielpartner.modal.expiryLabel', 'Sichtbar bis (Ablaufdatum)')}
               </label>
               
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
-                  { days: 7, label: '7 Tage' },
-                  { days: 14, label: '14 Tage' },
-                  { days: 30, label: '30 Tage' },
-                  { days: 36500, label: 'Unbegrenzt' },
+                  { days: 7, label: t('spielpartner.modal.days7', '7 Tage') },
+                  { days: 14, label: t('spielpartner.modal.days14', '14 Tage') },
+                  { days: 30, label: t('spielpartner.modal.days30', '30 Tage') },
+                  { days: 36500, label: t('spielpartner.modal.unlimited', 'Unbegrenzt') },
                 ].map((p) => {
                   const isSelected =
                     (presetDays === p.days) ||
@@ -231,7 +237,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
                       key={p.days}
                       type="button"
                       onClick={() => handleApplyPreset(p.days)}
-                      className={`py-2 px-2.5 text-xs font-bold rounded-xl border transition ${
+                      className={`py-2 px-2.5 text-xs font-bold rounded-xl border transition cursor-pointer ${
                         isSelected
                           ? 'border-[var(--color-primary)] bg-emerald-50 text-[var(--color-primary)] font-black shadow-sm'
                           : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
@@ -246,7 +252,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
               {isUnlimited(expiresAt) ? (
                 <div className="h-8 px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-sans font-medium">
                   <i className="fa-solid fa-infinity text-[var(--color-primary)] text-sm" />
-                  <span>Daueranzeige aktiv (kein verfallsdatum)</span>
+                  <span>{t('spielpartner.modal.permanentAd', 'Daueranzeige aktiv (kein Verfallsdatum)')}</span>
                 </div>
               ) : (
                 <input
@@ -261,7 +267,7 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
                 />
               )}
               <p className="text-[11px] font-medium text-slate-400">
-                Anzeigen verschwinden nach dem Ablaufdatum automatisch oder können verlängert werden.
+                {t('spielpartner.modal.expiryHelp', 'Anzeigen verschwinden nach dem Ablaufdatum automatisch oder können verlängert werden.')}
               </p>
             </div>
 
@@ -269,7 +275,9 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
             <div className="space-y-1.5 p-3 bg-slate-50 border border-slate-200 rounded-xl">
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <div className="relative flex items-center justify-center mt-0.5">
-                  <input className="sr-only peer placeholder: placeholder: placeholder: font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
                     checked={showContactInfo}
                     onChange={(e) => setShowContactInfo(e.target.checked)}
                   />
@@ -278,82 +286,78 @@ export const CreateAdModal: React.FC<CreateAdModalProps> = ({
                 </div>
                 <div className="flex-1">
                   <span className="block text-sm font-bold text-slate-800 leading-snug">
-                    Meine Kontaktdaten (Telefon & E-Mail) in dieser Anzeige für Matchabsprachen anzeigen
+                    {t('spielpartner.modal.showContactLabel', 'Meine Kontaktdaten (Telefon & E-Mail) in dieser Anzeige für Matchabsprachen anzeigen')}
                   </span>
                   <p className="text-[11px] font-medium text-slate-500 mt-1">
-                    Wenn aktiviert, sehen andere Spieler direkt deine Kontaktinfos in der Anzeige. 
-                    Diese Einstellung wird in deinem Profil gespeichert.
+                    {t('spielpartner.modal.showContactHelp', 'Wenn aktiviert, sehen andere Spieler direkt deine Kontaktinfos in der Anzeige. Diese Einstellung wird in deinem Profil gespeichert.')}
                   </p>
                 </div>
               </label>
             </div>
           </div>
 
-          {/* Bottom Action Footer */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3 mt-auto">
-            {existingSearch && onDelete ? (
-              confirmDelete ? (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="px-3.5 py-2 text-xs font-black text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition flex items-center gap-1.5 shadow-sm"
-                  >
-                    {deleting ? (
-                      <i className="fa-solid fa-spinner fa-spin" />
-                    ) : (
-                      <i className="fa-solid fa-trash-can" />
-                    )}
-                    Ja, löschen
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDelete(false)}
-                    className="px-2.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
-                  >
-                    Abbrechen
-                  </button>
-                </div>
-              ) : (
+          {/* Fixed Bottom Action Footer */}
+          <div className="px-5 py-4 border-t-2 border-slate-200 bg-slate-50 shrink-0 shadow-[0_-4px_15px_-5px_rgba(0,0,0,0.05)] z-10">
+            {existingSearch && onDelete && confirmDelete ? (
+              <div className="flex items-center gap-2 w-full">
                 <button
                   type="button"
-                  onClick={() => setConfirmDelete(true)}
-                  className="px-4 py-2.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition flex items-center gap-1.5"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 h-10 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm uppercase tracking-wider active:scale-95 cursor-pointer"
                 >
-                  <i className="fa-solid fa-trash"></i>
-                  Löschen
+                  {deleting ? (
+                    <i className="fa-solid fa-spinner fa-spin text-[11px]" />
+                  ) : (
+                    <i className="fa-solid fa-trash-can text-[11px]" />
+                  )}
+                  {t('spielpartner.modal.confirmDelete', 'Ja, löschen')}
                 </button>
-              )
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="px-4 h-10 text-xs font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition uppercase tracking-wider active:scale-95 cursor-pointer"
+                >
+                  {t('common.cancel', 'Abbrechen')}
+                </button>
+              </div>
             ) : (
-              <div></div>
-            )}
+              <div className="flex gap-2 w-full">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="w-full text-white rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest flex items-center justify-center gap-2 h-10 text-sm font-semibold hover:brightness-95 disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: 'var(--color-primary)' }}
+                >
+                  {saving ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin text-[12px]"></i>
+                      <span>{t('spielpartner.modal.saving', 'Speichern...')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className={`fa-solid ${existingSearch ? 'fa-floppy-disk' : 'fa-check-circle'} text-[12px]`}></i>
+                      <span>
+                        {existingSearch
+                          ? t('spielpartner.modal.save', 'Speichern')
+                          : t('spielpartner.modal.publish', 'Veröffentlichen')}
+                      </span>
+                    </>
+                  )}
+                </button>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-[var(--color-primary)] hover:bg-opacity-90 rounded-xl transition shadow-sm flex items-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <i className="fa-solid fa-spinner fa-spin"></i> Speichern...
-                  </>
-                ) : (
-                  <>
-                    <i className="fa-solid fa-check"></i>
-                    {existingSearch ? 'Speichern' : 'Veröffentlichen'}
-                  </>
+                {existingSearch && onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="px-4 shrink-0 bg-red-600 hover:bg-red-700 text-white font-black py-2.5 rounded-xl shadow-md transition-transform active:scale-95 uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5 cursor-pointer"
+                    title={t('spielpartner.modal.deleteAdTitle', 'Anzeige löschen')}
+                  >
+                    <i className="fa-solid fa-trash-can text-[11px]"></i>
+                  </button>
                 )}
-              </button>
-            </div>
+              </div>
+            )}
           </div>
         </form>
       </div>

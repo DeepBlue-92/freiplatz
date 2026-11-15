@@ -77,17 +77,10 @@ export const WorkletChampionship: React.FC<WorkletChampionshipProps> = ({
     <div className="flex flex-col justify-between h-auto w-full">
       <div>
         {/* Worklet Header */}
-        <div className="flex items-center justify-between pb-3.5 mb-3.5 border-b border-slate-100 gap-2">
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-slate-900 tracking-tight truncate">
-              {item.title || "Vereinsmeisterschaft"}
-            </h3>
-          </div>
-          {activeTournament && (
-            <span className="text-[10px] font-bold uppercase text-[var(--color-primary)] bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full shrink-0 truncate max-w-[140px] mt-0.5">
-              {activeTournament.title}
-            </span>
-          )}
+        <div className="pb-3.5 mb-3.5 border-b border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-900 tracking-tight truncate">
+            {item.title || "Vereinsmeisterschaft"}
+          </h3>
         </div>
 
         {/* Content */}
@@ -113,38 +106,22 @@ export const WorkletChampionship: React.FC<WorkletChampionshipProps> = ({
               const isCompleted = m.status === "completed" || m.status === "walkover" || !!m.result;
               const isP1Winner = isCompleted && m.result?.winnerParticipantId === m.participant1Id;
               const isP2Winner = isCompleted && m.result?.winnerParticipantId === m.participant2Id;
-
-              const formatScore = (res = m.result) => {
-                if (!res) return null;
-                if (res.isWalkover) return "w/o";
-                return (res.sets || []).map((s) => `${s.player1Games}:${s.player2Games}`).join(", ");
-              };
-
-              const scoreStr = formatScore();
+              const sets = m.result?.sets || [];
 
               return (
                 <div
                   key={m.id}
                   className="bg-slate-50/80 rounded-xl border border-slate-200/80 p-3 flex flex-col gap-2 shadow-2xs"
                 >
-                  {/* Round & Status Bar */}
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="font-black uppercase tracking-wider text-[var(--color-primary)] flex items-center gap-1">
-                      <Trophy className="w-3 h-3 text-amber-500" />
+                  {/* Round Bar */}
+                  <div className="flex items-center text-[10px]">
+                    <span className="font-black uppercase tracking-wider text-[var(--color-primary)] flex items-center gap-1.5">
+                      <Trophy className="w-3.5 h-3.5 text-amber-500" />
                       <span>{m.roundLabel || "Match"}</span>
-                    </span>
-                    <span
-                      className={`font-bold px-1.5 py-0.2 rounded text-[9px] uppercase tracking-wider ${
-                        isCompleted
-                          ? "bg-slate-200 text-slate-700"
-                          : "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                      }`}
-                    >
-                      {isCompleted ? "Beendet" : "Ausstehend"}
                     </span>
                   </div>
 
-                  {/* Players / Pairing Card */}
+                  {/* Players / Pairing Card with Inline Scores */}
                   <div className="space-y-1">
                     {/* Player 1 */}
                     <div
@@ -154,15 +131,30 @@ export const WorkletChampionship: React.FC<WorkletChampionshipProps> = ({
                           : "bg-white/70 border-slate-200/80 text-slate-700"
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 truncate">
+                      <div className="flex items-center gap-1.5 truncate mr-2">
                         {isP1Winner && <Medal className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                         <span className="truncate">{p1Name}</span>
                       </div>
-                      {scoreStr && isP1Winner && (
-                        <span className="text-[10px] font-black text-emerald-700 shrink-0 ml-2">
-                          Sieg
-                        </span>
-                      )}
+
+                      {/* Player 1 Sets Score */}
+                      {sets.length > 0 ? (
+                        <div className="flex items-center gap-1 font-mono shrink-0">
+                          {sets.map((s, idx) => (
+                            <span
+                              key={idx}
+                              className={`w-5 h-5 flex items-center justify-center rounded text-[11px] font-bold ${
+                                s.player1Games > s.player2Games
+                                  ? "bg-emerald-100 text-emerald-800 font-black"
+                                  : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {s.player1Games}
+                            </span>
+                          ))}
+                        </div>
+                      ) : m.result?.isWalkover && isP1Winner ? (
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase shrink-0">w/o</span>
+                      ) : null}
                     </div>
 
                     {/* Player 2 */}
@@ -173,24 +165,32 @@ export const WorkletChampionship: React.FC<WorkletChampionshipProps> = ({
                           : "bg-white/70 border-slate-200/80 text-slate-700"
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 truncate">
+                      <div className="flex items-center gap-1.5 truncate mr-2">
                         {isP2Winner && <Medal className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                         <span className="truncate">{p2Name}</span>
                       </div>
-                      {scoreStr && isP2Winner && (
-                        <span className="text-[10px] font-black text-emerald-700 shrink-0 ml-2">
-                          Sieg
-                        </span>
-                      )}
+
+                      {/* Player 2 Sets Score */}
+                      {sets.length > 0 ? (
+                        <div className="flex items-center gap-1 font-mono shrink-0">
+                          {sets.map((s, idx) => (
+                            <span
+                              key={idx}
+                              className={`w-5 h-5 flex items-center justify-center rounded text-[11px] font-bold ${
+                                s.player2Games > s.player1Games
+                                  ? "bg-emerald-100 text-emerald-800 font-black"
+                                  : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {s.player2Games}
+                            </span>
+                          ))}
+                        </div>
+                      ) : m.result?.isWalkover && isP2Winner ? (
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase shrink-0">w/o</span>
+                      ) : null}
                     </div>
                   </div>
-
-                  {/* Score summary if available */}
-                  {scoreStr && (
-                    <div className="text-right text-[10px] font-bold text-slate-500 tracking-wider">
-                      Ergebnis: <span className="text-slate-800 font-black">{scoreStr}</span>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -211,7 +211,7 @@ export const WorkletChampionship: React.FC<WorkletChampionshipProps> = ({
           className="text-xs font-bold text-[var(--color-primary)] hover:underline flex items-center gap-1 cursor-pointer"
         >
           <Trophy className="w-3.5 h-3.5" />
-          <span>Zum Turnierbaum &amp; Ergebnissen</span>
+          <span>Zu den Turnierergebnissen</span>
           <ArrowRight className="w-3 h-3" />
         </button>
       </div>

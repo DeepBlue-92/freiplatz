@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Calendar,
@@ -6,12 +7,11 @@ import {
   Medal,
   Trophy,
   Shield,
-  UserPlus,
+  Ticket,
   Briefcase,
   BarChart3,
   Settings,
   ChevronDown,
-  HelpCircle,
   Scale,
   ExternalLink,
   MoreHorizontal,
@@ -20,8 +20,9 @@ import {
   UserCog,
   Home,
   LogIn,
+  Users,
 } from "lucide-react";
-import Layout from "./components/Layout";
+import Layout, { GermanFlag, UKFlag } from "./components/Layout";
 import Dashboard from "./components/Dashboard";
 import { LandingPage } from "./components/LandingPage";
 import { EmbeddedCourtWidget } from "./components/EmbeddedCourtWidget";
@@ -31,26 +32,30 @@ import AdminSettings from "./components/AdminSettings";
 import AdminGuests from "./components/AdminGuests";
 import Tournaments from "./components/Tournaments";
 import RankingView from "./components/Ranking";
-import Help from "./components/Help";
 import Impressum from "./components/Impressum";
 import Arbeitseinsaetze from "./components/Arbeitseinsaetze";
 import ProfileModal from "./components/ProfileModal";
 import TennisAssistantWidget from "./components/TennisAssistantWidget";
 import MemberOnboardingModal from "./components/MemberOnboardingModal";
 import SuperAdminDashboard from "./components/SuperAdminDashboard";
+import { SetupWizard } from "./components/SetupWizard";
+import { useSystemConfig } from "./contexts/SystemConfigContext";
 import { UserAvatar } from "./components/UserAvatar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TokenPasswordSetupModal from "./components/TokenPasswordSetupModal";
 import { LeagueDashboard } from "./components/LeagueDashboard";
+import { SpielpartnerView } from "./components/SpielpartnerView";
 import { ChampionshipHub } from "./features/championship/ChampionshipHub";
 import { RichTextRenderer } from "./components/RichText";
-import { User, Booking, Role, Tournament, RankingState, UserClub, LandingPageConfig } from "./types";
+import { User, Booking, Role, Tournament, RankingState, UserClub, LandingPageConfig, DynamicLeague } from "./types";
 import { getLandingPageConfig, listenToLandingPageConfig, DEFAULT_LANDING_PAGE } from "./services/landingPageService";
+import { listenToDynamicLeagues } from "./services/league";
 import { getUserClubs, isClubAdmin, isSuperAdmin } from "./lib/userUtils";
 import { calculateBookingFee, buildBookingFeeContext } from "./utils/guestFeeCalculator";
 import { TIME_SLOTS } from "./constants";
-import { loginWithUsername, logout, auth, db } from "./lib/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { getTenantTranslation } from "./services/tenantTranslations";
+import { loginWithUsername, logout, auth, db, fetchUserProfileByUid } from "./lib/firebase";
+import { collection, query, where, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   listenToBookings,
@@ -67,6 +72,8 @@ import {
   DEFAULT_SETTINGS,
   saveBooking,
   deleteBooking,
+  deleteBookingsBatch,
+  saveLockRangeBatch,
   saveTournament,
   updateTournament,
   deleteTournament,
@@ -76,16 +83,41 @@ import {
   deleteUserDoc,
   savePublicBookings,
   saveClearBookings,
+  recordBookingPartnerStats,
 } from "./services/db";
 import { getVereinsIdByPublicToken } from "./services/db";
 import { checkPlayerCollisionAsync } from "./services/collisionService";
 import { notifyBookingModifiedApi } from "./services/notificationClient";
+import { extractPartnerUserIds } from "./utils/partnerRecommender";
+import { resolveViewFromSlug, getLocalizedSlugForView } from "./utils/routeHelper";
 
 const generateTestData = (): Booking[] => {
   return []; // We don't generate test data for Firebase automatically to avoid spamming
 };
 
 const App: React.FC = () => {
+  const { t, i18n } = useTranslation();
+  const { isInitialized, isLoading: isSystemConfigLoading, refreshSystemConfig } = useSystemConfig();
+
+  // Route & setup handling:
+  const isSetupRoute = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    return path.includes("/setup") || hash.includes("setup");
+  }, []);
+
+  // When system is already initialized and user visits /setup or #setup, redirect away
+  useEffect(() => {
+    if (!isSystemConfigLoading && isInitialized && isSetupRoute) {
+      if (window.location.hash.toLowerCase().includes("setup")) {
+        window.location.hash = "#/";
+      } else if (window.location.pathname.toLowerCase().includes("/setup")) {
+        window.history.replaceState(null, "", "/");
+      }
+    }
+  }, [isSystemConfigLoading, isInitialized, isSetupRoute]);
+
   const publicWochenplanToken = useMemo(() => {
     const path = window.location.pathname.toLowerCase();
     if (path.includes("/public/calendar/")) {
@@ -134,16 +166,6 @@ const App: React.FC = () => {
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setIsAuthReady(true);
-      if (!user) {
-        setCurrentUser(null);
-      }
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
     if (currentUser) {
       localStorage.setItem("v2_current_user", JSON.stringify(currentUser));
     } else {
@@ -164,6 +186,31 @@ const App: React.FC = () => {
       return null;
     }
   });
+
+  useEffect(() => {
+    if (superAdminContext) {
+      localStorage.setItem("v2_superadmin_context", JSON.stringify(superAdminContext));
+    } else {
+      localStorage.removeItem("v2_superadmin_context");
+    }
+  }, [superAdminContext]);
+
+  const [proxyUser, setProxyUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem("v2_proxy_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (proxyUser) {
+      localStorage.setItem("v2_proxy_user", JSON.stringify(proxyUser));
+    } else {
+      localStorage.removeItem("v2_proxy_user");
+    }
+  }, [proxyUser]);
 
   const currentVereinsId = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -232,6 +279,45 @@ const App: React.FC = () => {
     }
     return "sv-neuhausen";
   }, [currentUser, superAdminContext, publicWochenplanToken, publicTokenVereinsId, selectedTenantId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) setIsAuthReady(true);
+    }, 2000);
+
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (!isMounted) return;
+      if (!fbUser) {
+        setCurrentUser(null);
+        localStorage.removeItem("v2_current_user");
+        setIsAuthReady(true);
+      } else {
+        try {
+          const profile = await fetchUserProfileByUid(fbUser.uid, currentVereinsId);
+          if (isMounted) {
+            if (profile) {
+              setCurrentUser(profile);
+              localStorage.setItem("v2_current_user", JSON.stringify(profile));
+            } else {
+              setCurrentUser(null);
+              localStorage.removeItem("v2_current_user");
+            }
+            setIsAuthReady(true);
+          }
+        } catch (e) {
+          console.warn("Auth profile sync error:", e);
+          if (isMounted) setIsAuthReady(true);
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+      unsub();
+    };
+  }, [currentVereinsId]);
 
   const [users, setUsers] = useState<Record<string, User>>({});
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -326,6 +412,9 @@ const App: React.FC = () => {
           logoUrl: badgeObj.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : ""),
           headerLogoUrl: badgeObj.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : ""),
           primaryColor: badgeObj.primaryColor || "#1b4332",
+          bannerType: isNeuhausen ? "image" : "gradient",
+          bannerUrl: isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "",
+          useDefaultBanner: isNeuhausen,
         };
       }
 
@@ -344,6 +433,9 @@ const App: React.FC = () => {
             logoUrl: matchedLogo,
             headerLogoUrl: matchedLogo,
             primaryColor: matchedClub.primaryColor || "#1b4332",
+            bannerType: matchedClub.bannerType || (isNeuhausen ? "image" : "gradient"),
+            bannerUrl: matchedClub.bannerUrl || (isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : ""),
+            useDefaultBanner: matchedClub.useDefaultBanner !== undefined ? matchedClub.useDefaultBanner : isNeuhausen,
           };
         }
       }
@@ -368,6 +460,9 @@ const App: React.FC = () => {
         clubName: isNeuhausen ? "SV Neuhausen" : targetId,
         logoUrl: isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "",
         headerLogoUrl: isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : "",
+        bannerType: isNeuhausen ? "image" : "gradient",
+        bannerUrl: isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "",
+        useDefaultBanner: isNeuhausen,
       };
     } catch {
       return DEFAULT_SETTINGS;
@@ -375,7 +470,48 @@ const App: React.FC = () => {
   });
   const [rankings, setRankings] = useState<RankingState | null>(null);
 
-  const isLeagueEnabled = settings.modules?.league === true;
+  useEffect(() => {
+    const supported = (settings?.i18n?.supportedLanguages || ["de"]) as ("de" | "en")[];
+    const clubDefault = (settings?.i18n?.defaultLanguage || "de") as "de" | "en";
+    
+    // Priority order:
+    // 1. Logged-in user preference
+    // 2. Previously stored manual visitor preference
+    // 3. Automatic browser language detection
+    // 4. Club default language
+    const storedGuestLang = localStorage.getItem("app_language") as "de" | "en" | null;
+    
+    let browserLang: "de" | "en" | null = null;
+    if (typeof navigator !== "undefined" && navigator.language) {
+      const navLang = navigator.language.toLowerCase();
+      if (navLang.startsWith("en") && supported.includes("en")) browserLang = "en";
+      else if (navLang.startsWith("de") && supported.includes("de")) browserLang = "de";
+    }
+
+    let targetLang = (currentUser?.language as "de" | "en") || storedGuestLang || browserLang || clubDefault;
+    if (!supported.includes(targetLang)) {
+      targetLang = clubDefault;
+    }
+    if (i18n.language !== targetLang) {
+      i18n.changeLanguage(targetLang);
+      localStorage.setItem("app_language", targetLang);
+    }
+  }, [currentUser?.language, settings?.i18n, i18n]);
+
+  const handleLanguageChange = (newLang: "de" | "en") => {
+    i18n.changeLanguage(newLang);
+    localStorage.setItem("app_language", newLang);
+    if (currentUser) {
+      const updated = { ...currentUser, language: newLang };
+      setCurrentUser(updated);
+      saveUser(currentVereinsId, updated).catch(console.warn);
+    }
+    // Update URL hash to match the newly selected language
+    if (view && !window.location.hash.includes("events/")) {
+      const newSlug = getLocalizedSlugForView(view, newLang);
+      window.location.hash = newSlug;
+    }
+  };
 
   const getInitialView = () => {
     let hash = window.location.hash.toLowerCase().replace("#", "") as any;
@@ -386,33 +522,10 @@ const App: React.FC = () => {
     if (hash.startsWith("/events/") || hash.startsWith("events/") || hash.includes("events/")) {
       return "tournaments";
     }
-    if (hash.includes("startseite") || hash.includes("landing") || hash.includes("home")) {
-      return "landing_page";
-    }
-    if (hash.includes("hobbyliga") || hash.includes("league") || hash.includes("punkte-system") || hash.includes("rules")) {
-      return "league";
-    }
-    if (hash.includes("championship") || hash.includes("meisterschaft")) {
-      return "championship";
-    }
-    const allowedViews = [
-      "landing_page",
-      "reservation",
-      "reports",
-      "tournaments",
-      "ranking",
-      "help",
-      "adminSettings",
-      "guests",
-      "league",
-      "championship",
-      "arbeitseinsaetze",
-      "impressum",
-    ];
     const cleanHash = hash.replace(/^\//, "");
-    const matched = allowedViews.find((v) => v.toLowerCase() === cleanHash);
-    if (matched) {
-      return matched as any;
+    const resolvedFromSlug = resolveViewFromSlug(cleanHash);
+    if (resolvedFromSlug) {
+      return resolvedFromSlug as any;
     }
     // If no explicit hash or hash is startseite/landing/home, check landing page status
     try {
@@ -452,7 +565,6 @@ const App: React.FC = () => {
     | "reports"
     | "tournaments"
     | "ranking"
-    | "help"
     | "impressum"
     | "adminSettings"
     | "guests"
@@ -460,7 +572,7 @@ const App: React.FC = () => {
     | "championship"
     | "arbeitseinsaetze"
   >(getInitialView);
-  const [landingPageConfig, setLandingPageConfig] = useState<LandingPageConfig | null>(() => {
+  const [landingPageConfig, setLandingPageConfig] = useState<LandingPageConfig>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const tenantParam = params.get("tenant");
@@ -468,10 +580,10 @@ const App: React.FC = () => {
       const cached = sessionStorage.getItem(`v2_landing_page_${targetId}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && typeof parsed === "object") return parsed;
+        if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) return parsed as LandingPageConfig;
       }
     } catch {}
-    return null;
+    return DEFAULT_LANDING_PAGE;
   });
   const [isStartPageLoginModalOpen, setIsStartPageLoginModalOpen] = useState(false);
   const [adminInitialTab, setAdminInitialTab] = useState<string>("allgemein");
@@ -575,7 +687,6 @@ const App: React.FC = () => {
     | "reports"
     | "tournaments"
     | "ranking"
-    | "help"
     | "impressum"
     | "adminSettings"
     | "guests"
@@ -586,7 +697,7 @@ const App: React.FC = () => {
 
   const handleSetView = (newView: typeof view) => {
     // For unauthenticated visitors on the start page, accessing restricted tabs prompts for login
-    if (!currentUser && newView !== "landing_page" && newView !== "reservation" && newView !== "help" && newView !== "impressum") {
+    if (!currentUser && newView !== "landing_page" && newView !== "reservation" && newView !== "impressum") {
       setIsStartPageLoginModalOpen(true);
       return;
     }
@@ -657,9 +768,8 @@ const App: React.FC = () => {
       }
     };
   }, []);
-  const [showPublicHelp, setShowPublicHelp] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [onboardingDismissedForSession, setOnboardingDismissedForSession] = useState(false);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [triggerAceWelcome, setTriggerAceWelcome] = useState(false);
 
   // Global System Settings (Chatbot & SuperAdmin Flags)
@@ -679,60 +789,67 @@ const App: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Reset session-based onboarding dismissal whenever a user signs in, switches, or signs out
+  // Close onboarding modal if user logs out
   useEffect(() => {
-    setOnboardingDismissedForSession(false);
+    if (!currentUser) {
+      setShowOnboardingModal(false);
+    }
   }, [currentUser?.id]);
 
   // Keep currentUser onboarding status synchronized with Firestore users listener
   useEffect(() => {
-    if (!currentUser?.id || !users) return;
-    const key = (currentUser.id || currentUser.name).toLowerCase().replace(/\s/g, "");
-    const dbUser = users[key] || users[currentUser.id];
+    if (!currentUser || !users) return;
+    const userKey = (currentUser.id || currentUser.name || "").toLowerCase().replace(/\s/g, "");
+    const nameKey = (currentUser.name || "").toLowerCase().replace(/\s/g, "");
+    const dbUser = users[userKey] || (currentUser.id ? users[currentUser.id] : undefined) || (nameKey ? users[nameKey] : undefined);
     if (dbUser) {
+      const dbPending = !!(dbUser.onboarding_pending ?? (dbUser as any).onboardingPending);
+      const currPending = !!(currentUser.onboarding_pending ?? (currentUser as any).onboardingPending);
       const hasChanges =
         (dbUser.avatarUrl !== undefined && dbUser.avatarUrl !== currentUser.avatarUrl) ||
         (dbUser.avatarIcon !== undefined && dbUser.avatarIcon !== currentUser.avatarIcon) ||
         (dbUser.avatarColor !== undefined && dbUser.avatarColor !== currentUser.avatarColor) ||
-        (dbUser.onboarding_pending !== undefined && dbUser.onboarding_pending !== currentUser.onboarding_pending);
+        (dbPending !== currPending);
       if (hasChanges) {
         setCurrentUser((prev) => (prev ? {
           ...prev,
           ...(dbUser.avatarUrl !== undefined ? { avatarUrl: dbUser.avatarUrl } : {}),
           ...(dbUser.avatarIcon !== undefined ? { avatarIcon: dbUser.avatarIcon } : {}),
           ...(dbUser.avatarColor !== undefined ? { avatarColor: dbUser.avatarColor } : {}),
-          ...(dbUser.onboarding_pending !== undefined ? { onboarding_pending: dbUser.onboarding_pending } : {})
+          onboarding_pending: dbPending,
+          onboardingPending: dbPending,
         } : null));
       }
     }
-  }, [users, currentUser?.id, currentUser?.onboarding_pending]);
+  }, [users, currentUser?.id, currentUser?.name, currentUser?.onboarding_pending, (currentUser as any)?.onboardingPending]);
 
-  const [proxyUser, setProxyUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem("v2_proxy_user");
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
+  // Automatically show onboarding modal if user has onboarding pending (e.g. on login, page refresh or auth restore)
+  useEffect(() => {
+    if (!currentUser || proxyUser) {
+      setShowOnboardingModal(false);
+      return;
     }
-  });
+
+    const isSuper = isSuperAdmin(currentUser) || currentUser.role === Role.SUPER_ADMIN || (currentUser as any).role === "super-admin" || currentUser.vereinsId === "super-admin";
+    if (isSuper) {
+      setShowOnboardingModal(false);
+      return;
+    }
+
+    const isPending = !!(currentUser.onboarding_pending ?? (currentUser as any).onboardingPending);
+    if (!isPending) {
+      setShowOnboardingModal(false);
+      return;
+    }
+
+    const userKey = currentUser.id || currentUser.name;
+    const dismissed = sessionStorage.getItem(`onboarding_dismissed_${userKey}`);
+    if (!dismissed) {
+      setShowOnboardingModal(true);
+    }
+  }, [currentUser?.id, currentUser?.name, currentUser?.onboarding_pending, (currentUser as any)?.onboardingPending, proxyUser]);
 
   const [initialBookingSlot, setInitialBookingSlot] = useState<{ date: string; time: string; court: string } | null>(null);
-
-  useEffect(() => {
-    if (superAdminContext) {
-      localStorage.setItem("v2_superadmin_context", JSON.stringify(superAdminContext));
-    } else {
-      localStorage.removeItem("v2_superadmin_context");
-    }
-  }, [superAdminContext]);
-
-  useEffect(() => {
-    if (proxyUser) {
-      localStorage.setItem("v2_proxy_user", JSON.stringify(proxyUser));
-    } else {
-      localStorage.removeItem("v2_proxy_user");
-    }
-  }, [proxyUser]);
 
   const [allClubs, setAllClubs] = useState<any[]>([]);
   const [userClubs, setUserClubs] = useState<UserClub[]>([]);
@@ -753,7 +870,7 @@ const App: React.FC = () => {
       setAllClubs(activeClubs);
       try {
         localStorage.setItem("v2_clubs_cache", JSON.stringify(activeClubs));
-        activeClubs.forEach((c) => {
+          activeClubs.forEach((c) => {
           if (c.vereinsId) {
             const isNeuhausen = String(c.vereinsId).toLowerCase().includes("neuhausen");
             const logo = c.customHeaderLogoUrl || c.headerLogoUrl || c.customLogoUrl || c.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "");
@@ -766,6 +883,31 @@ const App: React.FC = () => {
             }));
           }
         });
+
+        // Dynamic fallback: If no explicit tenant in URL and current club does not exist, use first active club
+        if (activeClubs.length > 0) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const explicitTenant = urlParams.get("tenant");
+          const firstSegment = window.location.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+          const isSystemRoute = [
+            "login", "auth", "register", "wochenplan", "belegungsplan",
+            "superadmin", "super-admin", "admin", "settings", "profil",
+            "profile", "championship", "turnier", "turniere", "ranking",
+            "liga", "league", "bento", "worklet", "arbeitseinsaetze",
+            "help", "guests", "adminsettings", "undefined", "null",
+            "public", "assets", "static", "vite", "system",
+          ].includes(firstSegment);
+
+          if (!explicitTenant && (!firstSegment || isSystemRoute)) {
+            const currentId = (settings?.vereinsId || "").toLowerCase().replace(/\s/g, "");
+            const exists = activeClubs.some(
+              (c) => (c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, "") === currentId
+            );
+            if (!exists && activeClubs[0]?.vereinsId) {
+              handleSwitchClub(activeClubs[0].vereinsId);
+            }
+          }
+        }
       } catch (e) {
         console.warn(e);
       }
@@ -773,7 +915,7 @@ const App: React.FC = () => {
     return () => {
       if (unsub) unsub();
     };
-  }, []);
+  }, [settings?.vereinsId]);
 
   // 2. Resolve user clubs when active user or system clubs change
   useEffect(() => {
@@ -987,6 +1129,39 @@ const App: React.FC = () => {
     return uniqueUserClubsRaw;
   }, [uniqueUserClubsRaw, currentUser, proxyUser, superAdminContext, allClubs]);
 
+  const [dynamicLeagues, setDynamicLeagues] = useState<DynamicLeague[]>([]);
+  useEffect(() => {
+    const unsub = listenToDynamicLeagues((list) => {
+      setDynamicLeagues(list);
+    });
+    return () => unsub();
+  }, []);
+
+  const matchedClubFromList = allClubs.find(
+    (c) =>
+      (c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, "") ===
+      currentVereinsId.toLowerCase().replace(/\s/g, ""),
+  );
+
+  const isClubLeagueActive =
+    (matchedClubFromList !== undefined
+      ? (matchedClubFromList.enableLeague !== false && matchedClubFromList.modules?.league !== false)
+      : true) &&
+    settings.modules?.league === true &&
+    (settings as any).enableLeague !== false;
+
+  const hasActiveDynamicLeagues =
+    dynamicLeagues.length === 0 ||
+    dynamicLeagues.some(
+      (l) =>
+        l.active !== false &&
+        l.isActive !== false &&
+        l.status !== "inactive" &&
+        l.status !== "archived",
+    );
+
+  const isLeagueEnabled = isClubLeagueActive && hasActiveDynamicLeagues;
+
   const [loginForm, setLoginForm] = useState(() => {
     const segments = window.location.pathname.split("/").filter(Boolean);
     const firstSegment = segments[0]?.toLowerCase() || "";
@@ -1103,16 +1278,15 @@ const App: React.FC = () => {
   }, [currentUser?.role, isTenantRoute]);
 
   const effectiveCurrentUser = useMemo(() => {
-    // If a global superadmin accesses a tenant route directly (e.g. via 'Anmeldeseite aufrufen'),
-    // do not force the superadmin session in this tab unless in an explicit proxy session ("Aufschalten").
-    if (currentUser?.role === Role.SUPER_ADMIN && !superAdminContext && isTenantRoute) {
-      return null;
-    }
     return currentUser;
-  }, [currentUser, superAdminContext, isTenantRoute]);
+  }, [currentUser]);
 
   useEffect(() => {
     const checkLoginIntent = () => {
+      if (currentUser) {
+        setIsStartPageLoginModalOpen(false);
+        return;
+      }
       const hash = window.location.hash.toLowerCase().replace(/^#\/?/, "");
       const params = new URLSearchParams(window.location.search);
       if (
@@ -1128,7 +1302,7 @@ const App: React.FC = () => {
     checkLoginIntent();
     window.addEventListener("hashchange", checkLoginIntent);
     return () => window.removeEventListener("hashchange", checkLoginIntent);
-  }, []);
+  }, [currentUser]);
 
   const anonymizedBookings = useMemo(() => {
     // Non-authenticated visitors strictly receive anonymized bookings (Option A)
@@ -1246,10 +1420,11 @@ const App: React.FC = () => {
   }, [allClubs, uniqueUserClubsRaw, currentVereinsId, settings?.clubName]);
 
   const isAdmin = useMemo(() => {
-    if (superAdminContext && isSuperAdmin(superAdminContext)) return true;
-    if (currentUser && isSuperAdmin(currentUser)) return true;
-    return isClubAdmin(currentUser, currentVereinsId, allClubs);
-  }, [currentUser, currentVereinsId, allClubs, superAdminContext]);
+    const activeUser = proxyUser || currentUser;
+    if (!activeUser) return false;
+    if (isSuperAdmin(activeUser)) return true;
+    return isClubAdmin(activeUser, currentVereinsId, allClubs);
+  }, [currentUser, proxyUser, currentVereinsId, allClubs]);
 
   // Initial Fallback
   useEffect(() => {
@@ -1265,6 +1440,7 @@ const App: React.FC = () => {
   // Deep linking and Auth Guard Redirects
   useEffect(() => {
     const handleDeepLinking = () => {
+      if (!isAuthReady) return;
       const hash = window.location.hash;
       const cleanHash = hash.replace("#", "").replace(/^\//, "");
 
@@ -1287,18 +1463,9 @@ const App: React.FC = () => {
           }
           setView((prev) => prev !== "tournaments" ? "tournaments" : prev);
         } else {
-          const allowedViews = [
-            "reservation",
-            "reports",
-            "tournaments",
-            "ranking",
-            "help",
-            "adminSettings",
-            "guests",
-          ];
-          const matched = allowedViews.find((v) => v.toLowerCase() === cleanHash.toLowerCase());
-          if (matched) {
-            setView((prev) => prev !== matched ? (matched as any) : prev);
+          const resolved = resolveViewFromSlug(cleanHash);
+          if (resolved) {
+            setView((prev) => (prev !== resolved ? (resolved as any) : prev));
           }
         }
       }
@@ -1307,7 +1474,7 @@ const App: React.FC = () => {
     handleDeepLinking();
     window.addEventListener("hashchange", handleDeepLinking);
     return () => window.removeEventListener("hashchange", handleDeepLinking);
-  }, [currentUser]);
+  }, [currentUser, isAuthReady]);
 
   // Synchronise view changes with URL hash
   useEffect(() => {
@@ -1323,16 +1490,19 @@ const App: React.FC = () => {
         if (view === "league" && (currentHash.includes("hobbyliga") || currentHash.includes("punkte-system") || currentHash.includes("rules"))) {
           return;
         }
-        if (currentHash !== view.toLowerCase() && !currentHash.startsWith("events/")) {
-          // If view is reservation and hash is empty, keep URL clean without appending #reservation
+        const currentLang = (i18n.language as "de" | "en") || "de";
+        const expectedSlug = getLocalizedSlugForView(view, currentLang);
+
+        if (currentHash !== expectedSlug && !currentHash.startsWith("events/")) {
+          // If view is reservation and hash is empty, keep URL clean without appending hash
           if (view === "reservation" && (currentHash === "" || currentHash === "#")) {
             return;
           }
-          window.location.hash = view.toLowerCase();
+          window.location.hash = expectedSlug;
         }
       }
     }
-  }, [view, highlightEventId]);
+  }, [view, highlightEventId, i18n.language]);
 
   // Clear event highlight when leaving tournaments view
   useEffect(() => {
@@ -1456,7 +1626,11 @@ const App: React.FC = () => {
           setIsLoading(false);
 
           // Update favicon and title dynamically
-          const href = s.customFaviconUrl || s.faviconUrl || "/favicon.svg";
+          const isSuperAdminDashboardActive =
+            effectiveCurrentUser &&
+            (effectiveCurrentUser.role === Role.SUPER_ADMIN || isSuperAdmin(effectiveCurrentUser)) &&
+            !superAdminContext;
+
           let link = document.querySelector(
             "link[rel~='icon']",
           ) as HTMLLinkElement;
@@ -1465,10 +1639,17 @@ const App: React.FC = () => {
             link.rel = "icon";
             document.head.appendChild(link);
           }
-          link.href = href;
-          document.title = s.clubName
-            ? s.clubName + " Tennis"
-            : "Platzreservierung";
+
+          if (isSuperAdminDashboardActive) {
+            link.href = "/superadmin-favicon.svg";
+            document.title = "Freiplatz - Admin Dashboard";
+          } else {
+            const href = s.customFaviconUrl || s.faviconUrl || "/favicon.svg";
+            link.href = href;
+            document.title = s.clubName
+              ? s.clubName + " Tennis"
+              : "Platzreservierung";
+          }
         }),
       );
     }
@@ -1479,6 +1660,31 @@ const App: React.FC = () => {
       unsubs.forEach((u) => u());
     };
   }, [currentUser, currentVereinsId, isPublicWochenplanRoute, isAuthReady, isSettingsLoaded, settings?.publicCalendar?.showNames]);
+
+  // Synchronize favicon and title when switching between SuperAdmin dashboard and proxy mode / normal view
+  useEffect(() => {
+    const isSuperAdminDashboardActive =
+      effectiveCurrentUser &&
+      (effectiveCurrentUser.role === Role.SUPER_ADMIN || isSuperAdmin(effectiveCurrentUser)) &&
+      !superAdminContext;
+
+    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+
+    if (isSuperAdminDashboardActive) {
+      link.href = "/superadmin-favicon.svg";
+      document.title = "Freiplatz - Admin Dashboard";
+    } else if (settings) {
+      link.href = settings.customFaviconUrl || settings.faviconUrl || "/favicon.svg";
+      document.title = settings.clubName
+        ? settings.clubName + " Tennis"
+        : "Platzreservierung";
+    }
+  }, [effectiveCurrentUser, superAdminContext, view]);
 
   // Keep the public anonymized and clear-name feeds synchronized in the background whenever bookings change
   useEffect(() => {
@@ -1590,23 +1796,40 @@ const App: React.FC = () => {
       currentVereinsId,
     );
     setCurrentUser(u);
-    setOnboardingDismissedForSession(false);
     setError("");
-    setShowPublicHelp(false);
     setIsStartPageLoginModalOpen(false);
-
-    // Synchronize tenant URL param with logged in user's club
-    if (u.vereinsId && u.role !== Role.SUPER_ADMIN) {
+    const isSuper = isSuperAdmin(u) || u.role === Role.SUPER_ADMIN || (u as any).role === "super-admin" || u.vereinsId === "super-admin";
+    if (isSuper) {
       const params = new URLSearchParams(window.location.search);
-      const currentParam = params.get("tenant");
-      const userClubIds = (u.clubs || []).map((c: any) => (c.vereinsId || c.id || '').toLowerCase().replace(/\s/g, ""));
-      const targetTenant = (currentParam && userClubIds.includes(currentParam.toLowerCase().replace(/\s/g, "")))
-        ? currentParam.toLowerCase().replace(/\s/g, "")
-        : u.vereinsId.toLowerCase().replace(/\s/g, "");
-      
-      if (params.get("tenant") !== targetTenant) {
-        params.set("tenant", targetTenant);
-        window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
+      params.delete("tenant");
+      const newQuery = params.toString() ? `?${params.toString()}` : "";
+      window.history.replaceState({}, "", `${window.location.pathname}${newQuery}${window.location.hash}`);
+      setSelectedTenantId(null);
+      setSuperAdminContext(null);
+      setProxyUser(null);
+      setView("superadmin" as any);
+      setShowOnboardingModal(false);
+    } else {
+      const isPending = !!(u.onboarding_pending ?? (u as any).onboardingPending);
+      if (isPending) {
+        sessionStorage.removeItem(`onboarding_dismissed_${u.id || u.name}`);
+        setShowOnboardingModal(true);
+      } else {
+        setShowOnboardingModal(false);
+      }
+      if (u.vereinsId && u.role !== Role.SUPER_ADMIN) {
+        // Synchronize tenant URL param with logged in user's club
+        const params = new URLSearchParams(window.location.search);
+        const currentParam = params.get("tenant");
+        const userClubIds = (u.clubs || []).map((c: any) => (c.vereinsId || c.id || '').toLowerCase().replace(/\s/g, ""));
+        const targetTenant = (currentParam && userClubIds.includes(currentParam.toLowerCase().replace(/\s/g, "")))
+          ? currentParam.toLowerCase().replace(/\s/g, "")
+          : u.vereinsId.toLowerCase().replace(/\s/g, "");
+        
+        if (params.get("tenant") !== targetTenant) {
+          params.set("tenant", targetTenant);
+          window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
+        }
       }
     }
 
@@ -1620,7 +1843,11 @@ const App: React.FC = () => {
       }
     }
 
-    if (targetPath && (targetPath.startsWith("/events/") || targetPath.startsWith("events/") || targetPath.includes("events/"))) {
+    if (isSuper) {
+      if (window.location.hash.includes("redirectTo=") || window.location.hash.includes("login")) {
+        window.location.hash = "";
+      }
+    } else if (targetPath && (targetPath.startsWith("/events/") || targetPath.startsWith("events/") || targetPath.includes("events/"))) {
       const eventId = targetPath.replace(/^\/?events\//, "");
       setHighlightEventId(eventId);
       setView("tournaments");
@@ -1648,11 +1875,14 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    if (currentUser) {
+      sessionStorage.removeItem(`onboarding_dismissed_${currentUser.id || currentUser.name}`);
+    }
     await logout();
     setProxyUser(null);
     setSuperAdminContext(null);
     setCurrentUser(null);
-    setOnboardingDismissedForSession(false);
+    setShowOnboardingModal(false);
   };
 
   const handleSwitchClub = (newVereinsId: string) => {
@@ -1734,6 +1964,10 @@ const App: React.FC = () => {
     setIsLoading(true);
 
     setSelectedTenantId(normNewId);
+    if (isDirectSuperAdmin && currentUser) {
+      setSuperAdminContext(currentUser);
+      setView("reservation");
+    }
     const params = new URLSearchParams(window.location.search);
     params.set("tenant", normNewId);
     window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
@@ -1741,7 +1975,12 @@ const App: React.FC = () => {
   };
 
   const handleSuperAdminLoginAs = (tenantAdmin: User, targetClubId?: string) => {
-    setSuperAdminContext(currentUser);
+    if (currentUser) {
+      setSuperAdminContext(currentUser);
+      try {
+        localStorage.setItem("v2_superadmin_context", JSON.stringify(currentUser));
+      } catch {}
+    }
 
     // Validate and sanitize targetClubId against user's actual database clubs
     const assignedClubIds = (tenantAdmin.clubs || []).map((c: any) => (c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, ""));
@@ -1757,41 +1996,45 @@ const App: React.FC = () => {
       safeTargetClubId = tenantAdmin.vereinsId || assignedClubIds[0] || "sv-neuhausen";
     }
 
+    const normId = (safeTargetClubId || tenantAdmin.vereinsId || "sv-neuhausen").toLowerCase().replace(/\s/g, "");
     const userToSet = safeTargetClubId ? { ...tenantAdmin, vereinsId: safeTargetClubId } : tenantAdmin;
     setCurrentUser(userToSet);
+    try {
+      localStorage.setItem("v2_current_user", JSON.stringify(userToSet));
+    } catch {}
     
     // Clubs des Proxy-Users laden, damit das Header-Dropdown korrekt aktualisiert wird
     const resolvedProxyClubs = getUserClubs(userToSet, allClubs);
     setUserClubs(resolvedProxyClubs);
 
     setProxyUser(null);
+    try {
+      localStorage.removeItem("v2_proxy_user");
+    } catch {}
+    setSelectedTenantId(normId);
     setView("reservation");
 
     // Synchronisiere Tenant State für Proxysitzung
-    const targetTenantId = safeTargetClubId || tenantAdmin.vereinsId;
-    if (targetTenantId) {
-      const normId = targetTenantId.toLowerCase().replace(/\s/g, "");
-      const isNeuhausen = normId.includes("neuhausen");
-      const targetClub = allClubs.find((c) => (c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, "") === normId);
-      const targetLogo = targetClub?.customHeaderLogoUrl || targetClub?.headerLogoUrl || targetClub?.customLogoUrl || targetClub?.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "");
-      const targetName = targetClub?.clubName || targetClub?.vereinsName || targetClub?.name || resolveClubName(targetTenantId, isNeuhausen ? "SV Neuhausen" : undefined, allClubs);
-      const targetColor = targetClub?.primaryColor || "#1b4332";
+    const isNeuhausen = normId.includes("neuhausen");
+    const targetClub = allClubs.find((c) => (c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, "") === normId);
+    const targetLogo = targetClub?.customHeaderLogoUrl || targetClub?.headerLogoUrl || targetClub?.customLogoUrl || targetClub?.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "");
+    const targetName = targetClub?.clubName || targetClub?.vereinsName || targetClub?.name || resolveClubName(normId, isNeuhausen ? "SV Neuhausen" : undefined, allClubs);
+    const targetColor = targetClub?.primaryColor || "#1b4332";
 
-      try {
-        const targetMeta = {
-          vereinsId: normId,
-          clubName: targetName,
-          logoUrl: targetLogo,
-          primaryColor: targetColor,
-        };
-        localStorage.setItem("v2_switching_target_club", JSON.stringify(targetMeta));
-        localStorage.setItem(`v2_club_badge_${normId}`, JSON.stringify(targetMeta));
-      } catch {}
+    try {
+      const targetMeta = {
+        vereinsId: normId,
+        clubName: targetName,
+        logoUrl: targetLogo,
+        primaryColor: targetColor,
+      };
+      localStorage.setItem("v2_switching_target_club", JSON.stringify(targetMeta));
+      localStorage.setItem(`v2_club_badge_${normId}`, JSON.stringify(targetMeta));
+    } catch {}
 
-      const params = new URLSearchParams(window.location.search);
-      params.set("tenant", targetTenantId);
-      window.location.search = params.toString();
-    }
+    const params = new URLSearchParams(window.location.search);
+    params.set("tenant", normId);
+    window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`);
   };
 
   const handleBook = async (
@@ -1805,6 +2048,9 @@ const App: React.FC = () => {
     deleteId?: string,
     comment?: string,
     sendEditNotification = true,
+    adultGuestCount?: number,
+    youthGuestCount?: number,
+    selectedResourceIds?: string[],
   ): Promise<string | null> => {
     const startIndex = TIME_SLOTS.indexOf(startTime);
     const endIndex = TIME_SLOTS.indexOf(endTime);
@@ -2070,18 +2316,34 @@ const App: React.FC = () => {
         }
       }
 
-      if (hasBallMachine) {
-        const ballMachinesInUse = bookings.filter(
-          (b) =>
-            b.id !== deleteId &&
-            b.date === date &&
-            b.time === time &&
-            b.hasBallMachine,
-        ).length;
+      if (hasBallMachine || (selectedResourceIds && selectedResourceIds.length > 0)) {
         const maxMachines =
           settings.reservationRules.availableBallMachines ?? 1;
-        if (ballMachinesInUse >= maxMachines) {
-          return `Um ${time} Uhr sind bereits alle ${maxMachines} Ballmaschinen reserviert.`;
+        const otherBookingsAtTime = bookings.filter(
+          (b) =>
+            b.id !== deleteId &&
+            (!editingGroupToken || b.group_token !== editingGroupToken) &&
+            b.date === date &&
+            b.time === time &&
+            b.court !== court,
+        );
+
+        if (selectedResourceIds && selectedResourceIds.length > 0) {
+          for (const resId of selectedResourceIds) {
+            const isResInUse = otherBookingsAtTime.some(
+              (b) =>
+                (b.selectedResourceIds && b.selectedResourceIds.includes(resId)) ||
+                (resId.startsWith("ballmachine") && b.hasBallMachine),
+            );
+            if (isResInUse) {
+              return `Um ${time} Uhr ist die ausgewählte Ausrüstung bereits vergeben.`;
+            }
+          }
+        } else if (hasBallMachine) {
+          const ballMachinesInUse = otherBookingsAtTime.filter((b) => b.hasBallMachine).length;
+          if (ballMachinesInUse >= maxMachines) {
+            return `Um ${time} Uhr sind bereits alle ${maxMachines} Ballmaschinen reserviert.`;
+          }
         }
       }
     }
@@ -2099,6 +2361,9 @@ const App: React.FC = () => {
             p.toLowerCase().includes("gast"),
         );
       const slotDocId = `slot_${date}_${time.replace(':', '-')}_${court.replace(/\s+/g, '_')}`;
+      const effectiveHasBallMachine =
+        hasBallMachine ||
+        (selectedResourceIds?.some((id) => id.includes("ballmachine")) ?? false);
       const b: Booking = {
         id: slotDocId,
         date,
@@ -2106,22 +2371,30 @@ const App: React.FC = () => {
         court,
         players,
         guestCount,
+        adultGuestCount,
+        youthGuestCount,
+        hasBallMachine: effectiveHasBallMachine,
+        selectedResourceIds: selectedResourceIds || [],
         isLocked: false,
-        hasBallMachine,
-        bookedBy: bookingUser?.id,
-        userId: bookingUser?.id,
+        bookedBy: editingBooking ? (editingBooking.bookedBy || editingBooking.userId || auth.currentUser?.uid || bookingUser?.id || "guest") : (auth.currentUser?.uid || bookingUser?.id || "guest"),
+        userId: editingBooking ? (editingBooking.userId || editingBooking.bookedBy || auth.currentUser?.uid || bookingUser?.id || "guest") : (auth.currentUser?.uid || bookingUser?.id || "guest"),
         editingBookingId: deleteId,
         comment,
         group_token: groupToken,
+        lastModifiedBy: editingBooking ? (bookingUser?.name || bookingUser?.id || "unbekannt") : undefined,
+        lastModifiedAt: editingBooking ? new Date().toISOString() : undefined,
       };
       if (isGuest) {
         const feeCtx = buildBookingFeeContext({
           court,
           players,
           guestCount,
+          adultGuestCount,
+          youthGuestCount,
           date,
           time,
           durationMinutes: 60,
+          allUsers: users,
         });
         const feeRes = calculateBookingFee(feeCtx, settings.feeSettings, settings.reservationRules);
         b.guestFee = feeRes.ratePerUnitEuro;
@@ -2132,15 +2405,15 @@ const App: React.FC = () => {
         b.feeCalculationMode = feeRes.mode;
       }
       if (superAdminContext) {
-        b.createdBy = bookingUser
-          ? bookingUser.name || bookingUser.id
-          : "unbekannt";
+        b.createdBy = editingBooking
+          ? (editingBooking.createdBy || editingBooking.bookedBy || (bookingUser ? bookingUser.name || bookingUser.id : "unbekannt"))
+          : (bookingUser ? bookingUser.name || bookingUser.id : "unbekannt");
         b.actionPerformedBy = superAdminContext.name || "superadmin";
         b.impersonatedBy = superAdminContext.name || "superadmin";
       } else {
-        b.createdBy = bookingUser
-          ? bookingUser.name || bookingUser.id
-          : "unbekannt";
+        b.createdBy = editingBooking
+          ? (editingBooking.createdBy || editingBooking.bookedBy || (bookingUser ? bookingUser.name || bookingUser.id : "unbekannt"))
+          : (bookingUser ? bookingUser.name || bookingUser.id : "unbekannt");
         b.actionPerformedBy = bookingUser
           ? bookingUser.name || bookingUser.id
           : "unbekannt";
@@ -2154,6 +2427,52 @@ const App: React.FC = () => {
       for (const b of newBookings) {
         await saveBooking(currentVereinsId, b);
         savedNewBookingIds.push(b.id);
+      }
+
+      // Partner-Häufigkeitsstatistik für den buchenden Benutzer atomar erfassen
+      if (bookingUser?.id) {
+        const partnerUserIds = extractPartnerUserIds(bookingUser.id, players, users);
+        if (partnerUserIds.length > 0) {
+          recordBookingPartnerStats(bookingUser.id, partnerUserIds);
+
+          // Sofortige lokale In-Memory-Synchronisation
+          const currentYear = new Date().getFullYear().toString();
+          setUsers((prev) => {
+            const userToUpdate = prev[bookingUser.id] || bookingUser;
+            const currentStats = userToUpdate.partnerStats || {};
+            const yearStats = { ...(currentStats[currentYear] || {}) };
+            for (const pId of partnerUserIds) {
+              yearStats[pId] = (yearStats[pId] || 0) + 1;
+            }
+            return {
+              ...prev,
+              [bookingUser.id]: {
+                ...userToUpdate,
+                partnerStats: {
+                  ...currentStats,
+                  [currentYear]: yearStats,
+                },
+              },
+            };
+          });
+          if (currentUser?.id === bookingUser.id) {
+            setCurrentUser((prev) => {
+              if (!prev) return prev;
+              const currentStats = prev.partnerStats || {};
+              const yearStats = { ...(currentStats[currentYear] || {}) };
+              for (const pId of partnerUserIds) {
+                yearStats[pId] = (yearStats[pId] || 0) + 1;
+              }
+              return {
+                ...prev,
+                partnerStats: {
+                  ...currentStats,
+                  [currentYear]: yearStats,
+                },
+              };
+            });
+          }
+        }
       }
 
       // 2. Falls der Admin über manuell erstellte DB-Sperren drüber bucht, löschen wir diese manuellen Sperren aus der DB
@@ -2223,9 +2542,12 @@ const App: React.FC = () => {
     return null;
   };
 
-  const handleCancel = async (id: string): Promise<string | null> => {
-    const bookingToCancel = bookings.find((b) => b.id === id);
-    if (!bookingToCancel) return "Buchung wurde nicht gefunden.";
+  const handleCancel = async (idOrIds: string | string[]): Promise<string | null> => {
+    const inputIds = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+    if (inputIds.length === 0) return null;
+
+    const initialBookings = bookings.filter((b) => inputIds.includes(b.id));
+    if (initialBookings.length === 0) return "Buchung wurde nicht gefunden.";
 
     const bookingUser = proxyUser || currentUser;
     const isCancelPrivileged =
@@ -2240,46 +2562,52 @@ const App: React.FC = () => {
         return new Date(yr, mon - 1, day, hr, min, 0, 0);
       };
 
-      const slotTime = getSlotDateTime(
-        bookingToCancel.date,
-        bookingToCancel.time,
-      );
       const now = new Date();
-
       const allowPast = settings.reservationRules?.allowPastBookings ?? true;
-      if (slotTime < now && !allowPast) {
-        return "Buchungen in der Vergangenheit dürfen nicht storniert werden.";
-      }
-
       const cancelDeadline = settings.reservationRules.cancellationDeadlineMinutes ?? 30;
-      if (cancelDeadline > 0) {
-        const deadlineMs = cancelDeadline * 60 * 1000;
-        if (now.getTime() > slotTime.getTime() - deadlineMs) {
-          return `Stornierung fehlgeschlagen: Die Stornierungsfrist beträgt ${cancelDeadline} Minuten vor Spielbeginn. Bitte kontaktiere einen Administrator.`;
+
+      for (const b of initialBookings) {
+        const slotTime = getSlotDateTime(b.date, b.time);
+        if (slotTime < now && !allowPast) {
+          return "Buchungen in der Vergangenheit dürfen nicht storniert werden.";
+        }
+        if (cancelDeadline > 0) {
+          const deadlineMs = cancelDeadline * 60 * 1000;
+          if (now.getTime() > slotTime.getTime() - deadlineMs) {
+            return `Stornierung fehlgeschlagen: Die Stornierungsfrist beträgt ${cancelDeadline} Minuten vor Spielbeginn. Bitte kontaktiere einen Administrator.`;
+          }
         }
       }
     }
 
     try {
-      if (bookingToCancel.group_token) {
-        const groupBookings = bookings.filter((b) => b.group_token === bookingToCancel.group_token);
-        for (const b of groupBookings) {
-          await deleteBooking(currentVereinsId, b.id);
+      const allIdsToDelete = new Set<string>(inputIds);
+      for (const b of initialBookings) {
+        if (b.group_token) {
+          bookings.filter((x) => x.group_token === b.group_token).forEach((x) => allIdsToDelete.add(x.id));
         }
-      } else {
-        await deleteBooking(currentVereinsId, id);
+        if (b.lockGroupId) {
+          bookings.filter((x) => x.lockGroupId === b.lockGroupId).forEach((x) => allIdsToDelete.add(x.id));
+        }
       }
+      const finalIds = Array.from(allIdsToDelete);
+
+      // Optimistic update: Sofortiges Entfernen aller betroffenen Buchungen/Sperren auf einmal
+      setBookings((prev) => prev.filter((b) => !allIdsToDelete.has(b.id)));
+
+      // Atomare Löschung via writeBatch in Firestore
+      await deleteBookingsBatch(currentVereinsId, finalIds);
     } catch (err: any) {
       return err.message || "Fehler beim Stornieren.";
     }
     return null;
   };
 
-  const handleLockRange = (
+  const handleLockRange = async (
     date: string,
     startTime: string,
     endTime: string,
-    court: string,
+    court: string | string[],
     reason: string,
     recurring: boolean,
     recurringUntil?: string,
@@ -2288,6 +2616,9 @@ const App: React.FC = () => {
     const endIndex = TIME_SLOTS.indexOf(endTime);
     if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) return;
     const slotsToLock = TIME_SLOTS.slice(startIndex, endIndex);
+
+    const courtList = Array.isArray(court) ? court : [court];
+    const lockGroupId = `lock_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
     let datesToLock: string[] = [];
     if (recurring) {
@@ -2314,36 +2645,63 @@ const App: React.FC = () => {
       datesToLock.push(date);
     }
 
-    for (const dateStr of datesToLock) {
-      for (const time of slotsToLock) {
-        const booking: Booking = {
-          id: Math.random().toString(36).substr(2, 9),
-          date: dateStr,
-          time,
-          court,
-          players: [],
-          isLocked: true,
-          reason,
-          hasBallMachine: false,
-          bookedBy: currentUser?.id,
-        };
-        if (superAdminContext) {
-          booking.createdBy = currentUser
-            ? currentUser.name || currentUser.id
-            : "unbekannt";
-          booking.actionPerformedBy = superAdminContext.name || "superadmin";
-          booking.impersonatedBy = superAdminContext.name || "superadmin";
-        } else {
-          booking.createdBy = currentUser
-            ? currentUser.name || currentUser.id
-            : "unbekannt";
-          booking.actionPerformedBy = currentUser
-            ? currentUser.name || currentUser.id
-            : "unbekannt";
+    // Bereits regulär von Mitgliedern gebuchte Slots ermitteln, um diese nicht zu überschreiben
+    const regularBookedSet = new Set(
+      bookings
+        .filter((b) => !b.isLocked && datesToLock.includes(b.date) && courtList.includes(b.court))
+        .map((b) => `${b.date}_${b.time}_${b.court}`)
+    );
+
+    const newBookingsToSave: Booking[] = [];
+    for (const c of courtList) {
+      for (const dateStr of datesToLock) {
+        for (const time of slotsToLock) {
+          if (regularBookedSet.has(`${dateStr}_${time}_${c}`)) {
+            continue;
+          }
+          const finalId = `slot_${dateStr}_${time.replace(':', '-')}_${c.replace(/\s+/g, '_')}`;
+          const booking: Booking = {
+            id: finalId,
+            lockGroupId,
+            date: dateStr,
+            time,
+            court: c,
+            players: [],
+            isLocked: true,
+            reason,
+            hasBallMachine: false,
+            bookedBy: currentUser?.id,
+          };
+          if (superAdminContext) {
+            booking.createdBy = currentUser
+              ? currentUser.name || currentUser.id
+              : "unbekannt";
+            booking.actionPerformedBy = superAdminContext.name || "superadmin";
+            booking.impersonatedBy = superAdminContext.name || "superadmin";
+          } else {
+            booking.createdBy = currentUser
+              ? currentUser.name || currentUser.id
+              : "unbekannt";
+            booking.actionPerformedBy = currentUser
+              ? currentUser.name || currentUser.id
+              : "unbekannt";
+          }
+          newBookingsToSave.push(booking);
         }
-        saveBooking(currentVereinsId, booking);
       }
     }
+
+    if (newBookingsToSave.length === 0) return;
+
+    // Optimistic UI Update: Alle gesperrten Slots erscheinen sofort auf einen Schlag
+    const newIds = new Set(newBookingsToSave.map((b) => b.id));
+    setBookings((prev) => [
+      ...prev.filter((b) => !newIds.has(b.id)),
+      ...newBookingsToSave,
+    ]);
+
+    // Atomares Schreiben via Batch in Firestore
+    await saveLockRangeBatch(currentVereinsId, newBookingsToSave);
   };
 
   const handleToggleRegistration = async (
@@ -2470,7 +2828,7 @@ const App: React.FC = () => {
   }> = [
     {
       id: "landing_page",
-      label: "Startseite",
+      label: t("nav.landing_page"),
       IconComponent: Home,
       show: (settings.modules?.landing_page !== false) && (landingPageConfig?.is_enabled !== false),
       barClass: "flex",
@@ -2478,15 +2836,23 @@ const App: React.FC = () => {
     },
     {
       id: "reservation",
-      label: "Plätze",
+      label: t("nav.reservation"),
       IconComponent: Calendar,
       show: true,
       barClass: "flex",
       dropdownClass: "hidden",
     },
     {
+      id: "spielpartner",
+      label: t("nav.spielpartner", "Spielpartner"),
+      IconComponent: Users,
+      show: settings.modules?.spielpartner !== false,
+      barClass: "flex",
+      dropdownClass: "hidden",
+    },
+    {
       id: "tournaments",
-      label: "Veranstaltungen",
+      label: t("nav.tournaments"),
       IconComponent: PartyPopper,
       show: settings.modules?.events !== false,
       barClass: "flex",
@@ -2494,7 +2860,7 @@ const App: React.FC = () => {
     },
     {
       id: "ranking",
-      label: "Rangliste",
+      label: t("nav.ranking"),
       IconComponent: Medal,
       show: settings.modules?.ranking !== false,
       barClass: "flex",
@@ -2502,7 +2868,7 @@ const App: React.FC = () => {
     },
     {
       id: "championship",
-      label: "Meisterschaft",
+      label: t("nav.championship"),
       IconComponent: Trophy,
       show: settings.modules?.championship === true,
       barClass: "flex",
@@ -2510,7 +2876,7 @@ const App: React.FC = () => {
     },
     {
       id: "league",
-      label: "Liga",
+      label: t("nav.league"),
       IconComponent: Shield,
       show: isLeagueEnabled,
       barClass: "flex",
@@ -2518,15 +2884,15 @@ const App: React.FC = () => {
     },
     {
       id: "guests",
-      label: "Gastspiele",
-      IconComponent: UserPlus,
+      label: t("nav.guests"),
+      IconComponent: Ticket,
       show: isAdmin || (settings.modules?.guests !== false && !!currentUser),
       barClass: "hidden xl:flex",
       dropdownClass: "block xl:hidden",
     },
     {
       id: "arbeitseinsaetze",
-      label: "Arbeitseinsätze",
+      label: t("nav.arbeitseinsaetze"),
       IconComponent: Briefcase,
       show: settings.modules?.arbeitseinsaetze === true,
       barClass: "hidden 2xl:flex",
@@ -2543,20 +2909,20 @@ const App: React.FC = () => {
     dropdownClass: string;
   }> = [
     {
-      id: "adminSettings",
-      label: "Admin",
-      IconComponent: Settings,
-      show: isAdmin,
-      barClass: "flex",
-      dropdownClass: "hidden",
-    },
-    {
       id: "reports",
-      label: "Statistik",
+      label: t("nav.reports"),
       IconComponent: BarChart3,
       show: isAdmin,
       barClass: "hidden xl:flex",
       dropdownClass: "block xl:hidden",
+    },
+    {
+      id: "adminSettings",
+      label: t("nav.adminSettings"),
+      IconComponent: Settings,
+      show: isAdmin,
+      barClass: "flex",
+      dropdownClass: "hidden",
     },
   ];
 
@@ -2593,6 +2959,25 @@ const App: React.FC = () => {
   const isDropdownActive = desktopNavItems.some(
     (item) => item.show && item.dropdownClass !== "hidden" && view === item.id
   );
+
+  // First-Run Setup & Auth Loading Guard:
+  if (isSystemConfigLoading || (!isAuthReady && !currentUser)) {
+    return (
+      <div className="fixed inset-0 bg-[#0f172a] flex items-center justify-center p-6 z-[9999]">
+        <div className="w-8 h-8 border-2 border-white/20 border-t-emerald-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!isInitialized) {
+    return (
+      <SetupWizard
+        onSetupComplete={() => {
+          refreshSystemConfig();
+        }}
+      />
+    );
+  }
 
   if (
     !isLoading &&
@@ -2699,49 +3084,8 @@ const App: React.FC = () => {
   }
 
   if (!effectiveCurrentUser && !isPublicWochenplanRoute) {
-    if (landingPageConfig === null) {
+    if (!landingPageConfig?.is_enabled) {
       return (
-        <div className="fixed inset-0 bg-[#0f172a] flex items-center justify-center p-6 z-[9999]">
-          <div className="w-8 h-8 border-2 border-white/20 border-t-emerald-500 rounded-full animate-spin"></div>
-        </div>
-      );
-    }
-
-    if (!landingPageConfig.is_enabled) {
-      if (showPublicHelp) {
-      return (
-        <>
-          <style>{`
-            :root {
-              --color-primary: ${settings.primaryColor || "#1b4332"};
-              --color-accent: ${settings.accentColor || "#c04d2b"};
-              --color-accent-2: ${settings.accentColor2 || "#0f172a"};
-              --color-accent-3: ${settings.accentColor3 || "#ccff00"};
-            }
-          `}</style>
-          <div className="fixed inset-0 w-screen h-[100dvh] overflow-hidden p-4 sm:p-6 font-sans flex flex-col items-center justify-center select-none">
-            <div
-              className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat blur-[6px] scale-110"
-              style={{
-                backgroundImage: `url(${settings.loginBannerUrl || settings.bannerUrl})`,
-              }}
-            ></div>
-            <div
-              className="fixed inset-0 z-[1] bg-black/60 backdrop-brightness-50"
-              style={{ backgroundColor: `${settings.primaryColor}90` }}
-            ></div>
-            <div className="z-10 w-full max-w-4xl max-h-[90dvh] flex flex-col rounded-2xl animate-in zoom-in duration-300 shadow-sm border border-white/20 select-text">
-              <Help
-                onBack={() => setShowPublicHelp(false)}
-                isLoggedIn={false}
-              />
-            </div>
-          </div>
-        </>
-      );
-    }
-
-    return (
       <>
         <style>{`
           :root {
@@ -2802,7 +3146,7 @@ const App: React.FC = () => {
                 <p className="text-slate-400 text-[8px] sm:text-[9px] lg:text-[8.5px] font-black uppercase tracking-widest mt-1 sm:mt-1.5 lg:mt-1.5 text-center mb-4 sm:mb-7 lg:mb-5">
                   {isSuperadminRoute
                     ? "Systemwartung & Verwaltung"
-                    : "Mitgliederlogin"}
+                    : t("auth.memberLogin", "Mitglieder-Login")}
                 </p>
 
                 {error && (
@@ -2871,11 +3215,11 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div className="flex flex-col sm:grid sm:grid-cols-3 gap-2.5 mt-3 sm:mt-4 lg:mt-3">
+                  <div className="mt-3 sm:mt-4 lg:mt-3">
                     <button
                       type="submit"
                       disabled={isLoggingIn}
-                      className="sm:col-span-2 w-full text-white rounded-xl shadow-md transition-all uppercase tracking-widest hover:text-white active:scale-95 flex items-center justify-center gap-2 cursor-pointer py-2.5 sm:py-2.5 lg:py-2 text-[11px] sm:text-xs font-black"
+                      className="w-full text-white rounded-xl shadow-md transition-all uppercase tracking-widest hover:text-white active:scale-95 flex items-center justify-center gap-2 cursor-pointer py-2.5 sm:py-2.5 lg:py-2 text-[11px] sm:text-xs font-black"
                       style={{
                         backgroundColor: isSuperadminRoute
                           ? "#1b4332"
@@ -2892,23 +3236,18 @@ const App: React.FC = () => {
                         </>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowPublicHelp(true)}
-                      className="sm:col-span-1 w-full text-slate-500 bg-transparent hover:bg-slate-50 border border-slate-200 hover:border-slate-300 font-bold py-2 sm:py-2.5 lg:py-2 rounded-xl transition-all uppercase tracking-widest text-[10.5px] sm:text-xs lg:text-[10px] active:scale-95 flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer"
-                    >
-                      <i className="fa-solid fa-circle-question text-slate-400"></i>
-                      <span>Hilfe</span>
-                    </button>
                   </div>
                 </form>
 
                 {/* Mobile-only responsive Welcome Text */}
                 {(() => {
-                  const welcomeText = isSuperadminRoute
+                  const rawWelcomeText = isSuperadminRoute
                     ? "Diese Seite dient ausschließlich der Systemwartung und Administration. Spieler und Mitglieder verwenden bitte den von ihrem Verein mitgeteilten Link zur Buchungsseite, um sich anzumelden."
                     : settings.welcomeMessage ||
                       `Herzlich willkommen im modernisierten Reservierungssystem des ${settings.clubName || "Vereins"}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`;
+                  const welcomeText = isSuperadminRoute
+                    ? rawWelcomeText
+                    : getTenantTranslation(rawWelcomeText, "welcomeMessage", settings, i18n.language);
                   const isLongWelcomeText = welcomeText.length > 190;
 
                   let teaser = welcomeText;
@@ -2991,15 +3330,18 @@ const App: React.FC = () => {
 
               <div className="max-w-md mx-auto w-full relative z-10 lg:h-[340px] flex flex-col justify-end">
                 <div>
-                  <div className="text-white text-xs sm:text-sm lg:text-xs font-medium leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                  <div className="text-white text-[13px] sm:text-sm lg:text-[13px] font-medium leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
                     {isSuperadminRoute ? (
                       "Diese Seite dient ausschließlich der Systemwartung und Administration. Spieler und Mitglieder verwenden bitte den von ihrem Verein mitgeteilten Link zur Buchungsseite, um sich anzumelden."
                     ) : (
                       <RichTextRenderer
-                        text={
+                        text={getTenantTranslation(
                           settings.welcomeMessage ||
-                          `Herzlich willkommen im modernisierten Reservierungssystem des ${settings.clubName || "Vereins"}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`
-                        }
+                            `Herzlich willkommen im modernisierten Reservierungssystem des ${settings.clubName || "Vereins"}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`,
+                          "welcomeMessage",
+                          settings,
+                          i18n.language
+                        )}
                       />
                     )}
                   </div>
@@ -3078,7 +3420,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (effectiveCurrentUser && effectiveCurrentUser.role === Role.SUPER_ADMIN) {
+  if (effectiveCurrentUser && (effectiveCurrentUser.role === Role.SUPER_ADMIN || isSuperAdmin(effectiveCurrentUser))) {
     return (
       <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50 top-0 mt-0">
         <ErrorBoundary fallbackTitle="Super-Admin Dashboard Fehler" fallbackMessage="Beim Laden des Super-Admin Dashboards ist ein unerwarteter Fehler aufgetreten.">
@@ -3086,6 +3428,7 @@ const App: React.FC = () => {
             currentUser={effectiveCurrentUser}
             onLogout={handleLogout}
             onLoginAs={handleSuperAdminLoginAs}
+            onLanguageChange={handleLanguageChange}
           />
         </ErrorBoundary>
       </div>
@@ -3104,7 +3447,9 @@ const App: React.FC = () => {
           const isActive = view === item.id;
           const IconComp = item.IconComponent;
           return (
-            <button
+            <motion.button
+              layout
+              transition={{ layout: { duration: 0.25, ease: "easeInOut" } }}
               key={item.id}
               onClick={() => {
                 handleSetView(item.id as typeof view);
@@ -3123,16 +3468,27 @@ const App: React.FC = () => {
                   transition={{ type: "spring", stiffness: 400, damping: 40 }}
                 />
               )}
-              <span className="relative z-10 flex items-center justify-center gap-1.5">
+              <span className="relative z-10 flex items-center justify-center gap-1.5 leading-none">
                 <IconComp
                   className={`w-3.5 h-3.5 shrink-0 transition-colors ${
                     isActive ? "text-white" : "text-white/70"
-                  }`}
+                  } ${item.id === "guests" ? "scale-110 -translate-y-[1px]" : ""}`}
                   strokeWidth={isActive ? 2.25 : 1.8}
                 />
-                <span>{item.label}</span>
+                <AnimatePresence mode="wait">
+                  <motion.span
+                    className="inline-flex items-center leading-none"
+                    key={item.label}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    {item.label}
+                  </motion.span>
+                </AnimatePresence>
               </span>
-            </button>
+            </motion.button>
           );
         })}
 
@@ -3142,7 +3498,9 @@ const App: React.FC = () => {
           onMouseEnter={handleMehrMouseEnter}
           onMouseLeave={handleMehrMouseLeave}
         >
-          <button
+          <motion.button
+            layout
+            transition={{ layout: { duration: 0.25, ease: "easeInOut" } }}
             onClick={() => {
               if (isMehrDropdownOpen) {
                 closeMehrDropdown();
@@ -3170,7 +3528,17 @@ const App: React.FC = () => {
               />
             )}
             <span className="relative z-10 flex items-center justify-center gap-1.5">
-              <span>Mehr</span>
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={t("nav.more")}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  {t("nav.more")}
+                </motion.span>
+              </AnimatePresence>
               <ChevronDown
                 className={`w-3 h-3 transition-transform duration-200 ${
                   isMehrDropdownOpen ? "rotate-180" : ""
@@ -3178,7 +3546,7 @@ const App: React.FC = () => {
                 strokeWidth={1.8}
               />
             </span>
-          </button>
+          </motion.button>
 
           <AnimatePresence>
             {isMehrDropdownOpen && (
@@ -3219,10 +3587,10 @@ const App: React.FC = () => {
                             <DropdownIconComp
                               className={`w-3.5 h-3.5 shrink-0 ${
                                 isActive ? "text-white" : "text-white/70"
-                              }`}
+                              } ${item.id === "guests" ? "scale-110 -translate-y-[1px]" : ""}`}
                               strokeWidth={isActive ? 2.25 : 1.8}
                             />
-                            <span>{item.label}</span>
+                            <span className="leading-none flex items-center">{item.label}</span>
                           </button>
                         );
                       })}
@@ -3254,6 +3622,10 @@ const App: React.FC = () => {
     mobileHeaderTitle = "Arbeitseinsätze"; 
     MobileHeaderIconComp = Briefcase; 
   }
+  else if (view === "spielpartner") { 
+    mobileHeaderTitle = t("nav.spielpartner", "Spielpartner"); 
+    MobileHeaderIconComp = Users; 
+  }
   else if (view === "league") { 
     mobileHeaderTitle = "Liga"; 
     MobileHeaderIconComp = Trophy; 
@@ -3263,20 +3635,16 @@ const App: React.FC = () => {
     MobileHeaderIconComp = Trophy; 
   }
   else if (view === "reports") { 
-    mobileHeaderTitle = "Statistik"; 
+    mobileHeaderTitle = t("reports.title", "Auswertungen"); 
     MobileHeaderIconComp = BarChart3; 
   }
   else if (view === "guests") { 
     mobileHeaderTitle = "Gastspiele"; 
-    MobileHeaderIconComp = UserPlus; 
+    MobileHeaderIconComp = Ticket; 
   }
   else if (view === "adminSettings") { 
     mobileHeaderTitle = "Einstellungen"; 
     MobileHeaderIconComp = Settings; 
-  }
-  else if (view === "help") { 
-    mobileHeaderTitle = "Hilfe & FAQ"; 
-    MobileHeaderIconComp = HelpCircle; 
   }
   else if (view === "impressum") { 
     mobileHeaderTitle = "Impressum"; 
@@ -3352,14 +3720,17 @@ const App: React.FC = () => {
         isPublicWochenplanRoute={isPublicWochenplanRoute && !currentUser}
         onLogout={handleLogout}
         onOpenLogin={() => setIsStartPageLoginModalOpen(true)}
-        onShowHelp={() => handleSetView("help")}
         onShowImpressum={() => handleSetView("impressum")}
         onShowProfile={() => setShowProfile(true)}
-        news={settings.news}
+        news={getTenantTranslation(settings.news, "news", settings, i18n.language)}
         clubName={settings.clubName}
         logoUrl={settings.headerLogoUrl || settings.logoUrl}
         bannerUrl={settings.bannerUrl}
         bannerPosition={settings.bannerPosition}
+        bannerType={settings.bannerType}
+        bannerColor={settings.bannerColor}
+        bannerGradientStart={settings.bannerGradientStart}
+        bannerGradientEnd={settings.bannerGradientEnd}
         primaryColor={settings.primaryColor}
         websiteUrl={settings.websiteUrl}
         hideWebsiteLink={settings.hideWebsiteLink}
@@ -3369,6 +3740,9 @@ const App: React.FC = () => {
         userClubs={uniqueUserClubs}
         currentVereinsId={currentVereinsId}
         onSwitchClub={handleSwitchClub}
+        supportedLanguages={settings.i18n?.supportedLanguages || ["de"]}
+        currentLanguage={(i18n.language as "de" | "en") || "de"}
+        onLanguageChange={handleLanguageChange}
       >
         <div className="w-full flex-grow flex flex-col min-h-0">
           {superAdminContext && !proxyUser && (
@@ -3380,16 +3754,16 @@ const App: React.FC = () => {
                 </div>
                 <div className="text-left">
                   <h4 className="font-black text-xs uppercase tracking-wider text-rose-800 flex items-center gap-1.5">
-                    <span>⚠️ Proxymodus Aktiv (Super-Admin)</span>
+                    <span>{t("proxy.superAdminModeActive", "⚠️ Proxymodus Aktiv (Super Admin)")}</span>
                   </h4>
                   <p className="text-xs font-bold text-slate-700">
-                    Du agierst aktuell als Proxy für:{" "}
+                    {t("proxy.actingAs", "Du agierst aktuell als Proxy für:")}{" "}
                     <span className="font-black text-rose-600 underline">
                       {currentUser?.firstName || currentUser?.lastName
                         ? `${currentUser?.firstName || ""} ${currentUser?.lastName || ""}`.trim()
-                        : currentUser?.klarname || currentUser?.name || "Benutzer"}
+                        : currentUser?.klarname || currentUser?.name || t("common.user", "Benutzer")}
                     </span>{" "}
-                    im Verein{" "}
+                    {t("proxy.inClub", "im Verein")}{" "}
                     <span className="font-black text-slate-900">
                       {uniqueUserClubs.find((c) => (c.vereinsId || c.id) === currentVereinsId || String(c.vereinsId || c.id).toLowerCase().replace(/\s/g, "") === String(currentVereinsId).toLowerCase().replace(/\s/g, ""))?.clubName || settings?.clubName || currentVereinsId}
                     </span>
@@ -3414,15 +3788,15 @@ const App: React.FC = () => {
                     setView("superadmin");
 
                     // Clean up Tenant State
-                    if (superAdminContext?.vereinsId) {
-                      const params = new URLSearchParams(window.location.search);
-                      params.set("tenant", superAdminContext.vereinsId);
-                      window.location.search = params.toString();
-                    }
+                    const params = new URLSearchParams(window.location.search);
+                    params.delete("tenant");
+                    const newQuery = params.toString() ? `?${params.toString()}` : "";
+                    window.history.replaceState({}, "", `${window.location.pathname}${newQuery}${window.location.hash}`);
+                    setSelectedTenantId(null);
                   }}
                   className="px-4 py-2 bg-rose-600 hover:bg-slate-900 text-white font-black uppercase text-[10px] tracking-wider rounded-xl transition-all shadow-sm shrink-0 active:scale-95 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <i className="fa-solid fa-right-from-bracket"></i> Proxysitzung beenden
+                  <i className="fa-solid fa-right-from-bracket"></i> {t("proxy.exitSession", "Proxysitzung beenden")}
                 </button>
               </div>
             </div>
@@ -3437,10 +3811,10 @@ const App: React.FC = () => {
                   </div>
                   <div className="text-left">
                     <h4 className="font-black text-xs uppercase tracking-wider text-amber-800">
-                      Proxymodus Aktiv
+                      {t("proxy.clubProxyActive", "Proxymodus Aktiv")}
                     </h4>
                     <p className="text-xs font-bold text-slate-700">
-                      Du agierst aktuell als{" "}
+                      {t("proxy.actingAsUser", "Du agierst aktuell als")}{" "}
                       <span className="font-black text-amber-600 underline">
                         {proxyUser.lastName || proxyUser.firstName
                           ? `${proxyUser.firstName || ""} ${proxyUser.lastName || ""}`.trim()
@@ -3453,13 +3827,17 @@ const App: React.FC = () => {
                 <button
                   onClick={() => {
                     if (currentUser?.vereinsId) {
-                      setActiveTenantId(currentUser.vereinsId);
+                      const cId = currentUser.vereinsId.toLowerCase().replace(/\s/g, "");
+                      setSelectedTenantId(cId);
+                      const params = new URLSearchParams(window.location.search);
+                      params.set("tenant", cId);
+                      window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`);
                     }
                     setProxyUser(null);
                   }}
                   className="px-3.5 py-2 bg-amber-600 hover:bg-black text-white font-black uppercase text-[9px] tracking-widest rounded-xl transition-all shadow-sm shrink-0 active:scale-95 flex items-center gap-1.5"
                 >
-                  <i className="fa-solid fa-arrow-left-long"></i> Proxy beenden
+                  <i className="fa-solid fa-arrow-left-long"></i> {t("proxy.exitClubProxy", "Proxy beenden")}
                 </button>
               </div>
             </div>
@@ -3767,7 +4145,6 @@ const App: React.FC = () => {
                     onOpenTokenSetup={() => {
                       setTokenAuthModal({ token: "", userId: "", type: "initial" });
                     }}
-                    onOpenHelp={() => handleSetView("help")}
                     currentVereinsId={currentVereinsId}
                     courts={settings.courts}
                     bookings={anonymizedBookings}
@@ -3788,6 +4165,7 @@ const App: React.FC = () => {
                       onLockRange={handleLockRange}
                       settings={settings}
                       userClubs={uniqueUserClubs}
+                      allClubs={allClubs}
                       onSwitchClub={handleSwitchClub}
                       mobileViewType={mobileViewType}
                       onMobileViewTypeChange={setMobileViewType}
@@ -3800,7 +4178,14 @@ const App: React.FC = () => {
                       isPublicWochenplan={!currentUser}
                       onPublicLoginSuccess={(loggedInUser) => {
                         setCurrentUser(loggedInUser);
-                        setOnboardingDismissedForSession(false);
+                        const isSuper = isSuperAdmin(loggedInUser) || loggedInUser.role === Role.SUPER_ADMIN || (loggedInUser as any).role === "super-admin" || loggedInUser.vereinsId === "super-admin";
+                        const isPending = !isSuper && !!(loggedInUser.onboarding_pending ?? (loggedInUser as any).onboardingPending);
+                        if (isPending) {
+                          sessionStorage.removeItem(`onboarding_dismissed_${loggedInUser.id || loggedInUser.name}`);
+                          setShowOnboardingModal(true);
+                        } else {
+                          setShowOnboardingModal(false);
+                        }
                       }}
                       initialBookingSlot={initialBookingSlot}
                       onClearInitialBookingSlot={() => setInitialBookingSlot(null)}
@@ -3813,6 +4198,8 @@ const App: React.FC = () => {
                     bookings={bookings}
                     users={users}
                     courts={settings.courts}
+                    equipmentList={settings.equipmentList}
+                    feeSettings={settings.feeSettings}
                   />
                 </div>
               ) : view === "guests" && currentUser ? (
@@ -3823,6 +4210,7 @@ const App: React.FC = () => {
                     settings={settings}
                     currentUser={currentUser}
                     vereinsId={currentVereinsId}
+                    isAdmin={isAdmin}
                     onSaveSettings={async (s) => {
                       await saveSettings(currentVereinsId, s);
                     }}
@@ -3850,13 +4238,14 @@ const App: React.FC = () => {
                       }
                       for (const prevKey of previousKeys) {
                         if (!currentKeys.has(prevKey)) {
-                          await deleteUserDoc(currentVereinsId, prevKey);
+                          const deletedUser = users[prevKey];
+                          await deleteUserDoc(currentVereinsId, prevKey, deletedUser?.id);
                         }
                       }
                     }}
                     bookings={bookings}
                     onUpdateBookings={() => {}} // deprecated for firestore sync
-                    onSaveBooking={(b) => {
+                    onSaveBooking={async (b) => {
                       const bookingToSave = { ...b };
                       const isGuest =
                         (bookingToSave.guestCount &&
@@ -3872,9 +4261,12 @@ const App: React.FC = () => {
                           court: bookingToSave.court,
                           players: bookingToSave.players,
                           guestCount: bookingToSave.guestCount,
+                          adultGuestCount: bookingToSave.adultGuestCount,
+                          youthGuestCount: bookingToSave.youthGuestCount,
                           date: bookingToSave.date,
                           time: bookingToSave.time,
                           durationMinutes: 60,
+                          allUsers: users,
                         });
                         const feeRes = calculateBookingFee(feeCtx, settings.feeSettings, settings.reservationRules);
                         bookingToSave.guestFee = feeRes.ratePerUnitEuro;
@@ -3906,18 +4298,24 @@ const App: React.FC = () => {
                             ? currentUser.name || currentUser.id
                             : "unbekannt");
                       }
-                      saveBooking(currentVereinsId, bookingToSave);
+                      await saveBooking(currentVereinsId, bookingToSave);
                     }}
-                     onDeleteBooking={async (id) => {
-                       const bToDel = bookings.find((b) => b.id === id);
-                       if (bToDel && bToDel.group_token) {
-                         const group = bookings.filter((b) => b.group_token === bToDel.group_token);
-                         for (const b of group) {
-                           await deleteBooking(currentVereinsId, b.id);
+                     onDeleteBooking={async (idOrIds: string | string[]) => {
+                       const inputIds = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+                       if (inputIds.length === 0) return;
+                       const targetBookings = bookings.filter((b) => inputIds.includes(b.id));
+                       const allIds = new Set<string>(inputIds);
+                       for (const b of targetBookings) {
+                         if (b.group_token) {
+                           bookings.filter((x) => x.group_token === b.group_token).forEach((x) => allIds.add(x.id));
                          }
-                       } else {
-                         await deleteBooking(currentVereinsId, id);
+                         if (b.lockGroupId) {
+                           bookings.filter((x) => x.lockGroupId === b.lockGroupId).forEach((x) => allIds.add(x.id));
+                         }
                        }
+                       const finalIds = Array.from(allIds);
+                       setBookings((prev) => prev.filter((b) => !allIds.has(b.id)));
+                       await deleteBookingsBatch(currentVereinsId, finalIds);
                      }}
                     currentUser={currentUser}
                     isSuperAdminImpersonating={!!superAdminContext}
@@ -3956,7 +4354,11 @@ const App: React.FC = () => {
                     onActAsUser={(u) => {
                       setProxyUser(u);
                       if (u.vereinsId) {
-                        setActiveTenantId(u.vereinsId);
+                        const cleanTenant = u.vereinsId.toLowerCase().replace(/\s/g, "");
+                        setSelectedTenantId(cleanTenant);
+                        const params = new URLSearchParams(window.location.search);
+                        params.set("tenant", cleanTenant);
+                        window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`);
                       }
                       setView("reservation");
                     }}
@@ -3973,13 +4375,44 @@ const App: React.FC = () => {
                     currentUser={proxyUser || currentUser}
                     onToggleRegistration={handleToggleRegistration}
                     onAddTournament={handleAddTournament}
-                    onUpdateTournament={(id, updates) =>
-                      updateTournament(currentVereinsId, id, updates)
-                    }
+                    onUpdateTournament={(id, updates) => {
+                      setTournaments((prev) =>
+                        prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
+                      );
+                      updateTournament(currentVereinsId, id, updates);
+                    }}
                     onDeleteTournament={handleDeleteTournament}
                     highlightEventId={highlightEventId}
                   />
                 </div>
+              ) : view === "spielpartner" ? (
+                settings.modules?.spielpartner !== false || isAdmin ? (
+                  <div className="w-full flex-grow flex flex-col min-h-0">
+                    <SpielpartnerView
+                      currentUser={proxyUser || currentUser}
+                      clubId={currentVereinsId}
+                      users={users}
+                      settings={settings}
+                      onSelectPartnerForBooking={(_partner) => {
+                        handleSetView("reservation");
+                      }}
+                      userClubs={uniqueUserClubs}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full p-8 text-center text-slate-500">
+                    <i className="fa-solid fa-lock text-4xl text-slate-300 mb-3"></i>
+                    <h3 className="text-base font-bold text-slate-700">
+                      {t('spielpartner.moduleInactiveTitle', 'Spielpartner nicht aktiv')}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                      {t(
+                        'spielpartner.moduleInactiveDesc',
+                        'Das Modul Spielpartner ist aktuell für diesen Verein in den Vereinseinstellungen nicht freigeschaltet.',
+                      )}
+                    </p>
+                  </div>
+                )
               ) : view === "ranking" ? (
                 <div className="w-full flex-grow flex flex-col min-h-0">
                   {rankings ? (
@@ -4064,18 +4497,6 @@ const App: React.FC = () => {
                     </p>
                   </div>
                 )
-              ) : view === "help" ? (
-                <Help
-                  isLoggedIn={true}
-                  onBack={() => {
-                    if (window.innerWidth < 1024) {
-                      setView("reservation");
-                      setIsMoreMenuOpen(true);
-                    } else {
-                      handleSetView("reservation");
-                    }
-                  }}
-                />
               ) : view === "impressum" ? (
                 <Impressum
                   onBack={() => {
@@ -4108,6 +4529,24 @@ const App: React.FC = () => {
                           <Home className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
                           <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
                             Startseite
+                          </span>
+                        </button>
+                      )}
+                      {settings.modules?.spielpartner !== false && (
+                        <button
+                          onClick={() => {
+                            setView("spielpartner");
+                            setIsMoreMenuOpen(false);
+                          }}
+                          className={`flex flex-col items-center justify-center gap-1 p-1 rounded-xl border-2 text-center transition-all active:scale-[0.97] duration-150 h-16 w-full ${
+                            view === "spielpartner"
+                              ? "border-[var(--color-primary)] bg-slate-50 text-[var(--color-primary)] font-black"
+                              : "border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 text-slate-700"
+                          }`}
+                        >
+                          <Users className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
+                          <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
+                            {t("nav.spielpartner", "Spielpartner")}
                           </span>
                         </button>
                       )}
@@ -4206,22 +4645,6 @@ const App: React.FC = () => {
                         </button>
                       )}
 
-                      <button
-                        onClick={() => {
-                          setView("help");
-                          setIsMoreMenuOpen(false);
-                        }}
-                        className={`flex flex-col items-center justify-center gap-1 p-1 rounded-xl border-2 text-center transition-all active:scale-[0.97] duration-150 h-16 w-full ${
-                          view === "help"
-                            ? "border-[var(--color-primary)] bg-slate-50 text-[var(--color-primary)] font-black"
-                            : "border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 text-slate-700"
-                        }`}
-                      >
-                        <HelpCircle className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
-                        <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
-                          Hilfe
-                        </span>
-                      </button>
 
                       {!settings.hideWebsiteLink && (
                         <a
@@ -4271,7 +4694,7 @@ const App: React.FC = () => {
                               : "border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 text-slate-700"
                           }`}
                         >
-                          <UserPlus className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
+                          <Ticket className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
                           <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
                             Gastspiele
                           </span>
@@ -4306,7 +4729,7 @@ const App: React.FC = () => {
                           >
                             <BarChart3 className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
                             <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
-                              Statistik
+                              {t("reports.title", "Auswertungen")}
                             </span>
                           </button>
 
@@ -4323,7 +4746,7 @@ const App: React.FC = () => {
                           >
                             <Settings className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
                             <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
-                              System
+                              Einstellungen
                             </span>
                           </button>
                         </>
@@ -4470,6 +4893,7 @@ const App: React.FC = () => {
                   onLockRange={handleLockRange}
                   settings={settings}
                   userClubs={uniqueUserClubs}
+                  allClubs={allClubs}
                   onSwitchClub={handleSwitchClub}
                   mobileViewType={mobileViewType}
                   onMobileViewTypeChange={setMobileViewType}
@@ -4483,7 +4907,14 @@ const App: React.FC = () => {
                   isPublicWochenplan={!currentUser}
                   onPublicLoginSuccess={(loggedInUser) => {
                     setCurrentUser(loggedInUser);
-                    setOnboardingDismissedForSession(false);
+                    const isSuper = isSuperAdmin(loggedInUser) || loggedInUser.role === Role.SUPER_ADMIN || (loggedInUser as any).role === "super-admin" || loggedInUser.vereinsId === "super-admin";
+                    const isPending = !isSuper && !!(loggedInUser.onboarding_pending ?? (loggedInUser as any).onboardingPending);
+                    if (isPending) {
+                      sessionStorage.removeItem(`onboarding_dismissed_${loggedInUser.id || loggedInUser.name}`);
+                      setShowOnboardingModal(true);
+                    } else {
+                      setShowOnboardingModal(false);
+                    }
                   }}
                   initialBookingSlot={initialBookingSlot}
                   onClearInitialBookingSlot={() => setInitialBookingSlot(null)}
@@ -4579,16 +5010,26 @@ const App: React.FC = () => {
         )}
 
         {/* Multi-Tenant Member Onboarding Modal on Login */}
-        {settings.club_onboarding_settings?.enable_onboarding &&
+        {showOnboardingModal &&
           currentUser &&
-          currentUser.onboarding_pending &&
-          !onboardingDismissedForSession &&
+          !!(currentUser.onboarding_pending ?? (currentUser as any).onboardingPending) &&
           !proxyUser && (
             <MemberOnboardingModal
               currentUser={currentUser}
               settings={settings}
               currentClubId={currentVereinsId}
+              logoUrl={
+                splashLogo ||
+                settings.customHeaderLogoUrl ||
+                settings.headerLogoUrl ||
+                settings.customLogoUrl ||
+                settings.logoUrl ||
+                (currentVereinsId.includes("neuhausen") ? DEFAULT_SETTINGS.logoUrl : undefined)
+              }
+              clubName={settings.clubName}
               onSuccess={(updatedUser) => {
+                setShowOnboardingModal(false);
+                sessionStorage.removeItem(`onboarding_dismissed_${updatedUser.id || updatedUser.name}`);
                 setCurrentUser(updatedUser);
                 const key = (updatedUser.id || updatedUser.name).toLowerCase().replace(/\s/g, '');
                 setUsers((prev) => ({ ...prev, [key]: updatedUser }));
@@ -4596,7 +5037,8 @@ const App: React.FC = () => {
                 setTriggerAceWelcome(true);
               }}
               onClose={() => {
-                setOnboardingDismissedForSession(true);
+                setShowOnboardingModal(false);
+                sessionStorage.setItem(`onboarding_dismissed_${currentUser.id || currentUser.name}`, "true");
               }}
             />
         )}
@@ -4605,6 +5047,7 @@ const App: React.FC = () => {
         {globalSystemSettings.chatbotEnabled !== false && (
           <TennisAssistantWidget
             currentUser={currentUser}
+            settings={settings}
             onUpdateUser={(updatedUser) => {
               setCurrentUser(updatedUser);
               const key = (updatedUser.id || updatedUser.name).toLowerCase().replace(/\s/g, '');
@@ -4723,6 +5166,40 @@ const App: React.FC = () => {
       {isStartPageLoginModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 sm:p-8 animate-in zoom-in-95 duration-200 relative select-text">
+            {/* Language Switcher in Login Modal */}
+            <div className="absolute left-4 top-4 flex items-center bg-slate-100 border border-slate-200 rounded-full p-0.5 text-slate-700 select-none">
+              <button
+                type="button"
+                onClick={() => handleLanguageChange("de")}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide transition-all cursor-pointer flex items-center gap-1.5 ${
+                  (i18n.language || "de").startsWith("de")
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                title="Deutsch"
+              >
+                <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block shadow-3xs">
+                  <GermanFlag />
+                </span>
+                <span>DE</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLanguageChange("en")}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide transition-all cursor-pointer flex items-center gap-1.5 ${
+                  (i18n.language || "de").startsWith("en")
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                title="English"
+              >
+                <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block shadow-3xs">
+                  <UKFlag />
+                </span>
+                <span>EN</span>
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => {
@@ -4751,10 +5228,10 @@ const App: React.FC = () => {
                 )}
               </div>
               <h3 className="text-lg font-black uppercase tracking-tight text-slate-800">
-                Vereins-Login
+                {t("auth.clubLogin")}
               </h3>
               <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                Bitte melde dich an, um auf diesen Bereich zugreifen zu können.
+                {t("auth.loginRequiredNotice")}
               </p>
             </div>
 
@@ -4768,7 +5245,7 @@ const App: React.FC = () => {
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1.5">
-                  Benutzername oder E-Mail
+                  {t("auth.usernameOrEmail")}
                 </label>
                 <div className="relative">
                   <i className="fa-solid fa-user absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
@@ -4777,7 +5254,7 @@ const App: React.FC = () => {
                     value={loginForm.username}
                     onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
                     className="w-full h-11 pl-9 pr-3 text-sm font-medium bg-slate-50 border-2 border-slate-200 rounded-xl focus:bg-white focus:border-[var(--color-primary)] outline-none transition-all placeholder:text-slate-400 placeholder:font-normal"
-                    placeholder="z. B. max.mustermann"
+                    placeholder={t("auth.usernameOrEmailPlaceholder")}
                     required
                   />
                 </div>
@@ -4785,7 +5262,7 @@ const App: React.FC = () => {
 
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1.5">
-                  Passwort
+                  {t("auth.password")}
                 </label>
                 <div className="relative">
                   <i className="fa-solid fa-lock absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
@@ -4817,28 +5294,15 @@ const App: React.FC = () => {
                   {isLoggingIn ? (
                     <>
                       <i className="fa-solid fa-spinner fa-spin text-xs"></i>
-                      <span>Wird angemeldet...</span>
+                      <span>{t("auth.loggingIn")}</span>
                     </>
                   ) : (
                     <>
                       <LogIn className="w-4 h-4" strokeWidth={2} />
-                      <span>Anmelden</span>
+                      <span>{t("auth.login")}</span>
                     </>
                   )}
                 </button>
-
-                <div className="flex items-center justify-end text-[11px] pt-1 text-slate-500">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsStartPageLoginModalOpen(false);
-                      setShowPublicHelp(true);
-                    }}
-                    className="hover:underline cursor-pointer"
-                  >
-                    Hilfe benötigt?
-                  </button>
-                </div>
               </div>
             </form>
           </div>

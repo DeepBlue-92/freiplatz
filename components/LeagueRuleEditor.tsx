@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { doc, deleteDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { getLeagueConfigVersions, saveLeagueConfigVersion, recalculateLeaguePointsFrom, LEAGUE_CONFIG_VERSIONS_COLLECTION } from "../services/league";
@@ -12,6 +13,7 @@ export interface LeagueRuleEditorProps {
 }
 
 export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({
     leagueId: props.leagueId,
     system_status: 'active',
@@ -182,17 +184,17 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
   return (
     <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xl overflow-hidden text-slate-800">
       {/* Header */}
-      <div className="bg-gradient-to-r from-[#1b4332] via-[#245a43] to-[#1b4332] text-white px-6 py-5 flex items-center justify-between">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-[#e47726] text-white px-6 py-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 text-amber-300 text-lg">
+          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 text-[#e47726] text-lg">
             <i className="fa-solid fa-sliders"></i>
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-200">
-              Stichtagsregelwerk Editor
+            <div className="text-[11px] font-bold uppercase tracking-wider text-orange-200">
+              {t("superadmin.effectiveRulesTitle", "Stichtagsregelwerk Editor")}
             </div>
             <h2 className="text-lg font-black tracking-tight flex items-center gap-2">
-              Liga: {props.leagueName || props.leagueId}
+              {t("superadmin.colLeague", "Liga")}: {props.leagueName || props.leagueId}
               <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-white/10 text-white font-normal">
                 ID: {props.leagueId}
               </span>
@@ -205,7 +207,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
             type="button"
             onClick={props.onClose}
             className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
-            title="Schließen"
+            title={t("common.close", "Schließen")}
           >
             <i className="fa-solid fa-xmark text-sm"></i>
           </button>
@@ -247,7 +249,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
               <button
                 type="button"
                 onClick={handleResetToNew}
-                className="text-xs text-emerald-700 hover:text-emerald-800 font-bold flex items-center gap-1 cursor-pointer"
+                className="text-xs text-[#e47726] hover:text-black font-bold flex items-center gap-1 cursor-pointer"
               >
                 <i className="fa-solid fa-plus text-[10px]"></i>
                 Neues Stichtagsregelwerk anlegen
@@ -257,7 +259,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
 
           {isLoadingVersions ? (
             <div className="text-xs text-slate-500 py-3 flex items-center gap-2">
-              <i className="fa-solid fa-spinner fa-spin"></i> Lade Regelwerke...
+              <i className="fa-solid fa-spinner fa-spin text-[#e47726]"></i> {t("superadmin.loadingConfigs", "Lade Regelwerke...")}
             </div>
           ) : existingVersions.length === 0 ? (
             <p className="text-xs text-slate-500 py-2">
@@ -273,24 +275,24 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                     key={v.id}
                     className={`p-3 rounded-lg border text-left transition-all ${
                       isSelected
-                        ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-400/30'
+                        ? 'bg-orange-50 border-[#e47726] ring-2 ring-orange-400/30'
                         : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="font-mono text-xs font-black text-slate-900">
-                        ab {v.effective_date}
+                        {t("superadmin.ageFrom", "ab")} {v.effective_date}
                       </span>
                       {isBase ? (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-indigo-100 text-indigo-800">
-                          Basis
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-orange-100 text-[#e47726] border border-orange-200">
+                          {t("superadmin.baseRuleset", "Basis")}
                         </span>
                       ) : (
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => handleSelectExisting(v)}
-                            className="text-[10px] text-slate-600 hover:text-emerald-700 font-bold px-1.5 py-0.5 rounded bg-slate-100 hover:bg-emerald-50"
+                            className="text-[10px] text-slate-600 hover:text-[#e47726] font-bold px-1.5 py-0.5 rounded bg-slate-100 hover:bg-orange-50"
                           >
                             Laden
                           </button>
@@ -298,7 +300,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                             type="button"
                             onClick={() => handleDelete(v.id)}
                             className="text-[10px] text-rose-600 hover:text-rose-800 font-bold px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100"
-                            title="Löschen"
+                            title={t("superadmin.deleteRuleBtn", "Löschen")}
                           >
                             <i className="fa-solid fa-trash-can"></i>
                           </button>
@@ -306,8 +308,8 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                       )}
                     </div>
                     <div className="text-[11px] text-slate-600 space-y-0.5">
-                      <div>Sieg: <strong className="text-emerald-700">+{v.base_points_win}</strong> / Ndlg: <strong className="text-slate-700">+{v.base_points_loss}</strong> Pkt.</div>
-                      <div>Max. Bonus: <strong className="text-amber-700">+{v.max_bonus}</strong> | k: <strong className="text-indigo-700">{v.logistic_factor}</strong></div>
+                      <div>Sieg: <strong className="text-emerald-700">+{v.base_points_win}</strong> / Ndlg: <strong className="text-slate-700">+{v.base_points_loss}</strong> {t("superadmin.pointsAbbr", "Pkt.")}</div>
+                      <div>Max. Bonus: <strong className="text-amber-700">+{v.max_bonus}</strong> | k: <strong className="text-[#e47726]">{v.logistic_factor}</strong></div>
                     </div>
                   </div>
                 );
@@ -321,11 +323,11 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
           <div className="bg-slate-50/70 border border-slate-200/90 rounded-xl p-5">
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200">
               <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                <i className="fa-solid fa-pen-ruler text-emerald-700"></i>
+                <i className="fa-solid fa-pen-ruler text-[#e47726]"></i>
                 {editingVersionId ? "Regelwerk bearbeiten" : "Neues Regelwerk definieren"}
               </h3>
               {editingVersionId && (
-                <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                <span className="text-[11px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
                   Modus: Bestehendes Regelwerk ändern
                 </span>
               )}
@@ -342,7 +344,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                   required
                   value={formData.effective_date}
                   onChange={(e) => setFormData({ ...formData, effective_date: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-[#e47726]/30 focus:border-[#e47726] outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   Regel gilt für alle Spiele ab diesem Datum.
@@ -362,7 +364,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                   required
                   value={formData.base_points_win}
                   onChange={(e) => setFormData({ ...formData, base_points_win: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-[#e47726]/30 focus:border-[#e47726] outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   Garantierte Punkte bei Sieg (z. B. 5).
@@ -382,7 +384,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                   required
                   value={formData.initial_ranking_points}
                   onChange={(e) => setFormData({ ...formData, initial_ranking_points: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-[#e47726]/30 focus:border-[#e47726] outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   Punkte, mit denen neue Spieler starten (Standard: 0).
@@ -402,7 +404,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                   required
                   value={formData.base_points_loss}
                   onChange={(e) => setFormData({ ...formData, base_points_loss: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-[#e47726]/30 focus:border-[#e47726] outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   Teilnahmepunkte bei Niederlage (z. B. 1).
@@ -422,7 +424,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                   required
                   value={formData.max_bonus}
                   onChange={(e) => setFormData({ ...formData, max_bonus: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-[#e47726]/30 focus:border-[#e47726] outline-hidden font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   Maximaler Zusatzbonus bei Überraschungssieg (z. B. 25).
@@ -447,7 +449,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                     const rounded = isNaN(parsed) ? 0 : Math.round(parsed * 10000) / 10000;
                     setFormData({ ...formData, logistic_factor: rounded });
                   }}
-                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-hidden font-mono font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
+                  className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-sm focus:ring-2 focus:ring-[#e47726]/30 focus:border-[#e47726] outline-hidden font-mono font-sans font-medium placeholder:font-normal placeholder:text-slate-400"
                 />
                 <p className="text-[10px] text-slate-500 mt-1">
                   Sensitivität auf Ranglisten-Differenz (z. B. 0.05).
@@ -459,13 +461,13 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
           </div>
 
           {/* Live Simulation Matrix */}
-          <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-xl p-4">
-            <h4 className="text-xs font-black text-emerald-950 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <i className="fa-solid fa-calculator text-emerald-700"></i>
+          <div className="bg-orange-50/50 border border-orange-200/80 rounded-xl p-4">
+            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <i className="fa-solid fa-calculator text-[#e47726]"></i>
               Live-Vorschau der Punktevergabe (Mathematische Simulation)
             </h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="bg-white p-3 rounded-lg border border-emerald-100 shadow-2xs">
+              <div className="bg-white p-3 rounded-lg border border-orange-100 shadow-2xs">
                 <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">Underdogsieg</div>
                 <div className="text-[11px] text-slate-600">80 Pkt. schlägt 120 Pkt.</div>
                 <div className="text-lg font-black text-emerald-700 mt-1">
@@ -476,10 +478,10 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                 </div>
               </div>
 
-              <div className="bg-white p-3 rounded-lg border border-emerald-100 shadow-2xs">
+              <div className="bg-white p-3 rounded-lg border border-orange-100 shadow-2xs">
                 <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">Ausgeglichen</div>
                 <div className="text-[11px] text-slate-600">100 Pkt. vs 100 Pkt.</div>
-                <div className="text-lg font-black text-emerald-700 mt-1">
+                <div className="text-lg font-black text-[#e47726] mt-1">
                   +{simEven.total} <span className="text-xs font-semibold text-slate-500">Pkt.</span>
                 </div>
                 <div className="text-[10px] text-slate-400">
@@ -487,10 +489,10 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                 </div>
               </div>
 
-              <div className="bg-white p-3 rounded-lg border border-emerald-100 shadow-2xs">
+              <div className="bg-white p-3 rounded-lg border border-orange-100 shadow-2xs">
                 <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">Favoritensieg</div>
                 <div className="text-[11px] text-slate-600">120 Pkt. schlägt 80 Pkt.</div>
-                <div className="text-lg font-black text-emerald-700 mt-1">
+                <div className="text-lg font-black text-slate-800 mt-1">
                   +{simFavorite.total} <span className="text-xs font-semibold text-slate-500">Pkt.</span>
                 </div>
                 <div className="text-[10px] text-slate-400">
@@ -498,7 +500,7 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                 </div>
               </div>
 
-              <div className="bg-white p-3 rounded-lg border border-emerald-100 shadow-2xs">
+              <div className="bg-white p-3 rounded-lg border border-orange-100 shadow-2xs">
                 <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">Niederlage</div>
                 <div className="text-[11px] text-slate-600">Niederlage: <strong className="text-slate-800">+{lossPoints} Pkt.</strong></div>
                 <div className="text-[10px] text-slate-400 mt-1">
@@ -517,14 +519,14 @@ export const LeagueRuleEditor: React.FC<LeagueRuleEditorProps> = (props) => {
                 disabled={isSaving}
                 className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                Abbrechen
+                {t("superadmin.cancel", "Abbrechen")}
               </button>
             )}
 
             <button
               type="submit"
               disabled={isSaving}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#1b4332] to-[#2d6a4f] hover:from-[#143225] hover:to-[#1b4332] text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-2"
+              className="px-6 py-2.5 rounded-xl bg-[#e47726] hover:bg-slate-900 text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-2"
             >
               {isSaving ? (
                 <>

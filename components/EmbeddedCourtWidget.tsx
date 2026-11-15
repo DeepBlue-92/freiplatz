@@ -551,7 +551,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             <form onSubmit={handleLoginSubmit} className="space-y-3">
               <div className="space-y-1 text-left">
                 <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                  Benutzername oder E-Mail
+                  Benutzername
                 </label>
                 <input
                   type="text"

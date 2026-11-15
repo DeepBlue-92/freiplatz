@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send, MoreVertical, EyeOff, ArrowRight } from 'lucide-react';
-import { User } from '../types';
+import { User, ClubSettings } from '../types';
 import { updateUserAiAssistant, updateUserAceWelcomeSeen } from '../services/db';
 import { USER_HELP_CATEGORIES } from '../data/docs/userHelpData';
 import { findKnowledgeAnswer, loadPersonality } from '../services/assistantKnowledge';
+import { buildClubAssistantContext } from '../services/assistantContext';
 
 interface TennisAssistantWidgetProps {
   currentUser: User | null;
@@ -11,6 +12,9 @@ interface TennisAssistantWidgetProps {
   primaryColor?: string;
   triggerWelcomeBubble?: boolean;
   isGlobalChatbotEnabled?: boolean;
+  settings?: ClubSettings | null;
+  activeChampionshipName?: string;
+  userHoursWorked?: number;
 }
 
 interface Message {
@@ -310,13 +314,17 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
   primaryColor = '#1b4332',
   triggerWelcomeBubble = false,
   isGlobalChatbotEnabled = true,
+  settings,
+  activeChampionshipName,
+  userHoursWorked,
 }) => {
   const vorname = currentUser?.firstName || (currentUser as any)?.displayName?.split(' ')[0] || currentUser?.name?.split(' ')[0] || '';
   const [personalityPrompt, setPersonalityPrompt] = useState<string>('');
 
-  const getWelcomeGreeting = (name: string) => {
+  const getWelcomeGreeting = (name: string, clubName?: string) => {
     const greeting = name ? `Servus ${name}!` : `Servus!`;
-    return `${greeting} Ich bin Ace, dein persönlicher Vereins- und Tennisassistent der DJK Fürth. 🎾\nFrag mi gerne nach Tennisregeln, Platzreservierungen, Arbeitseinsätzen oder Vereinsspielen!`;
+    const club = clubName || 'unserem Verein';
+    return `${greeting} Ich bin Ace, dein persönlicher Vereins- und Tennisassistent bei ${club}. 🎾\nFrag mi gerne nach Tennisregeln, Platzreservierungen, Arbeitseinsätzen oder Vereinsspielen!`;
   };
 
   const [isOpen, setIsOpen] = useState(false);
@@ -330,7 +338,7 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
     {
       id: 'welcome',
       sender: 'ace',
-      text: getWelcomeGreeting(vorname),
+      text: getWelcomeGreeting(vorname, settings?.clubName),
       timestamp: 'Jetzt'
     }
   ]);
@@ -351,18 +359,18 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
     };
   }, [vorname]);
 
-  // Synchronize welcome message when vorname is updated
+  // Synchronize welcome message when vorname or clubName is updated
   useEffect(() => {
     setMessages(prev => {
       if (prev.length === 1 && prev[0].id === 'welcome') {
         return [{
           ...prev[0],
-          text: getWelcomeGreeting(vorname)
+          text: getWelcomeGreeting(vorname, settings?.clubName)
         }];
       }
       return prev;
     });
-  }, [vorname]);
+  }, [vorname, settings?.clubName]);
 
   // Clean up toast timer on unmount
   useEffect(() => {
@@ -455,10 +463,18 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
 
     let replyText = '';
 
+    // Build real-time live club context
+    const clubContext = buildClubAssistantContext({
+      settings,
+      currentUser,
+      activeChampionshipName,
+      userHoursWorked
+    });
+
     // Step 1: Attempt server-side Gemini response (with public/personality & public/tutorial)
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const res = await fetch('/api/assistant/chat', {
         method: 'POST',
@@ -467,6 +483,7 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
           message: trimmedQuestion,
           history: messages.slice(-4),
           vorname,
+          clubContext,
           systemInstruction: personalityPrompt || undefined,
         }),
         signal: controller.signal
@@ -483,9 +500,23 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
       // Server AI not reachable or timed out, will fall back immediately to local tutorial knowledge
     }
 
-    // Step 2: Instant knowledge base matching from public/tutorial (Single Source of Truth)
+    // Step 2: Instant knowledge base matching from public/tutorial with dynamic variable interpolation
     if (!replyText) {
-      const knowledgeMatch = findKnowledgeAnswer(trimmedQuestion);
+      const guestFeeFormatted = settings?.guestFeeModel === 'off'
+        ? 'kostenlos'
+        : settings?.guestFeeModel === 'flat'
+        ? `${settings?.guestFeeAmount ?? 5} € pauschal pro Gast`
+        : `${settings?.guestFeeAmount ?? 5} € pro Stunde und Gast`;
+
+      const dynamicVars = {
+        GAST_FEE_TEXT: guestFeeFormatted,
+        ADVANCE_DAYS: String(settings?.advanceBookingDays ?? 7),
+        ACTIVE_BOOKINGS: String(settings?.maxActiveBookingsPerUser ?? 3),
+        SOLL_STUNDEN: String(settings?.requiredWorkDutyHours ?? 10),
+        CLUB_NAME: settings?.clubName || 'unserem Verein'
+      };
+
+      const knowledgeMatch = findKnowledgeAnswer(trimmedQuestion, dynamicVars);
       if (knowledgeMatch) {
         replyText = `**${knowledgeMatch.title}**\n\n${knowledgeMatch.content}`;
       }
@@ -513,7 +544,8 @@ export const TennisAssistantWidget: React.FC<TennisAssistantWidgetProps> = ({
 
     // Step 4: Comprehensive Club & Tutorial Fallback adhering to personality
     if (!replyText) {
-      replyText = `Dazu hob i im Handbuch leider nix g'funden – frag am besten kurz direkt beim Sportwart oder beim Vorstand nach.\n\nIn unserem **Vereins-Handbuch** findest du alle wichtigen Regeln und Abläufe:\n\n• **Plätze reservieren:** Einzel 60 Min, Doppel bis 120 Min. Es muss immer ein Partner, ein Gast oder die Ballmaschine eingetragen sein.\n• **Gastspiele:** Keine Barzahlung auf der Anlage – die Abrechnung erfolgt bequem am Saisonende per SEPA-Lastschrift.\n• **Meisterschaft:** Bei 1:1 Sätzen wird kein 3. Satz gespielt, sondern direkt ein Match-Tiebreak bis 10 Punkte.\n• **Arbeitseinsätze:** 10 Sollstunden pro Saison (Übersicht und Einreichung im Menü *Arbeitseinsätze*).\n• **Platzpflege:** Nach dem Spiel kreisförmig abziehen, Linien säubern und wässern (keine Pfützen wegschieben).\n\nFrag mi gerne zu einem dieser Bereiche genauer! 🎾`;
+      const sollStunden = settings?.requiredWorkDutyHours ?? 10;
+      replyText = `Dazu hob i im Handbuch leider nix g'funden – frag am besten kurz direkt beim Sportwart oder beim Vorstand nach.\n\nIn unserem **Vereins-Handbuch** findest du alle wichtigen Regeln und Abläufe:\n\n• **Plätze reservieren:** Einzel 60 Min, Doppel bis 120 Min. Es muss immer ein Partner, ein Gast oder die Ballmaschine eingetragen sein.\n• **Gastspiele:** Keine Barzahlung auf der Anlage – die Abrechnung erfolgt bequem am Saisonende per SEPA-Lastschrift.\n• **Meisterschaft:** Bei 1:1 Sätzen wird kein 3. Satz gespielt, sondern direkt ein Match-Tiebreak bis 10 Punkte.\n• **Arbeitseinsätze:** ${sollStunden} Sollstunden pro Saison (Übersicht und Einreichung im Menü *Arbeitseinsätze*).\n• **Platzpflege:** Nach dem Spiel kreisförmig abziehen, Linien säubern und wässern (keine Pfützen wegschieben).\n\nFrag mi gerne zu einem dieser Bereiche genauer! 🎾`;
     }
 
     // Enforce Rule 1: First answer must start with "Servus {{VORNAME}}!" (or "Servus!")

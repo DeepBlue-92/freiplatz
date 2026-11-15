@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   listenToGlobalBackups,
   createGlobalBackup,
@@ -11,6 +12,7 @@ interface ClubBackupsPanelProps {
 }
 
 export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
+  const { t, i18n } = useTranslation();
   const [backups, setBackups] = useState<GlobalSystemBackup[]>([]);
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -32,9 +34,9 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
     setErrorMsg(null);
     try {
       await createGlobalBackup("super-admin");
-      setSuccessMsg("Globales Systembackup erfolgreich manuell erstellt.");
+      setSuccessMsg(t("superadmin.backup.backupCreatedSuccess", "Globales Systembackup erfolgreich manuell erstellt."));
     } catch (err: any) {
-      setErrorMsg("Fehler beim Erstellen des Systembackups: " + (err?.message || err));
+      setErrorMsg("Fehler: " + (err?.message || err));
     } finally {
       setLoading(false);
     }
@@ -70,12 +72,14 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
       await restoreGlobalBackup(targetBackupId);
 
       setSuccessMsg(
-        `Systemweites Rollback erfolgreich ausgeführt! Das gesamte System wurde auf den Stand von "${targetBackupName}" zurückgesetzt. Zur Sicherheit wurde zuvor ein automatisches Backup des bisherigen Systemzustands angelegt.`
+        i18n.language.startsWith("en")
+          ? `System-wide rollback successfully executed! The entire system was restored to "${targetBackupName}". An automatic safety backup was created before restoring.`
+          : `Systemweites Rollback erfolgreich ausgeführt! Das gesamte System wurde auf den Stand von "${targetBackupName}" zurückgesetzt. Zur Sicherheit wurde zuvor ein automatisches Backup des bisherigen Systemzustands angelegt.`
       );
       setRollbackModalBackup(null);
       setRollbackConfirmInput("");
     } catch (err: any) {
-      setErrorMsg("Fehler bei der System-Wiederherstellung: " + (err?.message || err));
+      setErrorMsg((i18n.language.startsWith("en") ? "Error during rollback: " : "Fehler bei der System-Wiederherstellung: ") + (err?.message || err));
     } finally {
       setIsPerformingRollback(false);
     }
@@ -85,37 +89,37 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
     <div className="space-y-6 font-sans">
       {/* Header Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-8 h-8 rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)] flex items-center justify-center text-sm">
-              <i className="fa-solid fa-database"></i>
-            </span>
-            <h3 className="text-sm font-black uppercase text-[var(--color-primary)] tracking-wider">
-              Globales Systembackup &amp; Rollback
-            </h3>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#e47726] text-lg shrink-0">
+            <i className="fa-solid fa-database"></i>
           </div>
-          <p className="text-xs text-slate-500 font-semibold leading-relaxed max-w-3xl">
-            Verwalten Sie globale System-Sicherungspunkte der gesamten Datenbank. Ein Sicherungspunkt umfasst alle Vereine, Benutzerkonten, Ligaspiele, Platzbuchungen, Turniere und Systemeinstellungen.
-          </p>
+          <div>
+            <h3 className="text-base font-black uppercase text-slate-900 tracking-tight">
+              {t("superadmin.backup.title", "Globales Systembackup & Rollback")}
+            </h3>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
+              {t("superadmin.backup.subtitle", "Verwalten Sie globale System-Sicherungspunkte der gesamten Datenbank. Ein Sicherungspunkt umfasst alle Vereine, Benutzerkonten, Ligaspiele, Platzbuchungen, Turniere und Systemeinstellungen.")}
+            </p>
+          </div>
         </div>
         <button
           onClick={handleCreateBackup}
           disabled={loading || isPerformingRollback}
-          className="bg-[var(--color-primary)] hover:bg-[#153326] disabled:bg-slate-300 text-white px-4 py-2.5 rounded-xl uppercase tracking-wider transition-all shadow-sm hover:shadow-md active:scale-95 border border-[var(--color-primary)] inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap text-xs font-black shrink-0"
+          className="bg-[#e47726] hover:bg-[#c8631b] disabled:bg-slate-300 text-white px-4 py-2.5 rounded-xl uppercase tracking-wider transition-all shadow-md active:scale-95 border border-[#e47726] inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap text-xs font-black shrink-0"
         >
           <i className="fa-solid fa-plus-circle text-sm"></i>
-          Neues Systembackup sichern
+          {t("superadmin.backup.createBackupBtn", "Neues Systembackup sichern")}
         </button>
       </div>
 
       {/* Loading Indicator */}
       {(loading || isPerformingRollback) && (
-        <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 flex items-center justify-center gap-3 shadow-xs">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-t-transparent border-[var(--color-primary)]"></div>
-          <span className="text-xs font-black text-[var(--color-primary)] uppercase tracking-wider animate-pulse">
+        <div className="bg-orange-50/70 border border-orange-200 rounded-xl p-4 flex items-center justify-center gap-3 shadow-xs">
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-t-transparent border-[#e47726]"></div>
+          <span className="text-xs font-black text-[#e47726] uppercase tracking-wider animate-pulse">
             {isPerformingRollback
-              ? "Systemweites Rollback wird ausgeführt... Bitte warten..."
-              : "Systembackup wird erstellt... Bitte warten..."}
+              ? t("superadmin.backup.rollbackRunning", "Systemweites Rollback wird ausgeführt... Bitte warten...")
+              : t("superadmin.backup.backupRunning", "Systembackup wird erstellt... Bitte warten...")}
           </span>
         </div>
       )}
@@ -128,7 +132,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
           </div>
           <div className="flex-1">
             <h4 className="text-[11px] font-black uppercase text-emerald-800 tracking-wider">
-              Erfolgreich abgeschlossen
+              {t("superadmin.backup.successTitle", "Erfolgreich abgeschlossen")}
             </h4>
             <p className="text-xs text-emerald-700 font-semibold mt-0.5 leading-relaxed">
               {successMsg}
@@ -151,7 +155,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
           </div>
           <div className="flex-1">
             <h4 className="text-[11px] font-black uppercase text-rose-800 tracking-wider">
-              Fehler aufgetreten
+              {t("superadmin.backup.errorTitle", "Fehler aufgetreten")}
             </h4>
             <p className="text-xs text-rose-700 font-semibold mt-0.5 leading-relaxed">
               {errorMsg}
@@ -171,10 +175,10 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
         <div className="bg-slate-50/80 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
           <h4 className="text-xs font-black uppercase text-slate-600 tracking-wider flex items-center gap-2">
             <i className="fa-solid fa-clock-rotate-left text-slate-400"></i>
-            Backup &amp; Rollback-Historie (Globale Snapshots)
+            {t("superadmin.backup.historyTitle", "Backup & Rollback-Historie (Globale Snapshots)")}
           </h4>
           <span className="text-[11px] font-bold text-slate-500 bg-white px-2.5 py-0.5 rounded-full border border-slate-200">
-            {backups.length} {backups.length === 1 ? "Sicherungspunkt" : "Sicherungspunkte"}
+            {backups.length} {backups.length === 1 ? t("superadmin.backup.restorePointSingular", "Sicherungspunkt") : t("superadmin.backup.restorePointsPlural", "Sicherungspunkte")}
           </span>
         </div>
 
@@ -182,17 +186,18 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider border-b border-slate-200">
-                <th className="px-5 py-3 font-black">Sicherungspunkt</th>
-                <th className="px-5 py-3 font-black text-center">Erstellt von / Typ</th>
-                <th className="px-5 py-3 font-black text-center">Inhalt &amp; Umfang</th>
-                <th className="px-5 py-3 font-black text-right">Aktionen</th>
+                <th className="px-5 py-3 font-black">{t("superadmin.backup.colPoint", "Sicherungspunkt")}</th>
+                <th className="px-5 py-3 font-black text-center">{t("superadmin.backup.colCreator", "Erstellt von / Typ")}</th>
+                <th className="px-5 py-3 font-black text-center">{t("superadmin.backup.colScope", "Inhalt & Umfang")}</th>
+                <th className="px-5 py-3 font-black text-right">{t("superadmin.backup.colActions", "Aktionen")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
               {backups.map((backup) => {
                 const dateObj = new Date(backup.timestamp);
+                const isEn = i18n.language.startsWith("en");
                 const formattedDate = !isNaN(dateObj.getTime())
-                  ? dateObj.toLocaleString("de-DE", {
+                  ? dateObj.toLocaleString(isEn ? "en-US" : "de-DE", {
                       day: "2-digit",
                       month: "2-digit",
                       year: "numeric",
@@ -222,44 +227,44 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                       </div>
                       <div className="text-[11px] text-slate-400 mt-0.5 font-medium flex items-center gap-1.5">
                         <i className="fa-regular fa-clock text-[10px]"></i>
-                        {formattedDate} Uhr
+                        {formattedDate} {t("superadmin.backup.clockOClock", "Uhr")}
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-center text-xs font-semibold text-slate-700">
                       {backup.creator === "system" ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
                           <i className="fa-solid fa-clock-rotate-left text-[10px]"></i>
-                          Wöchentlich (Auto)
+                          {t("superadmin.backup.typeWeeklyAuto", "Wöchentlich (Auto)")}
                         </span>
                       ) : backup.creator === "rollback-auto" ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                           <i className="fa-solid fa-shield text-[10px]"></i>
-                          Sicherheits-Backup
+                          {t("superadmin.backup.typeSafety", "Sicherheits-Backup")}
                         </span>
                       ) : backup.creator === "league-reset" ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
                           <i className="fa-solid fa-shield-halved text-[10px] text-purple-600"></i>
-                          Snapshot (Vor Reset)
+                          {t("superadmin.backup.typeSnapshotReset", "Snapshot (Vor Reset)")}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                           <i className="fa-solid fa-user-shield text-[10px]"></i>
-                          Super-Admin
+                          {t("superadmin.backup.typeSuperAdmin", "Super-Admin")}
                         </span>
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-center text-xs text-slate-600 font-medium">
-                      {clubsCount} {clubsCount === 1 ? "Verein" : "Vereine"} · {usersCount} User · {bookingsCount} Buchungen · {matchesCount} Matches
+                      {clubsCount} {clubsCount === 1 ? t("superadmin.backup.scopeClub", "Verein") : t("superadmin.backup.scopeClubs", "Vereine")} · {usersCount} {t("superadmin.backup.scopeUsers", "User")} · {bookingsCount} {t("superadmin.backup.scopeBookings", "Buchungen")} · {matchesCount} {t("superadmin.backup.scopeMatches", "Matches")}
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <button
                         onClick={() => handleOpenRollbackModal(backup)}
                         disabled={loading || isPerformingRollback}
                         className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all border border-rose-200 shadow-xs active:scale-95 inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                        title="Gesamtes System auf diesen Sicherungspunkt zurücksetzen"
+                        title={t("superadmin.backup.rollbackBtnTooltip", "Gesamtes System auf diesen Sicherungspunkt zurücksetzen")}
                       >
                         <i className="fa-solid fa-arrow-rotate-left text-[11px]"></i>
-                        Rollback
+                        {t("superadmin.backup.rollbackBtn", "Rollback")}
                       </button>
                     </td>
                   </tr>
@@ -272,7 +277,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                     colSpan={4}
                     className="px-5 py-12 text-center text-slate-400 font-semibold italic"
                   >
-                    Bisher wurden keine globalen Systembackups gesichert. Klicken Sie oben auf &bdquo;Neues Systembackup sichern&ldquo;, um einen Snapshot zu erstellen.
+                    {t("superadmin.backup.noBackups", "Bisher wurden keine globalen Systembackups gesichert. Klicken Sie oben auf „Neues Systembackup sichern“, um einen Snapshot zu erstellen.")}
                   </td>
                 </tr>
               )}
@@ -287,8 +292,8 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
           <i className="fa-solid fa-circle-info"></i>
         </div>
         <div className="text-xs text-slate-600 leading-relaxed font-semibold">
-          <strong className="text-amber-900">Automatische Bereinigung &amp; Sicherheit:</strong> Wöchentliche globale Systembackups bleiben aus Gründen der Kapazitäts- und Performanceoptimierung exakt{" "}
-          <strong className="text-amber-900">4 Wochen (28 Tage)</strong> lang gespeichert. Nach Ablauf dieses Zeitraums werden sie automatisch bereinigt. Manuelle Systembackups, die Sie über &bdquo;Neues Systembackup sichern&ldquo; anlegen, sowie automatische Sicherheits-Backups vor Rollbacks bleiben dauerhaft erhalten.
+          <strong className="text-amber-900">{t("superadmin.backup.cleanupNoticeTitle", "Automatische Bereinigung & Sicherheit:")}</strong>{" "}
+          {t("superadmin.backup.cleanupNoticeText", "Wöchentliche globale Systembackups bleiben aus Gründen der Kapazitäts- und Performanceoptimierung exakt 4 Wochen (28 Tage) lang gespeichert. Nach Ablauf dieses Zeitraums werden sie automatisch bereinigt. Manuelle Systembackups sowie automatische Sicherheits-Backups vor Rollbacks bleiben dauerhaft erhalten.")}
         </div>
       </div>
 
@@ -306,10 +311,10 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-rose-900 uppercase tracking-tight">
-                    SYSTEMWEITES ROLLBACK AUSFÜHREN
+                    {t("superadmin.backup.modalRollbackTitle", "SYSTEMWEITES ROLLBACK AUSFÜHREN")}
                   </h3>
                   <p className="text-xs text-slate-500 font-semibold">
-                    Globaler System-Wiederherstellungspunkt
+                    {t("superadmin.backup.modalRollbackSubtitle", "Globaler System-Wiederherstellungspunkt")}
                   </p>
                 </div>
               </div>
@@ -329,20 +334,41 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
               </div>
               <div className="text-xs text-rose-950 font-bold leading-relaxed space-y-1">
                 <p>
-                  Achtung: Dies ist eine globale Systemoperation! Das Zurücksetzen setzt <span className="underline font-black">ALLE</span> Vereine, Benutzerkonten, Ligaspiele und Platzbuchungen auf den Stand vom{" "}
-                  <span className="font-black bg-rose-200/80 px-1 py-0.5 rounded text-rose-900">
-                    {new Date(rollbackModalBackup.timestamp).toLocaleString("de-DE", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })} Uhr
-                  </span>{" "}
-                  zurück.
+                  {i18n.language.startsWith("en") ? (
+                    <>
+                      Warning: This is a global system operation! Restoring will reset <span className="underline font-black">ALL</span> clubs, user accounts, league matches, and court bookings back to{" "}
+                      <span className="font-black bg-rose-200/80 px-1 py-0.5 rounded text-rose-900">
+                        {new Date(rollbackModalBackup.timestamp).toLocaleString("en-US", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>.
+                    </>
+                  ) : (
+                    <>
+                      Achtung: Dies ist eine globale Systemoperation! Das Zurücksetzen setzt <span className="underline font-black">ALLE</span> Vereine, Benutzerkonten, Ligaspiele und Platzbuchungen auf den Stand vom{" "}
+                      <span className="font-black bg-rose-200/80 px-1 py-0.5 rounded text-rose-900">
+                        {new Date(rollbackModalBackup.timestamp).toLocaleString("de-DE", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })} Uhr
+                      </span>{" "}
+                      zurück.
+                    </>
+                  )}
                 </p>
                 <p className="text-rose-800 font-medium">
-                  Alle nach diesem Zeitpunkt getätigten Aktionen im <span className="font-black uppercase text-rose-900">GESAMTEN</span> System gehen verloren.
+                  {i18n.language.startsWith("en") ? (
+                    <>All actions performed after this timestamp in the <span className="font-black uppercase text-rose-900">ENTIRE</span> system will be lost.</>
+                  ) : (
+                    <>Alle nach diesem Zeitpunkt getätigten Aktionen im <span className="font-black uppercase text-rose-900">GESAMTEN</span> System gehen verloren.</>
+                  )}
                 </p>
               </div>
             </div>
@@ -350,17 +376,17 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
             {/* Snapshot Details */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-2">
               <div className="flex justify-between items-center text-slate-700">
-                <span className="font-semibold text-slate-500">Ziel-Sicherungspunkt:</span>
+                <span className="font-semibold text-slate-500">{t("superadmin.backup.modalTargetLabel", "Ziel-Sicherungspunkt:")}</span>
                 <span className="font-bold text-slate-900">{rollbackModalBackup.name}</span>
               </div>
               <div className="flex justify-between items-center text-slate-700">
-                <span className="font-semibold text-slate-500">Erstellungsart:</span>
+                <span className="font-semibold text-slate-500">{t("superadmin.backup.modalCreatorLabel", "Erstellungsart:")}</span>
                 <span className="font-bold">
                   {rollbackModalBackup.creator === "system"
-                    ? "Wöchentlich (System)"
+                    ? t("superadmin.backup.typeWeeklyAuto", "Wöchentlich (Auto)")
                     : rollbackModalBackup.creator === "rollback-auto"
-                    ? "Sicherheits-Backup"
-                    : "Super-Admin"}
+                    ? t("superadmin.backup.typeSafety", "Sicherheits-Backup")
+                    : t("superadmin.backup.typeSuperAdmin", "Super-Admin")}
                 </span>
               </div>
             </div>
@@ -371,14 +397,15 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                 <i className="fa-solid fa-shield-halved"></i>
               </div>
               <p className="text-[11px] text-emerald-800 font-semibold leading-relaxed">
-                <strong>Automatische Sicherheitskopie:</strong> Vor der Durchführung wird automatisch ein Snapshot des <em>aktuellen</em> Systemzustands gespeichert. Sie können diesen Vorgang im Notfall jederzeit rückgängig machen.
+                <strong>{t("superadmin.backup.modalAutoSafetyCopyTitle", "Automatische Sicherheitskopie:")}</strong>{" "}
+                {t("superadmin.backup.modalAutoSafetyCopyText", "Vor der Durchführung wird automatisch ein Snapshot des aktuellen Systemzustands gespeichert. Sie können diesen Vorgang im Notfall jederzeit rückgängig machen.")}
               </p>
             </div>
 
             {/* Sicherheitsabfrage (Admin must type ROLLBACK) */}
             <div className="space-y-2 pt-1">
               <label className="block text-xs font-black text-slate-800 uppercase tracking-wider">
-                Sicherheitsabfrage: Tippe <span className="text-rose-600 font-mono bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">ROLLBACK</span> zur Bestätigung ein:
+                {t("superadmin.backup.modalPromptLabel", "Sicherheitsabfrage: Tippe ROLLBACK zur Bestätigung ein:")}
               </label>
               <input
                 type="text"
@@ -390,7 +417,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                 autoFocus
               />
               <p className="text-[10px] text-slate-400 font-semibold">
-                Der Button wird erst freigeschaltet, wenn das Wort exakt übereinstimmt.
+                {t("superadmin.backup.modalPromptHelp", "Der Button wird erst freigeschaltet, wenn das Wort exakt übereinstimmt.")}
               </p>
             </div>
 
@@ -402,7 +429,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                 disabled={isPerformingRollback}
                 className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                Abbrechen
+                {t("superadmin.backup.modalCancel", "Abbrechen")}
               </button>
               <button
                 type="button"
@@ -413,12 +440,12 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                 {isPerformingRollback ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent border-white"></div>
-                    Rollback läuft...
+                    {t("superadmin.backup.modalRollbackProgress", "Rollback läuft...")}
                   </>
                 ) : (
                   <>
                     <i className="fa-solid fa-arrow-rotate-left"></i>
-                    Rollback jetzt ausführen
+                    {t("superadmin.backup.modalRollbackExecute", "Rollback jetzt ausführen")}
                   </>
                 )}
               </button>
