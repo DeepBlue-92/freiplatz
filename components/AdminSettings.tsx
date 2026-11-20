@@ -10744,24 +10744,64 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
                   {/* WEBSITE-WIDGET & EMBEDDED MODE CARD */}
                   <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
-                    <div className="border-b border-slate-100 pb-4 text-left">
-                      <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <i className="fa-solid fa-code text-[var(--color-primary)]"></i> Websitewidget &amp; Einbettung (iFrame)
-                      </h3>
-                      <p className="text-xs text-slate-500 font-normal mt-0.5">
-                        Livebelegungsplan nahtlos in die eigene Vereinshomepage einbinden
-                      </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4 text-left">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                          <i className="fa-solid fa-code text-[var(--color-primary)]"></i> Websitewidget &amp; Einbettung (iFrame)
+                        </h3>
+                        <p className="text-xs text-slate-500 font-normal mt-0.5">
+                          Livebelegungsplan nahtlos und datenschutzkonform in die eigene Vereinshomepage einbinden
+                        </p>
+                      </div>
+
+                      {/* Manual Sync Button */}
+                      <button
+                        type="button"
+                        disabled={publicWeekSyncing}
+                        onClick={handleManualSyncPublicWeeks}
+                        className={`h-9 px-4 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0 shadow-2xs ${
+                          publicWeekSyncSuccess
+                            ? "bg-emerald-600 text-white"
+                            : "bg-[var(--color-primary)] hover:brightness-110 text-white"
+                        }`}
+                        title="Aktualisiert die anonyme Wochenbelegung in Firestore sofort"
+                      >
+                        <i className={`fa-solid ${publicWeekSyncing ? "fa-spinner fa-spin" : publicWeekSyncSuccess ? "fa-check" : "fa-arrows-rotate"}`}></i>
+                        <span>{publicWeekSyncSuccess ? "Wochenplan synchronisiert!" : "Wochenplan jetzt synchronisieren"}</span>
+                      </button>
+                    </div>
+
+                    {/* Status & Privacy Banner */}
+                    <div className="p-3.5 px-4 bg-slate-50/80 rounded-xl border border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-left">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                        <span className="text-xs font-semibold text-slate-800">
+                          Anonyme Wochenbelegung:
+                        </span>
+                        <code className="px-2 py-0.5 bg-white border border-slate-200 rounded-md font-mono text-[11px] text-emerald-800 font-medium">
+                          public_weeks/{getISOWeekString(new Date().toISOString().slice(0, 10))}
+                        </code>
+                      </div>
+                      <span className="text-[11px] text-slate-500 font-normal">
+                        Strikter Datenschutz: Nur freie/belegte Slots – keine Namen, E-Mails oder IDs
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-left">
                       {/* OPTION 1: HTML IFRAME EMBED CODE */}
                       <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 flex flex-col justify-between space-y-4">
                         <div className="space-y-1.5">
-                          <h4 className="text-xs font-semibold text-slate-900">
-                            HTML-Einbettungscode (iFrame)
-                          </h4>
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
+                              <i className="fa-solid fa-bolt text-amber-500 text-[11px]"></i>
+                              1-Klick-Einbettungscode (iFrame)
+                            </h4>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60">
+                              Empfohlen
+                            </span>
+                          </div>
                           <p className="text-xs text-slate-500 font-normal leading-relaxed">
-                            Fügen Sie diesen Codeschnipsel in Ihre Vereinswebsite ein. Das Widget übernimmt automatisch die Vereinsfarben.
+                            Fertiger Codeschnipsel für WordPress, Typo3, Jimdo oder eigene Webseiten. Übernimmt automatisch die Vereinsfarben. Klick auf einen Termin führt direkt in die App.
                           </p>
                         </div>
 
@@ -10788,18 +10828,19 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </div>
                       </div>
 
-                      {/* OPTION 2: DIRECT STANDALONE URL */}
+                      {/* OPTION 2: STANDALONE URL & WEBMASTER-API */}
                       <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 flex flex-col justify-between space-y-4">
                         <div className="space-y-1.5">
-                          <h4 className="text-xs font-semibold text-slate-900">
-                            Standalonewidget URL
+                          <h4 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
+                            <i className="fa-solid fa-arrow-up-right-from-square text-[var(--color-primary)] text-[11px]"></i>
+                            Direkte Widget-URL &amp; Webmaster-API
                           </h4>
                           <p className="text-xs text-slate-500 font-normal leading-relaxed">
-                            Direkte URL für Popups, externe Verlinkungen oder eigene Webviewer ohne übergeordnete Menüleisten.
+                            Direktlink für Popups oder externe Menüverlinkungen sowie Zugriff auf das Firestore-JSON für eigene Layouts.
                           </p>
                         </div>
 
-                        <div className="space-y-2 pt-2 border-t border-slate-200/80">
+                        <div className="space-y-3 pt-2 border-t border-slate-200/80">
                           <input
                             type="text"
                             readOnly
@@ -10832,83 +10873,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               <span>Öffnen</span>
                               <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
                             </a>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* OPTION 3: ANONYMOUS PUBLIC WEEK & WEBSITE INTEGRATION */}
-                      <div className="lg:col-span-2 bg-gradient-to-br from-slate-50 to-emerald-50/30 p-5 rounded-xl border border-slate-200/80 space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                                Anonyme Wochenbelegung &amp; Vereinswebsite (sv-neuhausen.de)
-                              </h4>
-                            </div>
-                            <p className="text-xs text-slate-600 font-normal leading-relaxed max-w-2xl">
-                              Strikt datenschutzkonforme Belegung in der Firestore-Collection <code className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-[11px] text-emerald-800">public_weeks/{getISOWeekString(new Date().toISOString().slice(0, 10))}</code>. 
-                              Enthält ausschließlich Terminslots ohne Spielernamen oder Mitgliedsdaten. Bei Klick auf einen Termin wird direkt in die Buchungs-App verlinkt.
-                            </p>
-                          </div>
-
-                          <button
-                            type="button"
-                            disabled={publicWeekSyncing}
-                            onClick={handleManualSyncPublicWeeks}
-                            className={`px-4 h-10 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0 shadow-2xs ${
-                              publicWeekSyncSuccess
-                                ? "bg-emerald-600 text-white"
-                                : "bg-[var(--color-primary)] hover:opacity-90 text-white"
-                            }`}
-                          >
-                            <i className={`fa-solid ${publicWeekSyncing ? "fa-spinner fa-spin" : publicWeekSyncSuccess ? "fa-check" : "fa-arrows-rotate"}`}></i>
-                            <span>{publicWeekSyncSuccess ? "Synchronisiert!" : "Jetzt synchronisieren"}</span>
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-slate-200/70">
-                          {/* Left: 1-Click Embed & Direct Link */}
-                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-                            <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                              <i className="fa-solid fa-bolt text-amber-500"></i>
-                              1-Klick-Einbettung für Vereinswebsite
-                            </span>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">
-                              Verwendet das interaktive Widget. Klickt ein Besucher auf einen freien Slot, öffnet sich die App sofort eingeloggt (oder leitet zur Anmeldung weiter).
-                            </p>
-                            <div className="p-2.5 bg-slate-900 rounded-lg font-mono text-[10px] text-emerald-400 overflow-x-auto select-all leading-normal">
-                              {getEmbedIframeCode()}
-                            </div>
-                          </div>
-
-                          {/* Right: Custom Design Webmaster API */}
-                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                                <i className="fa-solid fa-code-branch text-blue-500"></i>
-                                Webmaster-API / Custom CSS
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const snippet = `// Wochenbelegung aus Firestore lesen (sv-neuhausen.de)\nconst weekDoc = await getDoc(doc(db, "public_weeks", "${getISOWeekString(new Date().toISOString().slice(0, 10))}"));\nconst slots = weekDoc.data()?.slots || [];\n// slots: [{ court, date, start, end, type: 'booked'|'blocked', label? }]`;
-                                  navigator.clipboard.writeText(snippet);
-                                  setFirestoreSnippetCopied(true);
-                                  setTimeout(() => setFirestoreSnippetCopied(false), 2000);
-                                }}
-                                className="text-[10px] text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1 cursor-pointer"
-                              >
-                                <i className={`fa-solid ${firestoreSnippetCopied ? "fa-check" : "fa-copy"}`}></i>
-                                <span>{firestoreSnippetCopied ? "Kopiert!" : "Code kopieren"}</span>
-                              </button>
-                            </div>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">
-                              Für Webmaster, die das Wochenraster mit eigenem CSS in das Homepage-Theme einbinden möchten.
-                            </p>
-                            <div className="p-2.5 bg-slate-900 rounded-lg font-mono text-[10px] text-sky-300 overflow-x-auto select-all leading-normal">
-                              {`// Firestore: "public_weeks/${getISOWeekString(new Date().toISOString().slice(0, 10))}"\n// Direktlink: ${typeof window !== "undefined" ? window.location.origin : ""}/?date={date}&time={start}&court={court}`}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const snippet = `// Wochenbelegung aus Firestore lesen (sv-neuhausen.de)\nconst weekDoc = await getDoc(doc(db, "public_weeks", "${getISOWeekString(new Date().toISOString().slice(0, 10))}"));\nconst slots = weekDoc.data()?.slots || [];\n// slots: [{ court, date, start, end, type: 'booked'|'blocked', label? }]`;
+                                navigator.clipboard.writeText(snippet);
+                                setFirestoreSnippetCopied(true);
+                                setTimeout(() => setFirestoreSnippetCopied(false), 2000);
+                              }}
+                              className={`h-10 px-3 rounded-xl border border-slate-200 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                                firestoreSnippetCopied
+                                  ? "bg-emerald-600 text-white border-emerald-600"
+                                  : "bg-white hover:bg-slate-100 text-slate-700"
+                              }`}
+                              title="Firestore API Code kopieren"
+                            >
+                              <i className={`fa-solid ${firestoreSnippetCopied ? "fa-check" : "fa-code"}`}></i>
+                              <span className="hidden sm:inline">{firestoreSnippetCopied ? "Kopiert!" : "API-Code"}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
