@@ -31,6 +31,7 @@ import {
   saveArbeitseinsatz,
   isUsernameTakenGlobally,
 } from "../services/db";
+import { syncPublicWeekDocuments, getISOWeekString } from "../services/publicWeekSync";
 import { getUniqueLockReasons, getTenantTranslation } from "../services/tenantTranslations";
 import { calculateAge } from "../utils/playerHelper";
 import { RichTextRenderer, RichTextEditorToolbar } from "./RichText";
@@ -1196,6 +1197,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [exportEndDate, setExportEndDate] = useState("");
   const [widgetLinkCopied, setWidgetLinkCopied] = useState(false);
   const [widgetIframeCopied, setWidgetIframeCopied] = useState(false);
+  const [publicWeekSyncing, setPublicWeekSyncing] = useState(false);
+  const [publicWeekSyncSuccess, setPublicWeekSyncSuccess] = useState(false);
+  const [firestoreSnippetCopied, setFirestoreSnippetCopied] = useState(false);
 
   // Settings State Drafts
   const [clubName, setClubName] = useState(settings.clubName || "");
@@ -3751,6 +3755,27 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const getEmbedIframeCode = () => {
     const url = getEmbedWidgetURL();
     return `<iframe src="${url}" width="100%" height="720" style="border:none;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.06);width:100%;min-height:680px;" loading="lazy" title="Tennis Platzbelegung"></iframe>`;
+  };
+
+  const handleManualSyncPublicWeeks = async () => {
+    try {
+      setPublicWeekSyncing(true);
+      await syncPublicWeekDocuments(bookings, currentClubId);
+      setPublicWeekSyncSuccess(true);
+      setTimeout(() => setPublicWeekSyncSuccess(false), 3000);
+      setToast({
+        text: "Öffentliche Wochenbelegung erfolgreich mit Firestore synchronisiert.",
+        type: "success",
+      });
+    } catch (err: any) {
+      console.error("Fehler beim Synchronisieren der Wochenbelegung:", err);
+      setToast({
+        text: "Fehler beim Synchronisieren der Wochenbelegung.",
+        type: "error",
+      });
+    } finally {
+      setPublicWeekSyncing(false);
+    }
   };
 
   const nonSuperAdminUsers = useMemo(() => {
@@ -10764,6 +10789,83 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               <span>Öffnen</span>
                               <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
                             </a>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* OPTION 3: ANONYMOUS PUBLIC WEEK & WEBSITE INTEGRATION */}
+                      <div className="lg:col-span-2 bg-gradient-to-br from-slate-50 to-emerald-50/30 p-5 rounded-xl border border-slate-200/80 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                                Anonyme Wochenbelegung &amp; Vereinswebsite (sv-neuhausen.de)
+                              </h4>
+                            </div>
+                            <p className="text-xs text-slate-600 font-normal leading-relaxed max-w-2xl">
+                              Strikt datenschutzkonforme Belegung in der Firestore-Collection <code className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-[11px] text-emerald-800">public_weeks/{getISOWeekString(new Date().toISOString().slice(0, 10))}</code>. 
+                              Enthält ausschließlich Terminslots ohne Spielernamen oder Mitgliedsdaten. Bei Klick auf einen Termin wird direkt in die Buchungs-App verlinkt.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={publicWeekSyncing}
+                            onClick={handleManualSyncPublicWeeks}
+                            className={`px-4 h-10 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0 shadow-2xs ${
+                              publicWeekSyncSuccess
+                                ? "bg-emerald-600 text-white"
+                                : "bg-[var(--color-primary)] hover:opacity-90 text-white"
+                            }`}
+                          >
+                            <i className={`fa-solid ${publicWeekSyncing ? "fa-spinner fa-spin" : publicWeekSyncSuccess ? "fa-check" : "fa-arrows-rotate"}`}></i>
+                            <span>{publicWeekSyncSuccess ? "Synchronisiert!" : "Jetzt synchronisieren"}</span>
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-slate-200/70">
+                          {/* Left: 1-Click Embed & Direct Link */}
+                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                            <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                              <i className="fa-solid fa-bolt text-amber-500"></i>
+                              1-Klick-Einbettung für Vereinswebsite
+                            </span>
+                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                              Verwendet das interaktive Widget. Klickt ein Besucher auf einen freien Slot, öffnet sich die App sofort eingeloggt (oder leitet zur Anmeldung weiter).
+                            </p>
+                            <div className="p-2.5 bg-slate-900 rounded-lg font-mono text-[10px] text-emerald-400 overflow-x-auto select-all leading-normal">
+                              {getEmbedIframeCode()}
+                            </div>
+                          </div>
+
+                          {/* Right: Custom Design Webmaster API */}
+                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                                <i className="fa-solid fa-code-branch text-blue-500"></i>
+                                Webmaster-API / Custom CSS
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const snippet = `// Wochenbelegung aus Firestore lesen (sv-neuhausen.de)\nconst weekDoc = await getDoc(doc(db, "public_weeks", "${getISOWeekString(new Date().toISOString().slice(0, 10))}"));\nconst slots = weekDoc.data()?.slots || [];\n// slots: [{ court, date, start, end, type: 'booked'|'blocked', label? }]`;
+                                  navigator.clipboard.writeText(snippet);
+                                  setFirestoreSnippetCopied(true);
+                                  setTimeout(() => setFirestoreSnippetCopied(false), 2000);
+                                }}
+                                className="text-[10px] text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1 cursor-pointer"
+                              >
+                                <i className={`fa-solid ${firestoreSnippetCopied ? "fa-check" : "fa-copy"}`}></i>
+                                <span>{firestoreSnippetCopied ? "Kopiert!" : "Code kopieren"}</span>
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                              Für Webmaster, die das Wochenraster mit eigenem CSS in das Homepage-Theme einbinden möchten.
+                            </p>
+                            <div className="p-2.5 bg-slate-900 rounded-lg font-mono text-[10px] text-sky-300 overflow-x-auto select-all leading-normal">
+                              {`// Firestore: "public_weeks/${getISOWeekString(new Date().toISOString().slice(0, 10))}"\n// Direktlink: ${typeof window !== "undefined" ? window.location.origin : ""}/?date={date}&time={start}&court={court}`}
+                            </div>
                           </div>
                         </div>
                       </div>

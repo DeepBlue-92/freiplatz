@@ -90,6 +90,7 @@ import { checkPlayerCollisionAsync } from "./services/collisionService";
 import { notifyBookingModifiedApi } from "./services/notificationClient";
 import { extractPartnerUserIds } from "./utils/partnerRecommender";
 import { resolveViewFromSlug, getLocalizedSlugForView } from "./utils/routeHelper";
+import { syncPublicWeekDocuments } from "./services/publicWeekSync";
 
 const generateTestData = (): Booking[] => {
   return []; // We don't generate test data for Firebase automatically to avoid spamming
@@ -610,6 +611,13 @@ const App: React.FC = () => {
   const [mobileViewType, setMobileViewType] = useState<"day" | "week">("day");
   const [desktopViewType, setDesktopViewType] = useState<"day" | "week">("week");
   const [mobileSelectedDate, setMobileSelectedDate] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const dateParam = params.get("date");
+      if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        return dateParam;
+      }
+    }
     const today = new Date();
     const pad = (n: number) => n.toString().padStart(2, "0");
     return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
@@ -1774,7 +1782,10 @@ const App: React.FC = () => {
           } else {
             await saveClearBookings(currentVereinsId, []);
           }
-          console.log("Public feeds synchronized automatically.");
+
+          // Always synchronize anonymous public weeks document in public_weeks/{YYYY-WW}
+          await syncPublicWeekDocuments(bookings, currentVereinsId);
+          console.log("Public feeds and anonymous week documents synchronized automatically.");
         } catch (err) {
           console.error("Failed to auto-sync public feeds:", err);
         }

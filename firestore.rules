@@ -275,6 +275,12 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
+    // Anonymous public week schedules (no personal data)
+    match /public_weeks/{weekId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isSuperAdmin();
+    }
+
     // Root-level fallback for championships & templates
     match /championship_templates/{templateId} {
       allow read: if true;
