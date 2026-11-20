@@ -10471,9 +10471,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <button
                           type="button"
                           onClick={exportBookingsJSON}
-                          className="flex-1 h-10 px-5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                          className="flex-1 h-10 px-5 rounded-xl bg-[var(--color-primary)] hover:brightness-110 text-white font-semibold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                         >
-                          <i className="fa-solid fa-file-code text-sm text-blue-600"></i>
+                          <i className="fa-solid fa-file-code text-sm"></i>
                           {t("admin.database.downloadJson")}
                         </button>
                       </div>
