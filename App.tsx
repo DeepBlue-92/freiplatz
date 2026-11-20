@@ -299,6 +299,10 @@ const App: React.FC = () => {
             if (profile) {
               setCurrentUser(profile);
               localStorage.setItem("v2_current_user", JSON.stringify(profile));
+              const rawHash = window.location.hash.replace(/^#\/?/, "").toLowerCase();
+              if (!rawHash) {
+                setView((prev) => (prev === "landing_page" ? "reservation" : prev));
+              }
             } else {
               setCurrentUser(null);
               localStorage.removeItem("v2_current_user");
@@ -527,8 +531,24 @@ const App: React.FC = () => {
     if (resolvedFromSlug) {
       return resolvedFromSlug as any;
     }
-    // If no explicit hash or hash is startseite/landing/home, check landing page status
+
+    // Zero-Flicker: If user is already logged in and no specific view was requested,
+    // directly display the reservation view (day view on mobile, week view on desktop)
     try {
+      const savedUserStr = localStorage.getItem("v2_current_user");
+      if (savedUserStr) {
+        const savedUser = JSON.parse(savedUserStr);
+        if (savedUser && (savedUser.id || savedUser.name || savedUser.uid)) {
+          return "reservation";
+        }
+      }
+    } catch {}
+
+    // If no explicit hash or not logged in, check landing page status
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tenantParam = params.get("tenant");
+      const targetId = tenantParam ? tenantParam.toLowerCase().replace(/\s/g, "") : "sv-neuhausen";
       const cachedLandingStr = sessionStorage.getItem(`v2_landing_page_${targetId}`);
       if (cachedLandingStr) {
         const parsed = JSON.parse(cachedLandingStr);
@@ -720,7 +740,10 @@ const App: React.FC = () => {
       setLandingPageConfig(cfg);
       const hash = window.location.hash.replace(/^#\/?/, "").toLowerCase();
       const isStartActive = (settings.modules?.landing_page !== false) && (cfg.is_enabled !== false);
-      if (isStartActive && (!hash || hash === "startseite" || hash === "landing" || hash === "home")) {
+      const isExplicitStartHash = hash === "startseite" || hash === "landing" || hash === "home";
+      const hasSavedUser = !!(currentUser || localStorage.getItem("v2_current_user"));
+
+      if (isStartActive && (isExplicitStartHash || (!hash && !hasSavedUser))) {
         setView("landing_page");
       } else if (!isStartActive && view === "landing_page") {
         setView("reservation");
@@ -731,7 +754,7 @@ const App: React.FC = () => {
       isMounted = false;
       unsub();
     };
-  }, [currentVereinsId, settings.modules?.landing_page]);
+  }, [currentVereinsId, settings.modules?.landing_page, currentUser]);
   const [isAdminDropdownOpen, setIsAdminDropdownOpen] = useState(false);
   const [isMehrDropdownOpen, setIsMehrDropdownOpen] = useState(false);
   const mehrDropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1852,9 +1875,9 @@ const App: React.FC = () => {
       setHighlightEventId(eventId);
       setView("tournaments");
       window.location.hash = `#/events/${eventId}`;
-    } else if (!landingPageConfig?.is_enabled) {
+    } else {
       setView("reservation");
-      if (window.location.hash.includes("redirectTo=") || window.location.hash.includes("login")) {
+      if (window.location.hash.includes("redirectTo=") || window.location.hash.includes("login") || window.location.hash === "#startseite" || window.location.hash === "#/") {
         window.location.hash = "";
       }
     }
@@ -1883,6 +1906,15 @@ const App: React.FC = () => {
     setSuperAdminContext(null);
     setCurrentUser(null);
     setShowOnboardingModal(false);
+
+    const isStartActive = (settings.modules?.landing_page !== false) && (landingPageConfig?.is_enabled !== false);
+    if (isStartActive) {
+      setView("landing_page");
+      window.location.hash = "#startseite";
+    } else {
+      setView("reservation");
+      window.location.hash = "";
+    }
   };
 
   const handleSwitchClub = (newVereinsId: string) => {
