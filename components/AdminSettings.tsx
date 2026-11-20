@@ -32,6 +32,7 @@ import {
   isUsernameTakenGlobally,
 } from "../services/db";
 import { syncPublicWeekDocuments, getISOWeekString } from "../services/publicWeekSync";
+import { getLocalizedSlugForView } from "../utils/routeHelper";
 import { getUniqueLockReasons, getTenantTranslation } from "../services/tenantTranslations";
 import { calculateAge } from "../utils/playerHelper";
 import { RichTextRenderer, RichTextEditorToolbar } from "./RichText";
@@ -1200,6 +1201,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [publicWeekSyncing, setPublicWeekSyncing] = useState(false);
   const [publicWeekSyncSuccess, setPublicWeekSyncSuccess] = useState(false);
   const [firestoreSnippetCopied, setFirestoreSnippetCopied] = useState(false);
+  const [copiedModuleKey, setCopiedModuleKey] = useState<string | null>(null);
 
   // Settings State Drafts
   const [clubName, setClubName] = useState(settings.clubName || "");
@@ -3778,6 +3780,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     }
   };
 
+  const handleCopyModuleUrl = (moduleId: string, lang: "de" | "en") => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const slug = getLocalizedSlugForView(moduleId, lang);
+    const tenantPart =
+      currentClubId && currentClubId !== "super-admin" && currentClubId !== "default"
+        ? `?tenant=${encodeURIComponent(currentClubId)}`
+        : "";
+    const url = `${origin}/${tenantPart}#${slug}`;
+
+    navigator.clipboard.writeText(url);
+    setCopiedModuleKey(`${moduleId}-${lang}`);
+    setTimeout(() => setCopiedModuleKey(null), 2000);
+    setToast({
+      text: `${lang === "de" ? "Deutscher" : "Englischer"} Modullink kopiert (#${slug})`,
+      type: "success",
+    });
+  };
+
   const nonSuperAdminUsers = useMemo(() => {
     return ((Object.values(users) as User[]) as User[]).filter(
       (u) => !isUserSuperAdmin(u)
@@ -4129,6 +4149,47 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               </div>
 
                               <div className="flex items-center gap-2.5 shrink-0">
+                                {/* Subtle Copy Module Link (DE / EN) */}
+                                <div className="flex items-center bg-white border border-slate-200/90 rounded-lg p-0.5 shadow-2xs mr-0.5">
+                                  <span
+                                    className="text-[10px] text-slate-400 px-1.5 select-none flex items-center gap-1"
+                                    title="Direktlink zum Modul teilen"
+                                  >
+                                    <i className="fa-solid fa-link text-[9px] text-slate-400"></i>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyModuleUrl(id, "de")}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                      copiedModuleKey === `${id}-de`
+                                        ? "bg-emerald-600 text-white"
+                                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                                    }`}
+                                    title="Deutschen Direktlink kopieren"
+                                  >
+                                    {copiedModuleKey === `${id}-de` ? (
+                                      <i className="fa-solid fa-check text-[9px]"></i>
+                                    ) : null}
+                                    DE
+                                  </button>
+                                  <span className="text-slate-200 text-[10px]">|</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyModuleUrl(id, "en")}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                      copiedModuleKey === `${id}-en`
+                                        ? "bg-emerald-600 text-white"
+                                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                                    }`}
+                                    title="Englischen Direktlink kopieren"
+                                  >
+                                    {copiedModuleKey === `${id}-en` ? (
+                                      <i className="fa-solid fa-check text-[9px]"></i>
+                                    ) : null}
+                                    EN
+                                  </button>
+                                </div>
+
                                 {/* Up / Down arrows for ordering */}
                                 <div className="flex items-center gap-1 border-r border-slate-200 pr-2">
                                   <button
