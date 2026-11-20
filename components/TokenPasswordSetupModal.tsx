@@ -47,7 +47,7 @@ export default function TokenPasswordSetupModal({
         if (!res.ok || !data.valid) {
           setVerifyError(
             data.message ||
-              "Dieser Sicherheits-Link ist ungültig, abgelaufen oder wurde bereits verwendet."
+              "Dieser Sicherheitslink ist ungültig, abgelaufen oder wurde bereits verwendet."
           );
           setVerifying(false);
           return;
@@ -58,7 +58,7 @@ export default function TokenPasswordSetupModal({
         setVerifying(false);
       } catch (err: any) {
         if (!isMounted) return;
-        setVerifyError("Verbindungsfehler bei der Token-Prüfung. Bitte versuche es erneut.");
+        setVerifyError("Verbindungsfehler bei der Tokenprüfung. Bitte versuche es erneut.");
         setVerifying(false);
       }
     }
@@ -66,7 +66,7 @@ export default function TokenPasswordSetupModal({
     if (token && userId) {
       verify();
     } else {
-      setVerifyError("Ungültiger Aufruf: Sicherheits-Token oder Benutzerkennung fehlt.");
+      setVerifyError("Ungültiger Aufruf: Sicherheitstoken oder Benutzerkennung fehlt.");
       setVerifying(false);
     }
 
@@ -149,7 +149,7 @@ export default function TokenPasswordSetupModal({
             <div className="py-8 text-center space-y-3">
               <i className="fa-solid fa-circle-notch fa-spin text-3xl text-emerald-600"></i>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Sicherheits-Token wird geprüft...
+                Sicherheitstoken wird geprüft...
               </p>
             </div>
           )}

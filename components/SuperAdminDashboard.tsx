@@ -255,7 +255,7 @@ export default function SuperAdminDashboard({
       setDynamicLeaguesLoading(false);
       ensureLeagueBaseRules(leagues || [])
         .then(() => loadConfigVersions())
-        .catch((err) => console.error("Fehler beim Anlegen der Liga-Basiswerte:", err));
+        .catch((err) => console.error("Fehler beim Anlegen der Ligabasiswerte:", err));
     });
     return () => unsubscribe();
   }, [loadConfigVersions]);
@@ -473,7 +473,7 @@ export default function SuperAdminDashboard({
     if (!leagueToResetTestData) return;
     if (leagueToResetTestData.active) {
       setLeagueNotification({
-        text: "Löschsperre aktiv: Die Liga muss vor dem Testdaten-Reset zuerst inaktiviert werden.",
+        text: "Löschsperre aktiv: Die Liga muss vor dem Testdatenreset zuerst inaktiviert werden.",
         type: "error",
       });
       return;
@@ -489,7 +489,7 @@ export default function SuperAdminDashboard({
     try {
       const res = await resetLeagueTestData(leagueToResetTestData.id, leagueToResetTestData.name);
       setLeagueNotification({
-        text: `Testdaten für "${leagueToResetTestData.name}" wurden zurückgesetzt (${res.matchesDeleted} Matches, ${res.profilesReset} Profile). Ein automatischer Sicherheitssnapshot (${res.backupName}) wurde im Backup-Bereich gesichert.`,
+        text: `Testdaten für "${leagueToResetTestData.name}" wurden zurückgesetzt (${res.matchesDeleted} Matches, ${res.profilesReset} Profile). Ein automatischer Sicherheitssnapshot (${res.backupName}) wurde im Backupbereich gesichert.`,
         type: "success",
       });
       setTimeout(() => setLeagueNotification(null), 6000);
@@ -681,7 +681,7 @@ export default function SuperAdminDashboard({
         id: editingConfigId || undefined,
         leagueId: configFormData.leagueId || undefined,
         effective_date: configFormData.effective_date,
-        created_by: "Super-Admin",
+        created_by: "Superadmin",
         base_points_win: configFormData.base_points_win,
         base_points_loss: configFormData.base_points_loss,
         inactivity_deduction_per_week: configFormData.inactivity_deduction_per_week,
@@ -750,10 +750,10 @@ export default function SuperAdminDashboard({
     setSaveLoading(true);
     setChangelogNotification(null);
     try {
-      await saveSystemUpdates(changelogText, "Super-Admin");
+      await saveSystemUpdates(changelogText, "Superadmin");
       setChangelogSavedText(changelogText);
       setChangelogNotification({
-        text: "Das Changelog und die Systemupdates wurden erfolgreich systemweit für alle Vereins-Administratoren gespeichert.",
+        text: "Das Changelog und die Systemupdates wurden erfolgreich systemweit für alle Vereinsadministratoren gespeichert.",
         type: "success",
       });
       setTimeout(() => setChangelogNotification(null), 5000);
@@ -1045,12 +1045,12 @@ export default function SuperAdminDashboard({
       setBatchProgress({
         current: selectedPairs.length,
         total: selectedPairs.length,
-        message: "Neuberechnung der Hobbyliga-Punktehistorie ab Stichtag...",
+        message: "Neuberechnung der Hobbyligapunktehistorie ab Stichtag...",
       });
       try {
         await recalculateLeaguePointsFrom(globalOldestDate);
       } catch (err: any) {
-        console.error("Fehler bei Punkte-Neuberechnung:", err);
+        console.error("Fehler bei Punkteneuberechnung:", err);
       }
     }
 
@@ -1675,8 +1675,8 @@ export default function SuperAdminDashboard({
                                     onClick={() => {
                                       onLoginAs({
                                         id: `temp-admin-${club.vereinsId}`,
-                                        name: "Super-Admin",
-                                        klarname: "System-Admin",
+                                        name: "Superadmin",
+                                        klarname: "Systemadmin",
                                         role: Role.ADMIN,
                                         hauptAdmin: true,
                                         vereinsId: club.vereinsId,
@@ -1733,7 +1733,7 @@ export default function SuperAdminDashboard({
                           {t("superadmin.trashPolicyTitle", "Papierkorbrichtlinie")}
                         </h2>
                         <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
-                          {t("superadmin.trashPolicyP1", "Hier aufgelistete Vereine wurden soft-gelöscht. Sie bleiben exakt 30 Tage lang als Sicherheits-Backup gespeichert, um bei Fehlern eine schnelle Wiederherstellung zu ermöglichen.")}{" "}
+                          {t("superadmin.trashPolicyP1", "Hier aufgelistete Vereine wurden soft-gelöscht. Sie bleiben exakt 30 Tage lang als Sicherheitsbackup gespeichert, um bei Fehlern eine schnelle Wiederherstellung zu ermöglichen.")}{" "}
                           {t("superadmin.trashPolicyP2", "Nach Ablauf der 30 Tage wird der Verein mitsamt allen Einstellungen, Mitgliedern und historischen Verläufen automatisch und endgültig gelöscht.")}
                         </p>
                       </div>
@@ -1902,7 +1902,7 @@ export default function SuperAdminDashboard({
                           {t("superadmin.duplicatesTitle", "Dublettenerkennung")}
                         </h2>
                         <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
-                          {t("superadmin.duplicatesSubtitle", "Systemweite Analyse zur Identifikation mehrfach angelegter Personen. Vereine verwalten nur Mitgliedschaften. Als Super-Admin kannst du identische Personen manuell zusammenführen.")}
+                          {t("superadmin.duplicatesSubtitle", "Systemweite Analyse zur Identifikation mehrfach angelegter Personen. Vereine verwalten nur Mitgliedschaften. Als Superadmin kannst du identische Personen manuell zusammenführen.")}
                         </p>
                       </div>
                     </div>
@@ -2238,7 +2238,7 @@ export default function SuperAdminDashboard({
                           {t("superadmin.manageCategoriesTitle", "Ligen verwalten")}
                         </h2>
                         <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
-                          {t("superadmin.manageCategoriesDesc", "Erstelle und verwalte die Wettbewerbs-Kategorien der vereinsübergreifenden Hobbyliga (z.B. Herren, Damen). Ligen können nur inaktiviert werden, um historische Matches nicht zu beschädigen.")}
+                          {t("superadmin.manageCategoriesDesc", "Erstelle und verwalte die Wettbewerbskategorien der vereinsübergreifenden Hobbyliga (z.B. Herren, Damen). Ligen können nur inaktiviert werden, um historische Matches nicht zu beschädigen.")}
                         </p>
                       </div>
                     </div>
@@ -2280,10 +2280,10 @@ export default function SuperAdminDashboard({
                     </div>
                     <div className="flex-1">
                       <span className="font-black text-slate-900 block text-xs">
-                        {t("superadmin.waterfallExplanationTitle", "Waterfall-Evaluierung & Priorität (First Match Wins)")}
+                        {t("superadmin.waterfallExplanationTitle", "Waterfallevaluierung & Priorität (First Match Wins)")}
                       </span>
                       <p className="mt-0.5 text-[11px] text-slate-600 leading-relaxed font-medium">
-                        {t("superadmin.waterfallExplanationText", "Die Reihenfolge der Ligen (von oben nach unten) entscheidet über die automatische Spieler-Zuordnung. Jeder Spieler fällt in die erste aktive Liga, für deren Kriterien (Geschlecht/Zielgruppe) er berechtigt ist. Nutze die Pfeiltasten (▲ / ▼), um die Rangfolge festzulegen.")}
+                        {t("superadmin.waterfallExplanationText", "Die Reihenfolge der Ligen (von oben nach unten) entscheidet über die automatische Spielerzuordnung. Jeder Spieler fällt in die erste aktive Liga, für deren Kriterien (Geschlecht/Zielgruppe) er berechtigt ist. Nutze die Pfeiltasten (▲ / ▼), um die Rangfolge festzulegen.")}
                       </p>
                     </div>
                   </div>
@@ -2329,7 +2329,7 @@ export default function SuperAdminDashboard({
                     </div>
                   </div>
 
-                  {/* Ligen-Tisch / Cards */}
+                  {/* Ligentisch / Cards */}
                   {dynamicLeaguesLoading ? (
                     <div className="py-8 text-center text-slate-400 font-bold flex flex-col items-center gap-2">
                       <i className="fa-solid fa-circle-notch fa-spin text-lg text-[#e47726]"></i>
@@ -2345,7 +2345,7 @@ export default function SuperAdminDashboard({
                         <thead>
                           <tr className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider border-b border-slate-200">
                             <th className="h-8 px-3 py-1.5 text-center w-[70px] font-sans font-medium">{t("superadmin.colPriority", "Priorität")}</th>
-                            <th className="px-5 py-3.5 font-black w-[15%]">{t("superadmin.colLeagueName", "Ligen-Name")}</th>
+                            <th className="px-5 py-3.5 font-black w-[15%]">{t("superadmin.colLeagueName", "Ligenname")}</th>
                             <th className="px-5 py-3.5 font-black w-[15%]">{t("superadmin.colEligibility", "Berechtigung")}</th>
                             <th className="px-5 py-3.5 font-black w-[20%]">{t("superadmin.colDescription", "Beschreibung")}</th>
                             <th className="h-8 px-3 py-1.5 text-center w-[8%] font-sans font-medium">{t("superadmin.colMatchesCount", "Spiele")}</th>
@@ -2396,7 +2396,7 @@ export default function SuperAdminDashboard({
                                 </div>
                               </td>
 
-                              {/* 2. Ligen-Name */}
+                              {/* 2. Ligenname */}
                               <td className="px-5 py-4 font-bold truncate">
                                 <span className="text-slate-900 font-black text-sm block truncate" title={league.name}>
                                   {league.name}
@@ -2483,7 +2483,7 @@ export default function SuperAdminDashboard({
                                     type="button"
                                     onClick={() => setManagingRulesLeague({ id: league.id, name: league.name })}
                                     className="px-2.5 py-1.5 bg-white hover:bg-amber-50 text-amber-800 rounded-lg text-xs font-bold transition-all border border-amber-200 cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
-                                    title="Punkte-Regeln und Stichtage bearbeiten"
+                                    title="Punkteregeln und Stichtage bearbeiten"
                                   >
                                     <i className="fa-solid fa-sliders text-amber-700"></i>
                                     {t("superadmin.parametersBtn", "Parameter")}
@@ -2515,7 +2515,7 @@ export default function SuperAdminDashboard({
                                       type="button"
                                       onClick={() => setLeagueToArchive(league)}
                                       className="px-2.5 py-1.5 bg-white hover:bg-amber-50 text-amber-800 rounded-lg text-xs font-bold transition-all border border-amber-200 inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                                      title="Liga archivieren / inaktivieren und Spieler-Zuordnungen freigeben"
+                                      title="Liga archivieren / inaktivieren und Spielerzuordnungen freigeben"
                                     >
                                       <i className="fa-solid fa-box-archive text-amber-700"></i>
                                       <span>{t("superadmin.archiveBtn", "Archivieren")}</span>
@@ -2587,7 +2587,7 @@ export default function SuperAdminDashboard({
                       <div>
                         <p className="font-extrabold uppercase">{t("superadmin.recalculatingNoticeTitle", "Automatische Neuberechnung läuft...")}</p>
                         <p className="font-normal text-[11px] text-orange-800">
-                          {t("superadmin.recalculatingNoticeDesc", "Alle Hobbyligamatches und Spielerpunkte werden chronologisch anhand der Stichtags-Regelwerke neu verarbeitet.")}
+                          {t("superadmin.recalculatingNoticeDesc", "Alle Hobbyligamatches und Spielerpunkte werden chronologisch anhand der Stichtagsregelwerke neu verarbeitet.")}
                         </p>
                       </div>
                     </div>
@@ -2628,7 +2628,7 @@ export default function SuperAdminDashboard({
                                 </h3>
                                 <p className="text-[11px] text-slate-500 font-medium">
                                   {isEditingBaseRule
-                                    ? "Passe die universellen Standard-Parameter des Basis-Regelwerks an. Der Stichtag bleibt unveränderlich auf 01.01.2000 fixiert."
+                                    ? "Passe die universellen Standardparameter des Basisregelwerks an. Der Stichtag bleibt unveränderlich auf 01.01.2000 fixiert."
                                     : "Definiere Parameter und simuliere deren mathematische Auswirkungen direkt in Echtzeit."}
                                 </p>
                               </div>
@@ -2715,7 +2715,7 @@ export default function SuperAdminDashboard({
                                 />
                                 <p className="text-[10px] text-slate-400 mt-1">
                                   {isEditingBaseRule
-                                    ? "Fixiert auf 01.01.2000 als garantierter Basis-Rückfallwert."
+                                    ? "Fixiert auf 01.01.2000 als garantierter Basisrückfallwert."
                                     : "Gilt ab 00:00:00 Uhr dieses Tages."}
                                 </p>
                               </div>
@@ -2835,18 +2835,18 @@ export default function SuperAdminDashboard({
                                     <div className="flex items-center gap-2">
                                       <span className="w-2 h-2 rounded-full bg-[#52b788] animate-pulse shrink-0"></span>
                                       <h4 className="text-xs font-black uppercase tracking-wider text-[#52b788]">
-                                        Live-Vorschau & Tuning-Simulator
+                                        Livevorschau & Tuningsimulator
                                       </h4>
                                     </div>
                                     <p className="text-[11px] text-[#95d5b2] font-medium mt-0.5 hidden sm:block">
-                                      Mathematische Modellierung & Live-Berechnung bei Parameteränderungen
+                                      Mathematische Modellierung & Liveberechnung bei Parameteränderungen
                                     </p>
                                   </div>
                                 </div>
 
                                 <div className="flex items-center gap-2 self-end sm:self-auto">
                                   <span className="text-[10px] font-bold uppercase tracking-wider text-[#74c69d] bg-[#0b291e] px-2.5 py-1 rounded-lg border border-[#1b4332] hidden md:inline-block">
-                                    Echtzeit-Berechnung
+                                    Echtzeitberechnung
                                   </span>
 
                                   <button
@@ -2873,12 +2873,12 @@ export default function SuperAdminDashboard({
                                   {/* Formelschema Erklärung */}
                                   <div className="bg-[#0b291e]/90 border border-[#1b4332] rounded-xl p-3.5 text-xs text-slate-200 font-mono space-y-2">
                                     <div className="text-[10px] font-sans font-bold text-[#74c69d] uppercase tracking-wider">
-                                      Mathematische Formel-Schritte:
+                                      Mathematische Formelschritte:
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-100 font-bold text-[11px]">
                                       <div className="bg-[#081c15] h-8 px-3 py-1 rounded-lg border border-[#1b4332] font-sans font-medium">
                                         <span className="text-[#95d5b2] text-[10px] font-sans block font-semibold mb-0.5">
-                                          1. Rating-Differenz:
+                                          1. Ratingdifferenz:
                                         </span>
                                         <span className="text-white">d = Rating_Gegner - Rating_Spieler</span>
                                       </div>
@@ -2951,7 +2951,7 @@ export default function SuperAdminDashboard({
                                               <div className="bg-[#081c15] border border-[#1b4332]/70 h-8 px-3 py-1 rounded-lg space-y-1.5 font-mono text-[11px] font-sans font-medium">
                                                 <div>
                                                   <span className="text-[#95d5b2] text-[10px] font-sans block font-semibold">
-                                                    1. Rating-Differenz:
+                                                    1. Ratingdifferenz:
                                                   </span>
                                                   <span className="text-white font-bold">
                                                     d = {sc.oppPts} - {sc.playerPts} = <span className="text-[#52b788] font-extrabold">{d >= 0 ? `+${d}` : d}</span>
@@ -2960,7 +2960,7 @@ export default function SuperAdminDashboard({
 
                                                 <div className="pt-1.5 border-t border-[#1b4332]">
                                                   <span className="text-[#95d5b2] text-[10px] font-sans block font-semibold">
-                                                    2. Sigmoid-Bonus (Formel & Einsetzung):
+                                                    2. Sigmoidbonus (Formel & Einsetzung):
                                                   </span>
                                                   <span className="text-white font-bold break-all text-[11px] block mt-0.5">
                                                     {maxBonus} / (1 + e^(-{k} * {d})) = <span className="text-[#52b788] font-black">+{bonus.toFixed(1)} Pkt.</span>
@@ -2984,7 +2984,7 @@ export default function SuperAdminDashboard({
                               )}
                             </div>
 
-                            {/* Aktions-Buttons */}
+                            {/* Aktionsbuttons */}
                             <div className="flex flex-col sm:flex-row gap-3 pt-2">
                               <button
                                 type="submit"
@@ -3205,7 +3205,7 @@ export default function SuperAdminDashboard({
                           {t("superadmin.optionsTitle", "Systemeinstellungen")}
                         </h2>
                         <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
-                          {t("superadmin.optionsSubtitle", "Zentrale Konfigurationen und globale Feature-Flags für alle Vereine und Mandanten.")}
+                          {t("superadmin.optionsSubtitle", "Zentrale Konfigurationen und globale Featureflags für alle Vereine und Mandanten.")}
                         </p>
                       </div>
                     </div>
@@ -3276,7 +3276,7 @@ export default function SuperAdminDashboard({
                               {t("superadmin.chatbotEffect", "Auswirkung bei Deaktivierung:")}
                             </div>
                             <ul className="list-disc pl-4 space-y-0.5 text-slate-500">
-                              <li>{t("superadmin.chatbotEffect1", "Der schwebende Chatbot-Button (\"Ace\") wird auf der gesamten Plattform für alle Benutzer ausgeblendet.")}</li>
+                              <li>{t("superadmin.chatbotEffect1", "Der schwebende Chatbotbutton (\"Ace\") wird auf der gesamten Plattform für alle Benutzer ausgeblendet.")}</li>
                               <li>{t("superadmin.chatbotEffect2", "Die Einstellungsoption „Assistent \"Ace\" aktivieren“ wird aus den Benutzermenüs aller User (Profil) automatisch entfernt.")}</li>
                             </ul>
                           </div>
@@ -3674,7 +3674,7 @@ export default function SuperAdminDashboard({
                     Hobbyliga &amp; Regelwerk aktivieren
                   </label>
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    Schaltet das Modul für die vereinsübergreifende Hobbyliga und die Regel-Validierung frei.
+                    Schaltet das Modul für die vereinsübergreifende Hobbyliga und die Regelvalidierung frei.
                   </p>
                   <div className="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg h-8 px-3 py-1 flex items-start gap-2 leading-relaxed font-sans font-medium">
                     <i className="fa-solid fa-triangle-exclamation text-amber-600 mt-0.5 shrink-0 text-xs"></i>
@@ -3714,7 +3714,7 @@ export default function SuperAdminDashboard({
                   Erweiterte Funktion: Vereins-ID ändern
                 </h3>
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-[11px] text-amber-800 leading-relaxed font-semibold">
-                  Dies migriert alle Mitglieder, Spieler-Dokumente, Buchungen,
+                  Dies migriert alle Mitglieder, Spielerdokumente, Buchungen,
                   Turniere und Einstellungen sicher auf eine neue ID und löscht
                   die alte ID anschließend.
                 </div>
@@ -3881,10 +3881,10 @@ export default function SuperAdminDashboard({
                 </div>
                 <div>
                   <h3 className="text-base font-black uppercase tracking-tight text-white">
-                    Personen-Zusammenführung
+                    Personenzusammenführung
                   </h3>
                   <p className="text-xs text-emerald-200 font-medium">
-                    Duplikate vereinen & Vereins-Mitgliedschaften bündeln
+                    Duplikate vereinen & Vereinsmitgliedschaften bündeln
                   </p>
                 </div>
               </div>
@@ -3910,7 +3910,7 @@ export default function SuperAdminDashboard({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 space-y-1">
                         <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 block">
-                          Ziel-Account (Wird behalten)
+                          Zielaccount (Wird behalten)
                         </span>
                         <p className="font-extrabold text-slate-900 text-sm">
                           {targetPerson.firstName || targetPerson.lastName
@@ -3954,7 +3954,7 @@ export default function SuperAdminDashboard({
                         ))}
                       </div>
                       <p className="text-[11px] text-slate-500 font-medium pt-0.5">
-                        Alle vereinsspezifischen Spielerprofile, Match-Historien, Berechtigungen und Buchungen beider Accounts werden vollständig zusammengeführt.
+                        Alle vereinsspezifischen Spielerprofile, Matchhistorien, Berechtigungen und Buchungen beider Accounts werden vollständig zusammengeführt.
                       </p>
                     </div>
 
@@ -3964,7 +3964,7 @@ export default function SuperAdminDashboard({
                         <i className="fa-solid fa-triangle-exclamation text-amber-600 text-base shrink-0 mt-0.5"></i>
                         <div className="space-y-1">
                           <p className="font-extrabold text-amber-900">
-                            Achtung: {conflictCount} direkte Hobbyligamatch-Konflikte
+                            Achtung: {conflictCount} direkte Hobbyligamatchkonflikte
                           </p>
                           <p className="text-[11px] text-amber-800 font-medium leading-relaxed">
                             Diese beiden Personen haben in der Vergangenheit gegeneinander gespielt. Diese direkten Duelle werden storniert, damit das Konto nicht gegen sich selbst gewertet wird.
@@ -4025,7 +4025,7 @@ export default function SuperAdminDashboard({
                 </div>
                 <div>
                   <h3 className="text-base font-black uppercase tracking-tight text-white">
-                    Stapel-Zusammenführung Bestätigen
+                    Stapelzusammenführung Bestätigen
                   </h3>
                   <p className="text-xs text-emerald-200 font-medium">
                     {batchConfirmData.pairs.length} Personenpaare verarbeiten
@@ -4048,7 +4048,7 @@ export default function SuperAdminDashboard({
                   Tenant & Mitgliedschaften
                 </div>
                 <p className="text-slate-800 font-bold leading-relaxed">
-                  Für alle {batchConfirmData.pairs.length} ausgewählten Paarungen werden die Vereinsmitgliedschaften (Set-Union aller Tenants) und lokalen Daten (Matchhistorie, Buchungen, Arbeitseinsätze) vollständig im jeweiligen Ziel-Account gebündelt.
+                  Für alle {batchConfirmData.pairs.length} ausgewählten Paarungen werden die Vereinsmitgliedschaften (Setunion aller Tenants) und lokalen Daten (Matchhistorie, Buchungen, Arbeitseinsätze) vollständig im jeweiligen Zielaccount gebündelt.
                 </p>
               </div>
 
@@ -4057,7 +4057,7 @@ export default function SuperAdminDashboard({
                   <i className="fa-solid fa-triangle-exclamation text-amber-600 text-base shrink-0 mt-0.5"></i>
                   <div className="space-y-1">
                     <p className="font-extrabold text-amber-900">
-                      Insgesamt {batchConfirmData.totalConflicts} direkte Match-Konflikte
+                      Insgesamt {batchConfirmData.totalConflicts} direkte Matchkonflikte
                     </p>
                     <p className="text-[11px] text-amber-800 font-medium leading-relaxed">
                       Direkte Duelle zwischen zusammengeführten Konten werden storniert, um Selbstduelle zu verhindern.
@@ -4108,7 +4108,7 @@ export default function SuperAdminDashboard({
                     {editingLeague ? "Liga bearbeiten" : "Neue Liga anlegen"}
                   </h3>
                   <p className="text-[11px] text-slate-500 font-medium">
-                    {editingLeague ? "Passe den Namen und die Beschreibung an." : "Erstelle eine neue Wettbewerbs-Kategorie."}
+                    {editingLeague ? "Passe den Namen und die Beschreibung an." : "Erstelle eine neue Wettbewerbskategorie."}
                   </p>
                 </div>
               </div>
@@ -4124,7 +4124,7 @@ export default function SuperAdminDashboard({
             <form onSubmit={handleSaveLeague} className="space-y-4">
               <div>
                 <label className="block text-xs font-black uppercase text-slate-700 mb-1">
-                  Ligen-Name <span className="text-rose-500">*</span>
+                  Ligenname <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -4178,7 +4178,7 @@ export default function SuperAdminDashboard({
                   Berechtigte Geschlechter / Zielgruppe
                 </label>
                 <p className="text-[11px] text-slate-500 mb-2">
-                  Bestimmt, welche Spieler beim automatischen Regel-Abgleich (Waterfall) in diese Liga fallen.
+                  Bestimmt, welche Spieler beim automatischen Regelabgleich (Waterfall) in diese Liga fallen.
                 </p>
 
                 {/* Quick Presets */}
@@ -4345,13 +4345,13 @@ export default function SuperAdminDashboard({
               <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-xs font-medium text-amber-950 space-y-3 leading-relaxed">
                 <div className="flex items-center gap-2 font-black text-amber-900 text-sm">
                   <i className="fa-solid fa-shield-halved text-amber-600 text-base"></i>
-                  <span>Löschsperre: Aktive Live-Liga</span>
+                  <span>Löschsperre: Aktive Liveliga</span>
                 </div>
                 <p className="text-slate-700">
-                  Die Liga &ldquo;<span className="font-bold text-slate-900">{leagueToResetTestData.name}</span>&rdquo; ist aktuell <span className="font-bold text-emerald-700">AKTIV</span> geschaltet. Um das versehentliche Löschen von Live-Daten zu verhindern, ist das Zurücksetzen von Testdaten für aktive Ligen strikt gesperrt.
+                  Die Liga &ldquo;<span className="font-bold text-slate-900">{leagueToResetTestData.name}</span>&rdquo; ist aktuell <span className="font-bold text-emerald-700">AKTIV</span> geschaltet. Um das versehentliche Löschen von Livedaten zu verhindern, ist das Zurücksetzen von Testdaten für aktive Ligen strikt gesperrt.
                 </p>
                 <p className="text-slate-600 text-[11px]">
-                  <strong>Schritt 1:</strong> Setze die Liga auf <strong>INAKTIV</strong>. Anschließend kannst du die Testdaten mit manueller Text-Bestätigung und automatischem Sicherheitssnapshot bereinigen.
+                  <strong>Schritt 1:</strong> Setze die Liga auf <strong>INAKTIV</strong>. Anschließend kannst du die Testdaten mit manueller Textbestätigung und automatischem Sicherheitssnapshot bereinigen.
                 </p>
                 <div className="pt-1">
                   <button
@@ -4372,12 +4372,12 @@ export default function SuperAdminDashboard({
                   </p>
                   <ul className="text-slate-700 list-disc list-inside space-y-1">
                     <li>Alle eingetragenen <span className="font-bold text-slate-900">Matches &amp; Platzbuchungen</span> dieser Liga werden gelöscht.</li>
-                    <li><span className="font-bold text-slate-900">Punkte-Logs und Korrekturen</span> werden bereinigt.</li>
+                    <li><span className="font-bold text-slate-900">Punktelogs und Korrekturen</span> werden bereinigt.</li>
                     <li>Die Punktestände der zugeordneten Spieler werden auf den <span className="font-bold text-slate-900">Startwert</span> zurückgesetzt.</li>
                   </ul>
                   <div className="mt-2 pt-2 border-t border-purple-200/80 text-[11px] text-purple-900 flex items-start gap-1.5">
                     <i className="fa-solid fa-shield text-purple-600 mt-0.5 shrink-0"></i>
-                    <span><strong>Automatischer Snapshot:</strong> Direkt vor der Bereinigung wird ein Sicherheitssnapshot angelegt, der im Notfall über den Backup-Bereich wiederhergestellt werden kann.</span>
+                    <span><strong>Automatischer Snapshot:</strong> Direkt vor der Bereinigung wird ein Sicherheitssnapshot angelegt, der im Notfall über den Backupbereich wiederhergestellt werden kann.</span>
                   </div>
                 </div>
 
@@ -4457,7 +4457,7 @@ export default function SuperAdminDashboard({
               </p>
               <ul className="list-disc pl-4 space-y-1 text-slate-700 font-medium">
                 <li>Die Liga wird als <strong>Inaktiv / Archiviert</strong> markiert.</li>
-                <li>Zugeordnete Spielerprofile werden freigegeben (ihre Ligazuordnung wird zurückgesetzt), sodass sie über die Waterfall-Regeln neu zugeordnet werden können.</li>
+                <li>Zugeordnete Spielerprofile werden freigegeben (ihre Ligazuordnung wird zurückgesetzt), sodass sie über die Waterfallregeln neu zugeordnet werden können.</li>
                 <li>Alle historischen Spiele, Ranglistenpunkte und Ergebnisse bleiben <strong>vollständig erhalten</strong>.</li>
                 <li>Du kannst die Liga jederzeit mit einem Klick auf <strong>Wiederherstellen</strong> reaktivieren.</li>
               </ul>

@@ -134,11 +134,11 @@ export const GlobalEmailSettingsCard: React.FC<GlobalEmailSettingsCardProps> = (
             <span>Globale E-Mail-Einstellungen</span>
           </h3>
           <p className="text-xs text-slate-500 font-normal mt-0.5">
-            Systemweiter Versand, Onboarding-Standards und Vorlagen-Zuweisung je Benachrichtigungstyp.
+            Systemweiter Versand, Onboardingstandards und Vorlagenzuweisung je Benachrichtigungstyp.
           </p>
         </div>
 
-        {/* Aktionen rechts: Speichern-Button & Globaler Not-Aus Schalter */}
+        {/* Aktionen rechts: Speichernbutton & Globaler Not-Aus Schalter */}
         <div className="flex items-center gap-2.5">
           <button
             type="button"
@@ -191,12 +191,12 @@ export const GlobalEmailSettingsCard: React.FC<GlobalEmailSettingsCardProps> = (
         </div>
       </div>
 
-      {/* Pausierungs-Warnhinweis */}
+      {/* Pausierungswarnhinweis */}
       {isGlobalEmailPaused && (
         <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-900 flex items-center gap-2.5 animate-in fade-in">
           <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
           <span>
-            Der E-Mail-Versand ist derzeit klubweit vollständig pausiert (Not-Aus aktiv). Es werden keinerlei System-Mails versendet.
+            Der E-Mail-Versand ist derzeit klubweit vollständig pausiert (Not-Aus aktiv). Es werden keinerlei Systemmails versendet.
           </span>
         </div>
       )}
@@ -352,7 +352,7 @@ export const GlobalEmailSettingsCard: React.FC<GlobalEmailSettingsCardProps> = (
 
             <p className="text-xs text-slate-600 leading-relaxed">
               {confirmModalType === "pause"
-                ? "Möchtest du den gesamten E-Mail-Versand des Vereins wirklich pausieren? Es werden für kein einziges Ereignis (Buchungen, Stornierungen, Hobbyliga, Match-Ergebnisse) mehr E-Mails versendet, bis du die Funktion wieder reaktivierst."
+                ? "Möchtest du den gesamten E-Mail-Versand des Vereins wirklich pausieren? Es werden für kein einziges Ereignis (Buchungen, Stornierungen, Hobbyliga, Matchergebnisse) mehr E-Mails versendet, bis du die Funktion wieder reaktivierst."
                 : "Möchtest du den E-Mail-Versand des Vereins wirklich wieder aktivieren? Alle System-E-Mails, deren Versand in der Matrix aktiv ist, werden ab sofort wieder regulär zugestellt."}
             </p>
 

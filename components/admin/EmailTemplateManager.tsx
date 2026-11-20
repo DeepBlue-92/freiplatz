@@ -615,16 +615,16 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
             b.type === "text" &&
             typeof (b.config as TextBlockConfig)?.content === "string" &&
             ((b.config as TextBlockConfig).content.includes("password_reset_link") ||
-              (b.config as TextBlockConfig).content.includes("[Passwortreset-Link]") ||
+              (b.config as TextBlockConfig).content.includes("[Passwortresetlink]") ||
               (b.config as TextBlockConfig).content.includes("{{password_reset_link}}"))
         );
 
         if (!hasResetButton && !hasResetText) {
           setSaveWarningModal({
             isOpen: true,
-            title: "Passwortreset-Link fehlt im Template",
+            title: "Passwortresetlink fehlt im Template",
             message:
-              "In dieser Vorlage für „Passwort zurücksetzen“ wurde kein Button oder Link mit dem Passwortreset-Link ([password_reset_link]) gefunden. Mitglieder können ohne diesen Link ihr Passwort nicht zurücksetzen.",
+              "In dieser Vorlage für „Passwort zurücksetzen“ wurde kein Button oder Link mit dem Passwortresetlink ([password_reset_link]) gefunden. Mitglieder können ohne diesen Link ihr Passwort nicht zurücksetzen.",
             missingToken: "{{password_reset_link}}",
             onConfirm: () => {
               setSaveWarningModal(null);
@@ -741,7 +741,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
       console.error("Test email error:", err);
       setToastMessage({
         type: "error",
-        text: err.message || "Unerwarteter Fehler beim Test-Versand.",
+        text: err.message || "Unerwarteter Fehler beim Testversand.",
       });
     } finally {
       setIsSending(false);
@@ -782,7 +782,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
         </div>
       )}
 
-      {/* 1. Vorlagen-Bibliothek Tabelle */}
+      {/* 1. Vorlagenbibliothek Tabelle */}
       <TemplateLibraryTable
         templates={templates}
         assignments={assignments}
@@ -794,7 +794,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
         onPermanentDelete={handlePermanentDelete}
       />
 
-      {/* 2. Visueller Block-Editor (Klappt erst auf, wenn eine Vorlage zum Bearbeiten gewählt ist) */}
+      {/* 2. Visueller Blockeditor (Klappt erst auf, wenn eine Vorlage zum Bearbeiten gewählt ist) */}
       {editingTemplate && (
         <div
           ref={editorRef}
@@ -886,7 +886,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Eye className="w-4 h-4 text-emerald-800" />
-                    <span>Editor-Vorschau</span>
+                    <span>Editorvorschau</span>
                   </span>
                   <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
                     &bull; Dynamische Felder sind einheitlich kursiv dargestellt
@@ -905,7 +905,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
                           ? "bg-slate-800 text-white shadow-2xs"
                           : "text-slate-600 hover:text-slate-900"
                       }`}
-                      title="Desktop-Breite (600px)"
+                      title="Desktopbreite (600px)"
                     >
                       <Monitor className="w-3.5 h-3.5" />
                       <span className="hidden md:inline">600px</span>
@@ -918,7 +918,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
                           ? "bg-slate-800 text-white shadow-2xs"
                           : "text-slate-600 hover:text-slate-900"
                       }`}
-                      title="Mobil-Breite (360px)"
+                      title="Mobilbreite (360px)"
                     >
                       <Smartphone className="w-3.5 h-3.5" />
                       <span className="hidden md:inline">Mobil</span>
@@ -938,7 +938,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
                 </div>
               </div>
 
-              {/* Statischer, dauerhaft verankerter Betreffzeilen-Header mit Live-Badges */}
+              {/* Statischer, dauerhaft verankerter Betreffzeilenheader mit Livebadges */}
               <CanvasSubjectHeader
                 subject={draftSubject}
                 onChangeSubject={setDraftSubject}
@@ -1112,7 +1112,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Echte Test-E-Mail senden</h3>
                   <p className="text-[11px] text-slate-500">
-                    Gezielter Vorlagen-Test an ein echtes E-Mail-Postfach
+                    Gezielter Vorlagentest an ein echtes E-Mail-Postfach
                   </p>
                 </div>
               </div>
@@ -1140,7 +1140,7 @@ export const EmailTemplateManager: React.FC<EmailTemplateManagerProps> = ({
               </div>
 
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1 text-slate-600 text-[11px]">
-                <div className="font-bold text-slate-800">Versand-Parameter:</div>
+                <div className="font-bold text-slate-800">Versandparameter:</div>
                 <div>&bull; Event: <code className="text-emerald-700 font-bold">{editingTemplate?.eventType}</code></div>
                 <div>&bull; Betreff: <span className="font-medium text-slate-700 truncate block">{livePreview.renderedSubject || draftSubject}</span></div>
                 <div>&bull; Verein: <span className="font-medium">{clubName}</span></div>

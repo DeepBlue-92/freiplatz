@@ -105,10 +105,10 @@ export const EventTemplateAssignments: React.FC<EventTemplateAssignmentsProps> =
           </div>
           <div>
             <h3 className="text-sm font-black text-slate-900">
-              System-Events: E-Mail-Einstellungen & Kontroll-Matrix
+              Systemevents: E-Mail-Einstellungen & Kontrollmatrix
             </h3>
             <p className="text-[11px] text-slate-600 font-medium">
-              Zentrale Steuerung pro Event: Master-Kill-Switch (Systemweiter Versand), Onboarding-Standard für Neumitglieder und 1:1 Design-Zuweisung.
+              Zentrale Steuerung pro Event: Masterkill-Switch (Systemweiter Versand), Onboardingstandard für Neumitglieder und 1:1 Designzuweisung.
             </p>
           </div>
         </div>
@@ -182,7 +182,7 @@ export const EventTemplateAssignments: React.FC<EventTemplateAssignmentsProps> =
                     onClick={() => handleMasterToggle(def.key, isMasterActive)}
                     title={
                       isMasterActive
-                        ? "Klicken, um den E-Mail-Versand für dieses Event vereinsweit komplett abzuschalten (Master-Kill-Switch)"
+                        ? "Klicken, um den E-Mail-Versand für dieses Event vereinsweit komplett abzuschalten (Masterkill-Switch)"
                         : "Klicken, um den systemweiten E-Mail-Versand wieder einzuschalten"
                     }
                   >
@@ -210,7 +210,7 @@ export const EventTemplateAssignments: React.FC<EventTemplateAssignmentsProps> =
                         {isSuccessMaster && <CheckCircle2 className="w-3 h-3 text-emerald-600 animate-in fade-in" />}
                       </div>
                       <div className="text-[9px] font-semibold text-slate-500">
-                        {isMasterActive ? "Master-Aktiv" : "Keine E-Mails klubweit"}
+                        {isMasterActive ? "Masteraktiv" : "Keine E-Mails klubweit"}
                       </div>
                     </div>
                   </div>
@@ -236,7 +236,7 @@ export const EventTemplateAssignments: React.FC<EventTemplateAssignmentsProps> =
                           {isSavingOnboarding && <Loader2 className="w-3 h-3 animate-spin text-slate-500" />}
                           {isSuccessOnboarding && <CheckCircle2 className="w-3 h-3 text-emerald-600 animate-in fade-in" />}
                         </div>
-                        <div className="text-[9px] text-slate-400">Onboarding-Default</div>
+                        <div className="text-[9px] text-slate-400">Onboardingdefault</div>
                       </div>
                     </div>
                   )}

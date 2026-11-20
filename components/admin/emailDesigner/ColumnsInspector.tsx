@@ -113,7 +113,7 @@ export const ColumnsInspector: React.FC<ColumnsInspectorProps> = ({
           type="button"
           onClick={() => onDelete(block.id)}
           className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-md transition-colors cursor-pointer"
-          title="Diesen Kopfzeilen-Block löschen"
+          title="Diesen Kopfzeilenblock löschen"
         >
           <Trash2 className="w-3.5 h-3.5" />
           <span>Löschen</span>
@@ -354,7 +354,7 @@ export const ColumnsInspector: React.FC<ColumnsInspectorProps> = ({
           </div>
         </div>
 
-        {/* Dynamische Farb-Paletten-Swatches */}
+        {/* Dynamische Farbpaletten-Swatches */}
         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           {defaultColors.map((c) => (
             <button
@@ -455,7 +455,7 @@ export const ColumnsInspector: React.FC<ColumnsInspectorProps> = ({
           </div>
         </div>
 
-        {/* Dynamische Farb-Paletten-Swatches */}
+        {/* Dynamische Farbpaletten-Swatches */}
         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           {defaultColors.map((c) => (
             <button

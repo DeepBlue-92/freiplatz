@@ -231,7 +231,7 @@ export const ChampionshipPipelineBuilder: React.FC<ChampionshipPipelineBuilderPr
           </p>
           <ul className="list-disc list-inside space-y-1 text-slate-700">
             <li>
-              <strong>Automatische Walkover-Wertung:</strong> Wenn ein Spieler verletzt ausfällt und im System auf „Ausgeschieden“ gesetzt wird, werden alle noch <em>offenen</em> Gruppenspiele automatisch als 6:0, 6:0 für den jeweiligen Kontrahenten gewertet. Bereits ausgetragene Matches behalten ihr echtes Ergebnis.
+              <strong>Automatische Walkoverwertung:</strong> Wenn ein Spieler verletzt ausfällt und im System auf „Ausgeschieden“ gesetzt wird, werden alle noch <em>offenen</em> Gruppenspiele automatisch als 6:0, 6:0 für den jeweiligen Kontrahenten gewertet. Bereits ausgetragene Matches behalten ihr echtes Ergebnis.
             </li>
             <li>
               <strong>Unabhängige Platzreservierung:</strong> Meisterschaftsspiele können zu beliebigen freien Zeiten auf der Anlage reserviert werden. Die Eingabe des Ergebnisses erfolgt direkt und unabhängig von der tatsächlichen Buchung.

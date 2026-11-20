@@ -2240,7 +2240,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         welcomeMessage,
       });
       setMessage({
-        text: "Design-, Impressums- & News-Einstellungen erfolgreich gespeichert.",
+        text: "Design-, Impressums- & Newseinstellungen erfolgreich gespeichert.",
         type: "success",
       });
     } else if (tab === "translations") {
@@ -2459,7 +2459,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         type: "success",
         text:
           lockContext === "event"
-            ? `Termin-Bereich "${newLockTitle}" erfolgreich hinzugefügt.`
+            ? `Terminbereich "${newLockTitle}" erfolgreich hinzugefügt.`
             : `Zeitbereichssperre "${newLockTitle}" erfolgreich hinzugefügt.`,
       });
     }
@@ -2695,7 +2695,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setMessage({
       type: "success",
       text: isEv
-        ? "Termin-Bereich erfolgreich gelöscht."
+        ? "Terminbereich erfolgreich gelöscht."
         : "Zeitbereichssperre erfolgreich gelöscht.",
     });
   };
@@ -3143,7 +3143,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       if (existingUser.hauptAdmin) {
         if (editingUser.role !== Role.ADMIN) {
           setMessage({
-            text: "Der Haupt-Admin dieses Vereins darf nicht herabgestuft werden!",
+            text: "Der Hauptadmin dieses Vereins darf nicht herabgestuft werden!",
             type: "error",
           });
           return;
@@ -3270,7 +3270,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
     if (userToDelete.hauptAdmin && !isSuperAdminImpersonating) {
       setMessage({
-        text: "Der Haupt-Admin dieses Vereins kann nicht gelöscht werden!",
+        text: "Der Hauptadmin dieses Vereins kann nicht gelöscht werden!",
         type: "error",
       });
       return;
@@ -4000,7 +4000,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
           </div>
         )}
 
-        {/* Active Sub-Panel Area */}
+        {/* Active Subpanel Area */}
         <div className="mt-8">
           <AnimatePresence mode="wait">
             <motion.div
@@ -4301,7 +4301,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               </select>
                             </div>
 
-                            {/* 2. Sprach-Verfügbarkeit */}
+                            {/* 2. Sprachverfügbarkeit */}
                             <div className="space-y-2.5">
                               <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
                                 {t("admin.generalSettings.availLangs")}
@@ -4346,7 +4346,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </div>
                         </div>
 
-                        {/* Zusatz-Wissen für KI-Assistent Ace */}
+                        {/* Zusatzwissen für KI-Assistent Ace */}
                         <div className="pt-3 border-t border-slate-200/60 space-y-2">
                           <div className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
                             <i className="fa-solid fa-robot text-[var(--color-primary)]"></i>
@@ -4735,7 +4735,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <i className="fa-solid fa-clock text-[var(--color-primary)]"></i> Zielwerte
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Festlegung des regulären Jahres-Solls sowie jahresspezifischer Anpassungen.
+                        Festlegung des regulären Jahressolls sowie jahresspezifischer Anpassungen.
                       </p>
                     </div>
 
@@ -4752,7 +4752,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          <label className="text-xs font-medium text-slate-600">Soll-Stunden:</label>
+                          <label className="text-xs font-medium text-slate-600">Sollstunden:</label>
                           <div className="relative w-28">
                             <input
                               type="number"
@@ -4810,7 +4810,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               />
                             </div>
                             <div className="flex items-center gap-2">
-                              <label className="text-xs font-semibold text-slate-700">Soll-Stunden:</label>
+                              <label className="text-xs font-semibold text-slate-700">Sollstunden:</label>
                               <div className="relative w-24">
                                 <input
                                   type="number"
@@ -4878,7 +4878,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             <thead>
                               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold text-[10px]">
                                 <th className="py-2.5 px-3.5">Gültig ab Jahr</th>
-                                <th className="py-2.5 px-3.5">Soll-Vorgabe</th>
+                                <th className="py-2.5 px-3.5">Sollvorgabe</th>
                                 <th className="py-2.5 px-3.5">Geltungsbereich</th>
                                 <th className="py-2.5 px-3 text-right">Aktionen</th>
                               </tr>
@@ -6185,12 +6185,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             />
                           </div>
 
-                          {/* Farbe (Hex-Code, optional for recurring events) */}
+                          {/* Farbe (Hexcode, optional for recurring events) */}
                           {lockContext === "event" && newLockType === "regular" && (
                             <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-1.5">
                               <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                                 <i className="fa-solid fa-palette text-slate-400 text-[10px]"></i>
-                                {t("admin.closures.colorOptional", "Farbe (Hex-Code, optional)")}
+                                {t("admin.closures.colorOptional", "Farbe (Hexcode, optional)")}
                               </label>
                               <div className="flex gap-2 items-center">
                                 <input 
@@ -6441,7 +6441,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 <div>
                                   <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                                     <i className="fa-solid fa-calendar text-slate-400 text-[10px]"></i>
-                                    {t("admin.closures.startDate", "Start-Datum")}
+                                    {t("admin.closures.startDate", "Startdatum")}
                                   </label>
                                   <input 
                                     type="date"
@@ -6455,7 +6455,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 <div>
                                   <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                                     <i className="fa-solid fa-calendar text-slate-400 text-[10px]"></i>
-                                    {t("admin.closures.endDate", "End-Datum")}
+                                    {t("admin.closures.endDate", "Enddatum")}
                                   </label>
                                   <input 
                                     type="date"
@@ -7506,7 +7506,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           )}
                         </div>
 
-                        {/* Webseiten-Link */}
+                        {/* Webseitenlink */}
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                             {t("admin.layout.websiteLink")}
@@ -8155,7 +8155,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </div>
                         </div>
 
-                        {/* Profilbild & Avatar (Hard-Bandwidth-Protection & 0-Byte Fallback) */}
+                        {/* Profilbild & Avatar (Hardbandwidth-Protection & 0-Byte Fallback) */}
                         <AvatarUploader
                           user={editingUser}
                           userId={editingUser.id || editingUser.name || "new_user"}
@@ -8527,7 +8527,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             Role.MITGLIED
                                           );
                                           setMessage({
-                                            text: `Bestehender Benutzer "${cand.firstName} ${cand.lastName}" wurde erfolgreich mit diesem Verein verknüpft (Standard-Rolle: Mitglied).`,
+                                            text: `Bestehender Benutzer "${cand.firstName} ${cand.lastName}" wurde erfolgreich mit diesem Verein verknüpft (Standardrolle: Mitglied).`,
                                             type: "success",
                                           });
                                           setEditingUser({
@@ -8788,7 +8788,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Profilbild & Avatar (Hard-Bandwidth-Protection & 0-Byte Fallback) */}
+                                {/* Profilbild & Avatar (Hardbandwidth-Protection & 0-Byte Fallback) */}
                                 <AvatarUploader
                                   user={editingUser}
                                   userId={editingUser.id || editingUser.name || u.name}
@@ -9006,7 +9006,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                           placeholder="Passwort eingeben..."
                                           title={
                                             u.name === "superadmin"
-                                              ? "Das Passwort des Super-Admins kann hier nicht geändert werden."
+                                              ? "Das Passwort des Superadmins kann hier nicht geändert werden."
                                               : ""
                                           }
                                           required
@@ -9124,7 +9124,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             type="button"
                                             disabled={resetDisabled}
                                             onClick={() => openSendResetModal(targetUserForMail)}
-                                            title={resetReason ? `Passwortreset: ${resetReason}` : "Passwortreset-Mail an Mitglied senden"}
+                                            title={resetReason ? `Passwortreset: ${resetReason}` : "Passwortresetmail an Mitglied senden"}
                                             className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                                               resetDisabled
                                                 ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60"
@@ -9132,7 +9132,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                             }`}
                                           >
                                             <i className="fa-solid fa-arrows-rotate text-[11px]"></i>
-                                            <span>Passwort-Reset</span>
+                                            <span>Passwortreset</span>
                                           </button>
                                         </div>
                                       </div>
@@ -9144,7 +9144,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 <div className="space-y-3">
                                   <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1.5">
                                     <i className="fa-solid fa-user-shield text-xs"></i>
-                                    4. Privatsphäre &amp; App-Anzeige
+                                    4. Privatsphäre &amp; Appanzeige
                                   </h4>
                                   <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/80">
                                     <label className="flex items-center gap-3 cursor-pointer group select-none">
@@ -10540,7 +10540,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-2">
                               <h4 className="text-xs font-semibold text-slate-900 flex items-center gap-2">
                                 <i className="fa-solid fa-circle-info text-[var(--color-primary)]"></i>{" "}
-                                Import-Vorschau
+                                Importvorschau
                               </h4>
                               <div className="grid grid-cols-2 gap-2 text-xs">
                                 <div>
@@ -10548,7 +10548,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     Dateiname:
                                   </span>{" "}
                                   <span className="font-semibold text-slate-700 block truncate">
-                                    {importFile?.name || "Demo-Vorschau"}
+                                    {importFile?.name || "Demovorschau"}
                                   </span>
                                 </div>
                                 <div>
@@ -10567,7 +10567,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-left space-y-1">
                                   <h4 className="text-xs font-semibold text-emerald-900 flex items-center gap-1.5">
                                     <i className="fa-solid fa-circle-check text-emerald-600"></i>{" "}
-                                    Import-Modus: Hinzufügen (Merge)
+                                    Importmodus: Hinzufügen (Merge)
                                   </h4>
                                   <p className="text-xs text-emerald-700 leading-relaxed font-normal">
                                     Die geladenen {importPreview.length}{" "}
@@ -10650,7 +10650,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             <div className="p-4 bg-rose-50/70 border border-rose-200/80 rounded-xl text-left space-y-1">
                               <h4 className="text-xs font-semibold text-rose-900 flex items-center gap-1.5">
                                 <i className="fa-solid fa-circle-exclamation text-rose-600"></i>{" "}
-                                Import-Fehler
+                                Importfehler
                               </h4>
                               <p className="text-xs text-rose-700 leading-relaxed font-normal">
                                 {importErrorMsg ||
@@ -10678,10 +10678,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-5">
                     <div className="border-b border-slate-100 pb-4 text-left">
                       <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <i className="fa-solid fa-code text-[var(--color-primary)]"></i> Website-Widget &amp; Einbettung (iFrame)
+                        <i className="fa-solid fa-code text-[var(--color-primary)]"></i> Websitewidget &amp; Einbettung (iFrame)
                       </h3>
                       <p className="text-xs text-slate-500 font-normal mt-0.5">
-                        Live-Belegungsplan nahtlos in die eigene Vereinshomepage einbinden
+                        Livebelegungsplan nahtlos in die eigene Vereinshomepage einbinden
                       </p>
                     </div>
 
@@ -10693,7 +10693,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             HTML-Einbettungscode (iFrame)
                           </h4>
                           <p className="text-xs text-slate-500 font-normal leading-relaxed">
-                            Fügen Sie diesen Code-Schnipsel in Ihre Vereinswebsite ein. Das Widget übernimmt automatisch die Vereinsfarben.
+                            Fügen Sie diesen Codeschnipsel in Ihre Vereinswebsite ein. Das Widget übernimmt automatisch die Vereinsfarben.
                           </p>
                         </div>
 
@@ -10724,10 +10724,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 flex flex-col justify-between space-y-4">
                         <div className="space-y-1.5">
                           <h4 className="text-xs font-semibold text-slate-900">
-                            Standalone-Widget URL
+                            Standalonewidget URL
                           </h4>
                           <p className="text-xs text-slate-500 font-normal leading-relaxed">
-                            Direkte URL für Popups, externe Verlinkungen oder eigene Web-Viewer ohne übergeordnete Menüleisten.
+                            Direkte URL für Popups, externe Verlinkungen oder eigene Webviewer ohne übergeordnete Menüleisten.
                           </p>
                         </div>
 
@@ -12060,7 +12060,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 </div>
               )}
 
-              {/* Zugewiesene System-Vorlage */}
+              {/* Zugewiesene Systemvorlage */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">

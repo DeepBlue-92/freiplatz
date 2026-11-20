@@ -156,7 +156,7 @@ const Tournaments: React.FC<TournamentsProps> = ({
     const chosenDate = (tItem.proposedDates || []).find((p) => p.id === dateId);
     if (!chosenDate) return;
 
-    // Auto-register all players who voted "yes" for this date (excluding System-Admin)
+    // Auto-register all players who voted "yes" for this date (excluding Systemadmin)
     const yesVoters: string[] = [];
     Object.values(tItem.pollVotes || {}).forEach((v) => {
       if (v.votes?.[dateId] === "yes" && v.userName) {
@@ -970,7 +970,7 @@ const Tournaments: React.FC<TournamentsProps> = ({
                   <button
                     onClick={() => setActivePollModalTournament(tItem)}
                     className="flex-1 p-2 border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors font-bold uppercase text-[9px] flex items-center justify-center gap-1.5"
-                    title={t("tournaments.openPollMatrix", "Umfrage & Abstimmungs-Matrix öffnen")}
+                    title={t("tournaments.openPollMatrix", "Umfrage & Abstimmungsmatrix öffnen")}
                   >
                     <i className="fa-solid fa-square-poll-vertical hidden sm:inline-block"></i>{" "}
                     {t("tournaments.poll", "Umfrage")}
@@ -1133,10 +1133,10 @@ const Tournaments: React.FC<TournamentsProps> = ({
                     />
                   </div>
 
-                  {/* Termin-Modus: Fester Termin oder Terminumfrage */}
+                  {/* Terminmodus: Fester Termin oder Terminumfrage */}
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      {t("tournaments.dateMode", "Termin-Modus")}
+                      {t("tournaments.dateMode", "Terminmodus")}
                     </label>
                     <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
                       <button

@@ -645,17 +645,17 @@ const AdminGuests: React.FC<AdminGuestsProps> = ({
       ruleSentenceText = `WENN Buchung mit ${count} Gast/Gästen (${adults} Erw., ${youth} Jug.) für ${resolvedHours} Std., DANN berechne ${unitRate.toFixed(2).replace(".", ",")} € ${modeDesc}.`;
     }
 
-    if (!ruleName || ruleName === "Standard-Regel") {
+    if (!ruleName || ruleName === "Standardregel") {
       ruleName =
         b.guestBillingMode === "per_court"
           ? "Pauschal pro Platzstunde"
           : "Standardregel";
     } else {
-      ruleName = ruleName.replace(/Standard-Regel/g, "Standardregel");
+      ruleName = ruleName.replace(/Standardregel/g, "Standardregel");
     }
 
     if (ruleSentenceText) {
-      ruleSentenceText = ruleSentenceText.replace(/Standard-Regel/g, "Standardregel");
+      ruleSentenceText = ruleSentenceText.replace(/Standardregel/g, "Standardregel");
     }
 
     return {
@@ -1230,7 +1230,7 @@ const AdminGuests: React.FC<AdminGuestsProps> = ({
                             {member}
                           </td>
 
-                          {/* 5. Gäste (mit Altersgruppen-Aufschlüsselung) */}
+                          {/* 5. Gäste (mit Altersgruppenaufschlüsselung) */}
                           <td className="p-4 text-center font-sans">
                             <div className="font-normal text-sm text-slate-700">{count}</div>
                             <div className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5 whitespace-nowrap">
@@ -1827,7 +1827,7 @@ const AdminGuests: React.FC<AdminGuestsProps> = ({
                 {/* Payment and Comments */}
                 <div>
                   <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">
-                    {t("guests.billingNote", "Abrechnungs-Notiz")}
+                    {t("guests.billingNote", "Abrechnungsnotiz")}
                   </label>
                   <textarea
                     rows={2}

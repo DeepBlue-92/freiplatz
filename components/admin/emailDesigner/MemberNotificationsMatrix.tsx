@@ -201,7 +201,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
       setSaveSuccess(true);
       setFeedback({
         type: "success",
-        text: "Änderungen an den Spieler-Benachrichtigungen erfolgreich gespeichert.",
+        text: "Änderungen an den Spielerbenachrichtigungen erfolgreich gespeichert.",
       });
       setTimeout(() => {
         setSaveSuccess(false);
@@ -225,7 +225,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
         <div className="text-left">
           <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Users className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
-            <span>Individuelle Spieler-Benachrichtigungen</span>
+            <span>Individuelle Spielerbenachrichtigungen</span>
           </h3>
           <p className="text-xs text-slate-500 font-normal mt-0.5">
             E-Mail-Präferenzen der Mitglieder einsehen, anpassen und stapelweise konfigurieren.
@@ -260,7 +260,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
         </div>
       )}
 
-      {/* Suchleiste & Speichern-Button */}
+      {/* Suchleiste & Speichernbutton */}
       <div className="bg-slate-50/70 border border-slate-200/80 rounded-xl p-3.5 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3.5">
         {/* Modernes Suchfeld */}
         <div className="relative flex-1">
@@ -284,7 +284,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
           )}
         </div>
 
-        {/* Zähler-Info & Speichern-Button */}
+        {/* Zählerinfo & Speichernbutton */}
         <div className="flex items-center justify-between md:justify-end gap-3 shrink-0">
           <span className="text-xs font-semibold text-slate-600 whitespace-nowrap">
             {selectedUserIds.size} von {filteredUsers.length} markiert
@@ -299,7 +299,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
                 ? "bg-[var(--color-primary)] hover:brightness-95 text-white"
                 : "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
             }`}
-            title={hasUnsavedChanges ? "Änderungen an den Spieler-Einstellungen speichern" : "Keine ungespeicherten Änderungen"}
+            title={hasUnsavedChanges ? "Änderungen an den Spielereinstellungen speichern" : "Keine ungespeicherten Änderungen"}
           >
             {isSaving ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -313,7 +313,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
         </div>
       </div>
 
-      {/* Spieler-Matrix Tabelle */}
+      {/* Spielermatrix Tabelle */}
       <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-2xs min-h-[580px] flex flex-col justify-between">
         <div className="overflow-x-auto flex-1">
           <table className="w-full min-w-[800px] table-fixed text-left text-xs border-collapse">
@@ -439,7 +439,7 @@ export const MemberNotificationsMatrix: React.FC<MemberNotificationsMatrixProps>
           </table>
         </div>
 
-        {/* Paginierungs- & Status-Leiste: sorgt für stabile Höhe und saubere Orientierung */}
+        {/* Paginierungs- & Statusleiste: sorgt für stabile Höhe und saubere Orientierung */}
         <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs mt-auto">
           <span className="text-slate-600 font-bold">
             {totalPages > 1

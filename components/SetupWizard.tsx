@@ -124,7 +124,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onSetupComplete }) => 
             </div>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 leading-relaxed mt-2">
-            Willkommen! Es wurden keine bestehenden Konten gefunden. Richte jetzt das primäre Superadmin-Konto und die Systemarchitektur ein.
+            Willkommen! Es wurden keine bestehenden Konten gefunden. Richte jetzt das primäre Superadminkonto und die Systemarchitektur ein.
           </p>
         </div>
 
@@ -141,7 +141,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onSetupComplete }) => 
           <div className="space-y-4">
             <h2 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
               <i className="fa-solid fa-shield-halved text-emerald-500"></i>
-              <span>1. Superadmin-Konto anlegen</span>
+              <span>1. Superadminkonto anlegen</span>
             </h2>
 
             <div>
@@ -198,7 +198,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onSetupComplete }) => 
             </div>
           </div>
 
-          {/* Sektion 2: System-Modus */}
+          {/* Sektion 2: Systemmodus */}
           <div className="space-y-4 pt-2 border-t border-slate-800">
             <h2 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
               <i className="fa-solid fa-network-wired text-blue-500"></i>
@@ -254,7 +254,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onSetupComplete }) => 
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Für <strong>Netzwerke & Plattformen</strong> mit mehreren eigenständigen Vereinen und Vereins-Umschalter.
+                  Für <strong>Netzwerke & Plattformen</strong> mit mehreren eigenständigen Vereinen und Vereinsumschalter.
                 </p>
               </label>
             </div>

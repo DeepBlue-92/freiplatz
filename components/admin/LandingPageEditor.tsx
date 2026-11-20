@@ -56,7 +56,7 @@ const TILE_TYPES: {
 }[] = [
   {
     type: "hero_banner",
-    label: "Hero-Banner",
+    label: "Herobanner",
     icon: Sparkles,
     defaultTitle: "Willkommen beim Verein",
     defaultColSpan: 8,
@@ -142,7 +142,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
     return (
       <div className="p-12 text-center text-slate-400 font-medium text-sm flex items-center justify-center gap-2">
         <i className="fa-solid fa-spinner fa-spin text-emerald-600"></i>
-        <span>Startseiten-Konfiguration wird geladen...</span>
+        <span>Startseitenkonfiguration wird geladen...</span>
       </div>
     );
   }
@@ -250,7 +250,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
           <div className="flex items-center gap-2">
             <LayoutGrid className="w-5 h-5 text-[var(--color-primary)]" />
             <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Startseiten-Designer
+              Startseitendesigner
             </h2>
           </div>
           <p className="text-xs text-slate-500 font-normal mt-0.5">
@@ -399,7 +399,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                           ? "bg-slate-800 border-slate-800 text-white"
                           : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                       }`}
-                      title="Live-Vorschau dieser Kachel"
+                      title="Livevorschau dieser Kachel"
                     >
                       {isPreview ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                       <span className="hidden sm:inline">{isPreview ? "Editor" : "Vorschau"}</span>
@@ -454,7 +454,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                     {isPreview ? (
                       <div className="space-y-3">
                         <div className="text-xs font-semibold text-slate-500 flex items-center justify-between">
-                          <span>Live-Vorschau</span>
+                          <span>Livevorschau</span>
                           <span className="text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded">
                             Breite: {item.col_span === 4 ? "1/3 (Schmal)" : item.col_span === 8 ? "2/3 (Breit)" : "3/3 (Vollbild)"}
                           </span>
@@ -597,7 +597,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                         <div className="p-4 bg-white rounded-xl border border-slate-200/80 space-y-3">
                           <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Hero-Banner Einstellungen</span>
+                            <span>Herobanner Einstellungen</span>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -664,7 +664,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                             <div className="space-y-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Button-Beschriftung (optional)
+                                Buttonbeschriftung (optional)
                               </label>
                               <input
                                 type="text"
@@ -677,7 +677,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
 
                             <div className="space-y-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Verlinkungs-Ziel
+                                Verlinkungsziel
                               </label>
                               <select
                                 value={
@@ -700,7 +700,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                                 <option value="reservation">Platzbuchung (Intern)</option>
                                 <option value="tournaments">Veranstaltungen & Turniere</option>
                                 <option value="championship">Vereinsmeisterschaft</option>
-                                <option value="custom">Eigener Web-Link / URL</option>
+                                <option value="custom">Eigener Weblink / URL</option>
                                 <option value="none">Kein Link (Kachel nicht klickbar)</option>
                               </select>
                             </div>
@@ -710,7 +710,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                           {item.cta_link && item.cta_link !== "reservation" && item.cta_link !== "tournaments" && item.cta_link !== "championship" && item.cta_link !== "none" && (
                             <div className="space-y-1 pt-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Eigene Web-Adresse (URL)
+                                Eigene Webadresse (URL)
                               </label>
                               <input
                                 type="url"
@@ -726,7 +726,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
 
                       {item.type === "worklet_courts" && (
                         <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 flex items-center justify-between gap-4">
-                          <span className="text-xs font-semibold text-slate-700">Standard-Ansicht</span>
+                          <span className="text-xs font-semibold text-slate-700">Standardansicht</span>
                           <div className="inline-flex p-0.5 bg-slate-100 rounded-lg border border-slate-200">
                             <button
                               type="button"
@@ -823,7 +823,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
 
                           <div className="space-y-1">
                             <label className="block text-[10.5px] font-semibold text-slate-600">
-                              Bild-URL (Web-Adresse)
+                              Bild-URL (Webadresse)
                             </label>
                             <input
                               type="text"
@@ -854,13 +854,13 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                         <div className="p-4 bg-white rounded-xl border border-slate-200/80 space-y-3">
                           <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                             <LinkIcon className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Aktions-Button & Verlinkung (optional)</span>
+                            <span>Aktionsbutton & Verlinkung (optional)</span>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Button-Beschriftung
+                                Buttonbeschriftung
                               </label>
                               <input
                                 type="text"
@@ -873,7 +873,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
 
                             <div className="space-y-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Verlinkungs-Ziel
+                                Verlinkungsziel
                               </label>
                               <select
                                 value={
@@ -897,7 +897,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                                 <option value="reservation">Platzbuchung (Intern)</option>
                                 <option value="tournaments">Veranstaltungen & Turniere</option>
                                 <option value="championship">Vereinsmeisterschaft</option>
-                                <option value="custom">Eigener Web-Link / URL</option>
+                                <option value="custom">Eigener Weblink / URL</option>
                               </select>
                             </div>
                           </div>
@@ -906,7 +906,7 @@ export const LandingPageEditor: React.FC<LandingPageEditorProps> = ({
                           {item.cta_link && item.cta_link !== "reservation" && item.cta_link !== "tournaments" && item.cta_link !== "championship" && item.cta_link !== "none" && (
                             <div className="space-y-1 pt-1">
                               <label className="block text-[10.5px] font-semibold text-slate-600">
-                                Eigene Web-Adresse (URL)
+                                Eigene Webadresse (URL)
                               </label>
                               <input
                                 type="url"

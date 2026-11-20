@@ -782,7 +782,7 @@ export default function SuperAdminUserPurgeTab({
     setProgressStatus({
       current: 0,
       total: selectedUserIds.length,
-      message: "Starte Konto-Löschungen...",
+      message: "Starte Kontolöschungen...",
     });
 
     try {
@@ -926,7 +926,7 @@ export default function SuperAdminUserPurgeTab({
             {/* Protection Filter */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
-                {t("superadmin.protectionStatusLabel", "Schutz-Status:")}
+                {t("superadmin.protectionStatusLabel", "Schutzstatus:")}
               </label>
               <select
                 value={selectedProtectionFilter}
@@ -1104,12 +1104,12 @@ export default function SuperAdminUserPurgeTab({
                               user.vereinsId === "super-admin" ||
                               (user as any).tenantId === "system") && (
                               <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded-md border border-amber-300 uppercase">
-                                Super-Admin
+                                Superadmin
                               </span>
                             )}
                             {user.hauptAdmin && (
                               <span className="bg-purple-100 text-purple-800 text-[9px] font-black px-1.5 py-0.5 rounded-md border border-purple-300 uppercase">
-                                Haupt-Admin
+                                Hauptadmin
                               </span>
                             )}
                           </div>
@@ -1266,7 +1266,7 @@ export default function SuperAdminUserPurgeTab({
 
             <div className="p-6 space-y-4 text-xs text-slate-700 leading-relaxed">
               <p>
-                Wähle den Ziel-Verein und die Rolle für{" "}
+                Wähle den Zielverein und die Rolle für{" "}
                 <strong className="text-slate-900">
                   {assignClubUser.user.firstName || assignClubUser.user.lastName
                     ? `${assignClubUser.user.firstName || ""} ${assignClubUser.user.lastName || ""}`.trim()
@@ -1297,7 +1297,7 @@ export default function SuperAdminUserPurgeTab({
                   <div className="space-y-3">
                     <div>
                       <label className="block text-[11px] font-black uppercase text-slate-500 mb-1.5 ml-0.5 tracking-wider">
-                        Ziel-Verein
+                        Zielverein
                       </label>
                       <select
                         value={assignClubForm.clubId}
@@ -1348,7 +1348,7 @@ export default function SuperAdminUserPurgeTab({
 
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-[11px] text-slate-500">
                       <p>• Das Benutzerkonto wird dem ausgewählten Verein sofort zugeordnet.</p>
-                      <p>• Die Verknüpfung wird in Echtzeit in der Tabelle und für Proxy-Sitzungen wirksam.</p>
+                      <p>• Die Verknüpfung wird in Echtzeit in der Tabelle und für Proxysitzungen wirksam.</p>
                     </div>
                   </div>
                 );
@@ -1421,12 +1421,12 @@ export default function SuperAdminUserPurgeTab({
 
               <div className="space-y-2 bg-slate-50 border border-slate-200 rounded-xl p-4">
                 <h4 className="font-black text-slate-800 uppercase tracking-wider text-[11px] border-b border-slate-200 pb-2">
-                  Automatische Purge-Schritte:
+                  Automatische Purgeschritte:
                 </h4>
                 <div className="space-y-1.5 text-slate-600">
                   <p className="flex items-start gap-2">
                     <i className="fa-solid fa-trophy text-amber-600 mt-0.5"></i>
-                    <span><strong>Ligaspiele-Annullierung:</strong> Alle Hobbyligamatches dieser Person werden annulliert und die Punkte der Gegner chronologisch neu berechnet.</span>
+                    <span><strong>Ligaspieleannullierung:</strong> Alle Hobbyligamatches dieser Person werden annulliert und die Punkte der Gegner chronologisch neu berechnet.</span>
                   </p>
                   <p className="flex items-start gap-2">
                     <i className="fa-solid fa-user-xmark text-rose-600 mt-0.5"></i>
@@ -1531,16 +1531,16 @@ export default function SuperAdminUserPurgeTab({
 
               <div className="space-y-2 bg-slate-50 border border-slate-200 rounded-xl p-4">
                 <h4 className="font-black text-slate-800 uppercase tracking-wider text-[11px] border-b border-slate-200 pb-2">
-                  Automatische Purge-Schritte:
+                  Automatische Purgeschritte:
                 </h4>
                 <div className="space-y-1.5 text-slate-600">
                   <p className="flex items-start gap-2">
                     <i className="fa-solid fa-trophy text-amber-600 mt-0.5"></i>
-                    <span><strong>Ligaspiele-Annullierung:</strong> Alle Hobbyligamatches dieser Person werden annulliert und die Punkte der Gegner chronologisch neu berechnet.</span>
+                    <span><strong>Ligaspieleannullierung:</strong> Alle Hobbyligamatches dieser Person werden annulliert und die Punkte der Gegner chronologisch neu berechnet.</span>
                   </p>
                   <p className="flex items-start gap-2">
                     <i className="fa-solid fa-user-xmark text-rose-600 mt-0.5"></i>
-                    <span><strong>Mitgliedschaften & Profil:</strong> Sämtliche Vereinsmitgliedschaften und das Ligasport-Profil werden gelöscht.</span>
+                    <span><strong>Mitgliedschaften & Profil:</strong> Sämtliche Vereinsmitgliedschaften und das Ligasportprofil werden gelöscht.</span>
                   </p>
                 </div>
               </div>
@@ -1597,7 +1597,7 @@ export default function SuperAdminUserPurgeTab({
                 <div className="space-y-1.5 text-slate-600">
                   <p className="flex items-start gap-2">
                     <i className="fa-solid fa-rotate text-amber-600 mt-0.5"></i>
-                    <span><strong>Hobbyliga Re-Calculation:</strong> Alle betroffenen Ligaspiele werden annulliert und die Punktehistorie am Ende in einem Durchgang chronologisch neu berechnet.</span>
+                    <span><strong>Hobbyliga Recalculation:</strong> Alle betroffenen Ligaspiele werden annulliert und die Punktehistorie am Ende in einem Durchgang chronologisch neu berechnet.</span>
                   </p>
                   <p className="flex items-start gap-2">
                     <i className="fa-solid fa-trash-can text-rose-600 mt-0.5"></i>
@@ -1638,7 +1638,7 @@ export default function SuperAdminUserPurgeTab({
               </div>
               <div>
                 <h3 className="font-black text-slate-900 text-base">
-                  Vereins-Kontext auswählen
+                  Vereinskontext auswählen
                 </h3>
                 <p className="text-xs text-blue-700 font-bold mt-0.5">
                   Mehrere Vereine verknüpft
@@ -1952,7 +1952,7 @@ export default function SuperAdminUserPurgeTab({
               {/* 4. PRIVATSPHÄRE, ONBOARDING & APP-ANZEIGE */}
               <div className="space-y-3">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">
-                  4. Privatsphäre, Onboarding &amp; App-Anzeige
+                  4. Privatsphäre, Onboarding &amp; Appanzeige
                 </h3>
                 <div className="space-y-2.5">
                   <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-blue-400 transition-colors select-none">
@@ -1991,7 +1991,7 @@ export default function SuperAdminUserPurgeTab({
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5 font-normal">
-                        Beim nächsten Login des Mitglieds wird das Begrüßungs- &amp; Datenüberprüfungs-Modal geöffnet.
+                        Beim nächsten Login des Mitglieds wird das Begrüßungs- &amp; Datenüberprüfungsmodal geöffnet.
                       </p>
                     </div>
                   </label>
@@ -2008,7 +2008,7 @@ export default function SuperAdminUserPurgeTab({
                         KI-Assistent &quot;Ace&quot; aktivieren
                       </span>
                       <p className="text-xs text-slate-500 mt-0.5 font-normal">
-                        Zeigt das interaktive Tennis-Assistenten-Maskottchen für diesen Benutzer an.
+                        Zeigt das interaktive Tennisassistenten-Maskottchen für diesen Benutzer an.
                       </p>
                     </div>
                   </label>

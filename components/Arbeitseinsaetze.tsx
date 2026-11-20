@@ -1119,7 +1119,7 @@ const Arbeitseinsaetze: React.FC<ArbeitseinsaetzeProps> = ({
                                 type="button"
                                 onClick={() => handleOpenAudit(e)}
                                 className="w-7 h-7 rounded-lg text-slate-400 hover:text-[var(--color-primary)] hover:bg-emerald-50 transition-colors flex items-center justify-center cursor-pointer"
-                                title="Audit-Log öffnen"
+                                title="Auditlog öffnen"
                               >
                                 <i className="fa-solid fa-clock-rotate-left text-xs"></i>
                               </button>
@@ -1215,7 +1215,7 @@ const Arbeitseinsaetze: React.FC<ArbeitseinsaetzeProps> = ({
                             handleOpenAudit(e);
                           }}
                           className="w-7 h-7 rounded-lg text-slate-400 hover:text-[var(--color-primary)] hover:bg-emerald-50 flex items-center justify-center cursor-pointer"
-                          title="Audit-Log öffnen"
+                          title="Auditlog öffnen"
                         >
                           <i className="fa-solid fa-clock-rotate-left text-xs"></i>
                         </button>
@@ -1811,7 +1811,7 @@ const Arbeitseinsaetze: React.FC<ArbeitseinsaetzeProps> = ({
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 space-y-3">
                       <i className="fa-solid fa-receipt text-3xl opacity-20"></i>
                       <p className="text-sm font-bold uppercase tracking-wider text-center">
-                        Keine Audit-Einträge vorhanden
+                        Keine Auditeinträge vorhanden
                       </p>
                     </div>
                   );

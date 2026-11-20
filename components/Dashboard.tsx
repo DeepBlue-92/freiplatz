@@ -185,7 +185,7 @@ export function formatPlayerName(name: string): string {
   cleaned = cleaned.replace(/[0-9.]/g, "");
 
   if (cleaned.toLowerCase() === "admin") return "Admin";
-  if (cleaned.toLowerCase() === "superadmin") return "Super-Admin";
+  if (cleaned.toLowerCase() === "superadmin") return "Superadmin";
   if (cleaned.toLowerCase() === "system admin") return "System Admin";
 
   // If it already contains spaces or is mixed case, assume it has first and last names
@@ -3849,7 +3849,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   );
                 })}
 
-              {/* Dezente mobile Ampel-Legende */}
+              {/* Dezente mobile Ampellegende */}
               <div className="flex flex-row items-center justify-center gap-4 mt-4 pb-1 pt-1.5 text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider select-none">
                 {/* Grün: Alle frei */}
                 <div className="flex items-center gap-1.5">
@@ -4297,7 +4297,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             })}
                           </div>
 
-                          {/* Neues Kassenbon-Layout & Akkordeon für Preisregeln */}
+                          {/* Neues Kassenbonlayout & Akkordeon für Preisregeln */}
                           <AnimatePresence initial={false}>
                             {effectiveModalGuestCount > 0 && liveFeeResult && (() => {
                               const durationHours = modalStartTime && endTime ? getDurationInHours(modalStartTime, endTime) : 1;
@@ -4349,7 +4349,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                               <div className="font-medium text-slate-800">
                                                 Angewandte Regel:{" "}
                                                 <span className="font-semibold text-slate-900">
-                                                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === "ADVANCED" ? "Standardregel" : "Standard-Tarif")}
+                                                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === "ADVANCED" ? "Standardregel" : "Standardtarif")}
                                                 </span>
                                                 . {liveFeeResult.appliedRateText || formatAppliedRate(liveFeeResult.action)}.
                                               </div>
@@ -5004,7 +5004,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="lg:hidden flex items-center justify-between bg-white px-2.5 py-1.5 rounded-none border border-slate-200/80 shadow-sm">
             <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
               <i className="fa-solid fa-sliders text-slate-400"></i>{" "}
-              Mobil-Ansicht:
+              Mobilansicht:
             </span>
             <div className="flex gap-1 bg-slate-100 p-0.5 rounded-none border border-slate-200">
               <button
@@ -5734,7 +5734,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             })}
                           </div>
 
-                          {/* Neues Kassenbon-Layout & Akkordeon für Preisregeln */}
+                          {/* Neues Kassenbonlayout & Akkordeon für Preisregeln */}
                           <AnimatePresence initial={false}>
                             {effectiveModalGuestCount > 0 && liveFeeResult && (() => {
                               const durationHours = modalStartTime && endTime ? getDurationInHours(modalStartTime, endTime) : 1;
@@ -5786,7 +5786,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                               <div className="font-medium text-slate-800">
                                                 Angewandte Regel:{" "}
                                                 <span className="font-semibold text-slate-900">
-                                                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === "ADVANCED" ? "Standardregel" : "Standard-Tarif")}
+                                                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === "ADVANCED" ? "Standardregel" : "Standardtarif")}
                                                 </span>
                                                 . {liveFeeResult.appliedRateText || formatAppliedRate(liveFeeResult.action)}.
                                               </div>
@@ -6220,7 +6220,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 )}
               </div>
               <h3 className="text-lg font-black uppercase tracking-tight text-slate-800">
-                Vereins-Login
+                Vereinslogin
               </h3>
               <p className="text-xs text-slate-500 font-medium leading-relaxed">
                 {inlineLoginPrompt || "Melde dich an, um Plätze zu reservieren und alle Details einzusehen."}
@@ -6347,7 +6347,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   Angewendete Regel ({liveFeeResult.mode === 'ADVANCED' ? 'Erweiterter Modus' : 'Einfacher Modus'})
                 </div>
                 <div className="font-bold text-slate-800 text-sm">
-                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === 'ADVANCED' ? 'Standardregel' : 'Standard-Tarif')}
+                  {liveFeeResult.matchedRuleName || (liveFeeResult.mode === 'ADVANCED' ? 'Standardregel' : 'Standardtarif')}
                 </div>
                 <div className="text-emerald-950 font-bold bg-white p-2.5 rounded-xl border border-emerald-200/90 flex items-center gap-2 text-xs shadow-3xs">
                   <i className="fa-solid fa-tag text-emerald-600 shrink-0 text-xs"></i>

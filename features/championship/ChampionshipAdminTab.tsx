@@ -61,10 +61,10 @@ export const ChampionshipAdminTab: React.FC<ChampionshipAdminTabProps> = ({
   const [tournaments, setTournaments] = useState<TournamentInstance[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Filter for Tournaments Sub-Tab
+  // Filter for Tournaments Subtab
   const [statusFilter, setStatusFilter] = useState<'all' | TournamentStatus>('all');
 
-  // Template Editor State (In-Page)
+  // Template Editor State (Inpage)
   const [isEditingTemplate, setIsEditingTemplate] = useState<boolean>(false);
   const [templateToEdit, setTemplateToEdit] = useState<TournamentTemplate | null>(null);
 
@@ -260,7 +260,7 @@ export const ChampionshipAdminTab: React.FC<ChampionshipAdminTabProps> = ({
     return { active, draft, archived, trash, totalNonTrash };
   }, [tournaments]);
 
-  // In-Page Template Editor View
+  // Inpage Template Editor View
   if (subTab === 'templates' && isEditingTemplate) {
     return (
       <div className="w-full">
@@ -281,7 +281,7 @@ export const ChampionshipAdminTab: React.FC<ChampionshipAdminTabProps> = ({
     );
   }
 
-  // In-Page Tournament Start Wizard View (integrated directly into the page instead of popup)
+  // Inpage Tournament Start Wizard View (integrated directly into the page instead of popup)
   if (isWizardOpen) {
     return (
       <div className="w-full">
@@ -329,7 +329,7 @@ export const ChampionshipAdminTab: React.FC<ChampionshipAdminTabProps> = ({
           </div>
         </div>
 
-        {/* Sub-Tabs Selector */}
+        {/* Subtabs Selector */}
         <div className="mt-6 pt-4 border-t border-slate-100 flex items-center gap-2">
           <button
             type="button"

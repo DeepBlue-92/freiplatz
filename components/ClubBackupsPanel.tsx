@@ -79,7 +79,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
       setRollbackModalBackup(null);
       setRollbackConfirmInput("");
     } catch (err: any) {
-      setErrorMsg((i18n.language.startsWith("en") ? "Error during rollback: " : "Fehler bei der System-Wiederherstellung: ") + (err?.message || err));
+      setErrorMsg((i18n.language.startsWith("en") ? "Error during rollback: " : "Fehler bei der Systemwiederherstellung: ") + (err?.message || err));
     } finally {
       setIsPerformingRollback(false);
     }
@@ -98,7 +98,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
               {t("superadmin.backup.title", "Globales Systembackup & Rollback")}
             </h3>
             <p className="text-xs text-slate-500 font-medium leading-relaxed mt-0.5 max-w-3xl">
-              {t("superadmin.backup.subtitle", "Verwalten Sie globale System-Sicherungspunkte der gesamten Datenbank. Ein Sicherungspunkt umfasst alle Vereine, Benutzerkonten, Ligaspiele, Platzbuchungen, Turniere und Systemeinstellungen.")}
+              {t("superadmin.backup.subtitle", "Verwalten Sie globale Systemsicherungspunkte der gesamten Datenbank. Ein Sicherungspunkt umfasst alle Vereine, Benutzerkonten, Ligaspiele, Platzbuchungen, Turniere und Systemeinstellungen.")}
             </p>
           </div>
         </div>
@@ -175,7 +175,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
         <div className="bg-slate-50/80 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
           <h4 className="text-xs font-black uppercase text-slate-600 tracking-wider flex items-center gap-2">
             <i className="fa-solid fa-clock-rotate-left text-slate-400"></i>
-            {t("superadmin.backup.historyTitle", "Backup & Rollback-Historie (Globale Snapshots)")}
+            {t("superadmin.backup.historyTitle", "Backup & Rollbackhistorie (Globale Snapshots)")}
           </h4>
           <span className="text-[11px] font-bold text-slate-500 bg-white px-2.5 py-0.5 rounded-full border border-slate-200">
             {backups.length} {backups.length === 1 ? t("superadmin.backup.restorePointSingular", "Sicherungspunkt") : t("superadmin.backup.restorePointsPlural", "Sicherungspunkte")}
@@ -239,7 +239,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                       ) : backup.creator === "rollback-auto" ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                           <i className="fa-solid fa-shield text-[10px]"></i>
-                          {t("superadmin.backup.typeSafety", "Sicherheits-Backup")}
+                          {t("superadmin.backup.typeSafety", "Sicherheitsbackup")}
                         </span>
                       ) : backup.creator === "league-reset" ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
@@ -249,7 +249,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                           <i className="fa-solid fa-user-shield text-[10px]"></i>
-                          {t("superadmin.backup.typeSuperAdmin", "Super-Admin")}
+                          {t("superadmin.backup.typeSuperAdmin", "Superadmin")}
                         </span>
                       )}
                     </td>
@@ -293,7 +293,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
         </div>
         <div className="text-xs text-slate-600 leading-relaxed font-semibold">
           <strong className="text-amber-900">{t("superadmin.backup.cleanupNoticeTitle", "Automatische Bereinigung & Sicherheit:")}</strong>{" "}
-          {t("superadmin.backup.cleanupNoticeText", "Wöchentliche globale Systembackups bleiben aus Gründen der Kapazitäts- und Performanceoptimierung exakt 4 Wochen (28 Tage) lang gespeichert. Nach Ablauf dieses Zeitraums werden sie automatisch bereinigt. Manuelle Systembackups sowie automatische Sicherheits-Backups vor Rollbacks bleiben dauerhaft erhalten.")}
+          {t("superadmin.backup.cleanupNoticeText", "Wöchentliche globale Systembackups bleiben aus Gründen der Kapazitäts- und Performanceoptimierung exakt 4 Wochen (28 Tage) lang gespeichert. Nach Ablauf dieses Zeitraums werden sie automatisch bereinigt. Manuelle Systembackups sowie automatische Sicherheitsbackups vor Rollbacks bleiben dauerhaft erhalten.")}
         </div>
       </div>
 
@@ -314,7 +314,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                     {t("superadmin.backup.modalRollbackTitle", "SYSTEMWEITES ROLLBACK AUSFÜHREN")}
                   </h3>
                   <p className="text-xs text-slate-500 font-semibold">
-                    {t("superadmin.backup.modalRollbackSubtitle", "Globaler System-Wiederherstellungspunkt")}
+                    {t("superadmin.backup.modalRollbackSubtitle", "Globaler Systemwiederherstellungspunkt")}
                   </p>
                 </div>
               </div>
@@ -327,7 +327,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
               </button>
             </div>
 
-            {/* Warning-Banner (Rot/Orange) */}
+            {/* Warningbanner (Rot/Orange) */}
             <div className="bg-rose-50 border-2 border-rose-300 rounded-xl p-4 flex items-start gap-3.5 shadow-xs">
               <div className="text-rose-600 text-xl shrink-0 mt-0.5">
                 <i className="fa-solid fa-circle-exclamation"></i>
@@ -376,7 +376,7 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
             {/* Snapshot Details */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-2">
               <div className="flex justify-between items-center text-slate-700">
-                <span className="font-semibold text-slate-500">{t("superadmin.backup.modalTargetLabel", "Ziel-Sicherungspunkt:")}</span>
+                <span className="font-semibold text-slate-500">{t("superadmin.backup.modalTargetLabel", "Zielsicherungspunkt:")}</span>
                 <span className="font-bold text-slate-900">{rollbackModalBackup.name}</span>
               </div>
               <div className="flex justify-between items-center text-slate-700">
@@ -385,8 +385,8 @@ export default function ClubBackupsPanel({}: ClubBackupsPanelProps) {
                   {rollbackModalBackup.creator === "system"
                     ? t("superadmin.backup.typeWeeklyAuto", "Wöchentlich (Auto)")
                     : rollbackModalBackup.creator === "rollback-auto"
-                    ? t("superadmin.backup.typeSafety", "Sicherheits-Backup")
-                    : t("superadmin.backup.typeSuperAdmin", "Super-Admin")}
+                    ? t("superadmin.backup.typeSafety", "Sicherheitsbackup")
+                    : t("superadmin.backup.typeSuperAdmin", "Superadmin")}
                 </span>
               </div>
             </div>

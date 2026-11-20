@@ -244,7 +244,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 
   // Render selected block or template settings
   const renderInspectorContent = () => {
-    // If no block selected: Vorlagen-Einstellungen
+    // If no block selected: Vorlageneinstellungen
     if (!selectedBlock) {
       return (
       <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-6">
@@ -256,7 +256,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-black text-slate-900 tracking-tight">
-                Vorlagen-Einstellungen
+                Vorlageneinstellungen
               </h3>
               <p className="text-xs font-medium text-slate-600">
                 Globale Konfiguration für die gewählte E-Mail
@@ -796,10 +796,10 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           />
         </div>
 
-        {/* Link-Type Switcher */}
+        {/* Linktype Switcher */}
         <div className="space-y-2 pt-1 border-t border-slate-100">
           <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-            Link-Typ & Ziel-URL
+            Linktyp & Ziel-URL
           </label>
 
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl">
@@ -833,7 +833,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Statischer Web-Link
+              Statischer Weblink
             </button>
           </div>
 
@@ -866,7 +866,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           ) : (
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase">
-                Web-Adresse (URL)
+                Webadresse (URL)
               </label>
               <div className="relative">
                 <Link className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -893,7 +893,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             {/* Shape */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase text-slate-400">
-                Button-Form (Shape)
+                Buttonform (Shape)
               </label>
               <select
                 value={cfg.shape || "rounded"}
@@ -1040,7 +1040,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             {/* Primary Button Color */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase text-slate-400 block">
-                Button-Primärfarbe
+                Buttonprimärfarbe
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -1088,7 +1088,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             {/* Text Color */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase text-slate-400 block">
-                Button-Textfarbe
+                Buttontextfarbe
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -1235,7 +1235,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             {/* Quick Banner Presets */}
             <div className="pt-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                Beispiel-Bilder:
+                Beispielbilder:
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {[
@@ -1358,10 +1358,10 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
         </div>
 
-        {/* Alt-Text */}
+        {/* Alttext */}
         <div className="space-y-1 pt-1 border-t border-slate-100">
           <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-            Alternativtext (Alt-Text)
+            Alternativtext (Alttext)
           </label>
           <input
             type="text"
@@ -1490,7 +1490,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           {/* Target Hyperlink */}
           <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase text-slate-400">
-              Optionaler Klick-Link (Hyperlink)
+              Optionaler Klicklink (Hyperlink)
             </label>
             <input
               type="url"
@@ -1577,7 +1577,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               Verfügbare dynamische Variablen
             </h4>
             <p className="text-[10px] text-slate-500">
-              Klick fügt die Variable an die Cursor-Position des aktiven Felds ein
+              Klick fügt die Variable an die Cursorposition des aktiven Felds ein
             </p>
           </div>
         </div>

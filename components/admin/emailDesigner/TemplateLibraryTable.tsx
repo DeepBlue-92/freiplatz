@@ -79,7 +79,7 @@ export const TemplateLibraryTable: React.FC<TemplateLibraryTableProps> = ({
     // Check if system template
     if (template.is_system_template) {
       setDeleteWarning(
-        `Die Vorlage „${template.name}“ ist eine System-Standardvorlage und schreibgeschützt gegen Löschen.`
+        `Die Vorlage „${template.name}“ ist eine Systemstandardvorlage und schreibgeschützt gegen Löschen.`
       );
       setTimeout(() => setDeleteWarning(null), 6000);
       return;
@@ -115,7 +115,7 @@ export const TemplateLibraryTable: React.FC<TemplateLibraryTableProps> = ({
           <div className="text-left">
             <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <Layers className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
-              <span>Vorlagen-Bibliothek</span>
+              <span>Vorlagenbibliothek</span>
             </h3>
             <p className="text-xs text-slate-500 font-normal mt-0.5">
               {activeTemplates.length} aktive {activeTemplates.length === 1 ? "Vorlage" : "Vorlagen"} im Verein hinterlegt
@@ -202,7 +202,7 @@ export const TemplateLibraryTable: React.FC<TemplateLibraryTableProps> = ({
             onChange={(e) => setFilterEventType(e.target.value)}
             className="w-full sm:w-auto h-10 px-3 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-[var(--color-primary)] cursor-pointer"
           >
-            <option value="all">Alle Event-Typen</option>
+            <option value="all">Alle Eventtypen</option>
             {NOTIFICATION_EVENT_DEFINITIONS.map((def) => (
               <option key={def.key} value={def.key}>
                 {def.label}
@@ -214,7 +214,7 @@ export const TemplateLibraryTable: React.FC<TemplateLibraryTableProps> = ({
         {showTrash && (
           <div className="ml-auto text-[11px] text-slate-600 font-medium flex items-center gap-1.5 bg-slate-100 px-3 py-1 rounded-lg">
             <Clock className="w-3.5 h-3.5 text-slate-500" />
-            <span>Papierkorb-Objekte werden nach 30 Tagen automatisch bereinigt</span>
+            <span>Papierkorbobjekte werden nach 30 Tagen automatisch bereinigt</span>
           </div>
         )}
       </div>
@@ -373,7 +373,7 @@ export const TemplateLibraryTable: React.FC<TemplateLibraryTableProps> = ({
                             <span
                               title={
                                 tmpl.is_system_template
-                                  ? "System-Standardvorlage (schreibgeschützt gegen Löschen)"
+                                  ? "Systemstandardvorlage (schreibgeschützt gegen Löschen)"
                                   : "Aktive Vorlage kann nicht gelöscht werden"
                               }
                               className="p-1.5 text-slate-400 flex items-center justify-center cursor-default"

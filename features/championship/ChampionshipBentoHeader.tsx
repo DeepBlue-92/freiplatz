@@ -97,7 +97,7 @@ export const ChampionshipBentoHeader: React.FC<ChampionshipBentoHeaderProps> = (
     <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4 print:hidden">
       {/* 1. Kopfzeile wie bei der Rangliste */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Links: Quadratisch abgerundetes Icon-Badge + Titel & Untertitel */}
+        {/* Links: Quadratisch abgerundetes Iconbadge + Titel & Untertitel */}
         <div className="flex items-center gap-3">
           <div className="p-3 bg-emerald-50 rounded-2xl text-[var(--color-primary)] shrink-0">
             <Trophy className="w-5 h-5 text-[var(--color-primary)]" strokeWidth={1.8} />
@@ -116,7 +116,7 @@ export const ChampionshipBentoHeader: React.FC<ChampionshipBentoHeaderProps> = (
 
         {/* Rechts: Aktionsleiste (Export & Verwaltung) */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Export-Aktionsbutton mit Dropdown */}
+          {/* Exportaktionsbutton mit Dropdown */}
           <div className="relative" ref={exportMenuRef}>
             <button
               type="button"
@@ -223,7 +223,7 @@ export const ChampionshipBentoHeader: React.FC<ChampionshipBentoHeaderProps> = (
         </div>
       </div>
 
-      {/* 2. Horizontale Turnier-Pill-Leiste direkt UNTERHALB des Untertitels */}
+      {/* 2. Horizontale Turnierpill-Leiste direkt UNTERHALB des Untertitels */}
       {activeTournaments.length > 0 && (
         <div className="pt-2 border-t border-slate-100">
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 w-full max-w-full">

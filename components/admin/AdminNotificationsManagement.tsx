@@ -177,7 +177,7 @@ export const AdminNotificationsManagement: React.FC<AdminNotificationsManagement
     const def = NOTIFICATION_EVENT_DEFINITIONS.find((d) => d.key === eventKey);
     setFeedback({
       type: "success",
-      text: `Onboarding-Standard für „${def?.label || eventKey}“ aktualisiert (${
+      text: `Onboardingstandard für „${def?.label || eventKey}“ aktualisiert (${
         enabled ? "Aktiv" : "Aus"
       }).`,
     });
@@ -224,14 +224,14 @@ export const AdminNotificationsManagement: React.FC<AdminNotificationsManagement
       type: paused ? "error" : "success",
       text: paused
         ? "Not-Aus aktiviert: Der gesamte E-Mail-Versand des Vereins ist nun global pausiert."
-        : "E-Mail-Versand wieder reaktiviert: System-Mails werden normal versendet.",
+        : "E-Mail-Versand wieder reaktiviert: Systemmails werden normal versendet.",
     });
     setTimeout(() => setFeedback(null), 4000);
   };
 
   return (
     <div className="space-y-6">
-      {/* Sub-Tab Navigation Bar: Segment-Switcher im einheitlichen Admin-Design */}
+      {/* Subtab Navigation Bar: Segmentswitcher im einheitlichen Admindesign */}
       <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200/80 gap-1">
         <button
           type="button"
@@ -282,7 +282,7 @@ export const AdminNotificationsManagement: React.FC<AdminNotificationsManagement
         </div>
       )}
 
-      {/* REITER 1: E-MAIL-EINSTELLUNGEN (Zwei Bento-Bereiche) */}
+      {/* REITER 1: E-MAIL-EINSTELLUNGEN (Zwei Bentobereiche) */}
       {activeSubTab === "settings" && (
         <div className="space-y-6">
           {/* Bereich 1 (oben): Globale E-Mail-Einstellungen */}
@@ -303,7 +303,7 @@ export const AdminNotificationsManagement: React.FC<AdminNotificationsManagement
             }}
           />
 
-          {/* Bereich 2 (darunter): Individuelle Spieler-Benachrichtigungen (Massenverwaltung) */}
+          {/* Bereich 2 (darunter): Individuelle Spielerbenachrichtigungen (Massenverwaltung) */}
           <MemberNotificationsMatrix
             users={users}
             systemwideActive={systemwideActive}

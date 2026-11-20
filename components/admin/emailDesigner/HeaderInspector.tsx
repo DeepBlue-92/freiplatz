@@ -232,7 +232,7 @@ export const HeaderInspector: React.FC<HeaderInspectorProps> = ({
       {/* Typografie & Formatierung */}
       <div className="space-y-3 pt-2 border-t border-slate-100">
         <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-          Text-Formatierung
+          Textformatierung
         </div>
 
         {/* Schriftart */}
@@ -318,7 +318,7 @@ export const HeaderInspector: React.FC<HeaderInspectorProps> = ({
         {/* Ausrichtung */}
         <div className="space-y-1">
           <label className="text-xs font-bold uppercase text-slate-700 block">
-            Text-Ausrichtung
+            Textausrichtung
           </label>
           <div className="grid grid-cols-3 gap-1.5">
             <button

@@ -90,10 +90,10 @@ export const AdminOnboardingTab: React.FC<AdminOnboardingTabProps> = ({
           <div>
             <h3 className="text-sm font-black text-[var(--color-primary)] uppercase flex items-center gap-2">
               <i className="fa-solid fa-user-check"></i>{" "}
-              Mitglieder-Onboarding
+              Mitgliederonboarding
             </h3>
             <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">
-              Konfiguration des Begrüßungs- & Datenüberprüfungs-Dialogs
+              Konfiguration des Begrüßungs- & Datenüberprüfungsdialogs
             </p>
           </div>
 
@@ -198,7 +198,7 @@ export const AdminOnboardingTab: React.FC<AdminOnboardingTabProps> = ({
         <div className="bg-slate-50 p-6 sm:p-8 rounded-[1rem] border border-slate-100 space-y-6 shadow-sm">
           <h3 className="text-sm font-black text-[var(--color-primary)] uppercase flex items-center gap-2 mb-4">
             <i className="fa-solid fa-sliders"></i>{" "}
-            Aktivierung & Standard-Verhalten
+            Aktivierung & Standardverhalten
           </h3>
 
           {/* Master Switch */}
@@ -268,7 +268,7 @@ export const AdminOnboardingTab: React.FC<AdminOnboardingTabProps> = ({
               htmlFor="welcome-title-input"
               className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1.5"
             >
-              Begrüßungs-Überschrift (Signaturserifenschrift)
+              Begrüßungsüberschrift (Signaturserifenschrift)
             </label>
             <textarea
               id="welcome-title-input"

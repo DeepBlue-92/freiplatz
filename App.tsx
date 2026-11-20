@@ -1126,7 +1126,7 @@ const App: React.FC = () => {
       currentUser?.vereinsId === 'super-admin'
     );
 
-    // 1. Direct Super-Admin (when NOT in proxy mode): full access to ALL clubs in system
+    // 1. Direct Superadmin (when NOT in proxy mode): full access to ALL clubs in system
     if (isDirectSuperAdmin) {
       if (allClubs && allClubs.length > 0) {
         return allClubs.map((c) => {
@@ -1147,7 +1147,7 @@ const App: React.FC = () => {
       return uniqueUserClubsRaw;
     }
 
-    // 2. Normal user or Proxy User (Super-Admin impersonating a specific user):
+    // 2. Normal user or Proxy User (Superadmin impersonating a specific user):
     // In proxy mode, the app must strictly reflect the simulated user's actual clubs!
     return uniqueUserClubsRaw;
   }, [uniqueUserClubsRaw, currentUser, proxyUser, superAdminContext, allClubs]);
@@ -3178,7 +3178,7 @@ const App: React.FC = () => {
                 <p className="text-slate-400 text-[8px] sm:text-[9px] lg:text-[8.5px] font-black uppercase tracking-widest mt-1 sm:mt-1.5 lg:mt-1.5 text-center mb-4 sm:mb-7 lg:mb-5">
                   {isSuperadminRoute
                     ? "Systemwartung & Verwaltung"
-                    : t("auth.memberLogin", "Mitglieder-Login")}
+                    : t("auth.memberLogin", "Mitgliederlogin")}
                 </p>
 
                 {error && (
@@ -3455,7 +3455,7 @@ const App: React.FC = () => {
   if (effectiveCurrentUser && (effectiveCurrentUser.role === Role.SUPER_ADMIN || isSuperAdmin(effectiveCurrentUser))) {
     return (
       <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50 top-0 mt-0">
-        <ErrorBoundary fallbackTitle="Super-Admin Dashboard Fehler" fallbackMessage="Beim Laden des Super-Admin Dashboards ist ein unerwarteter Fehler aufgetreten.">
+        <ErrorBoundary fallbackTitle="Superadmin Dashboard Fehler" fallbackMessage="Beim Laden des Superadmin Dashboards ist ein unerwarteter Fehler aufgetreten.">
           <SuperAdminDashboard
             currentUser={effectiveCurrentUser}
             onLogout={handleLogout}
