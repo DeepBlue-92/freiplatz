@@ -4370,24 +4370,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                           </div>
                         </div>
-
-                        {/* Zusatzwissen für KI-Assistent Ace */}
-                        <div className="pt-3 border-t border-slate-200/60 space-y-2">
-                          <div className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                            <i className="fa-solid fa-robot text-[var(--color-primary)]"></i>
-                            {t("admin.generalSettings.aceKnowledge")}
-                          </div>
-                          <textarea
-                            value={customAiInstructions}
-                            onChange={(e) => setCustomAiInstructions(e.target.value)}
-                            placeholder={t("admin.generalSettings.acePlaceholder")}
-                            rows={3}
-                            className="w-full p-3 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-xs text-slate-800 outline-none transition-all placeholder:text-slate-400 leading-relaxed font-sans"
-                          />
-                          <p className="text-[11px] text-slate-400">
-                            {t("admin.generalSettings.aceHelp")}
-                          </p>
-                        </div>
                       </div>
                     </div>
                   </div>
