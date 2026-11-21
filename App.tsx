@@ -935,11 +935,13 @@ const App: React.FC = () => {
             const isNeuhausen = String(c.vereinsId).toLowerCase().includes("neuhausen");
             const logo = c.customHeaderLogoUrl || c.headerLogoUrl || c.customLogoUrl || c.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "");
             const name = c.clubName || c.vereinsName || c.name || c.vereinsId;
+            const headerFont = c.headerFontFamily || (isNeuhausen ? "sans" : "serif");
             localStorage.setItem(`v2_club_badge_${c.vereinsId}`, JSON.stringify({
               vereinsId: c.vereinsId,
               clubName: name,
               logoUrl: logo,
-              primaryColor: c.primaryColor || "#1b4332"
+              primaryColor: c.primaryColor || "#1b4332",
+              headerFontFamily: headerFont,
             }));
           }
         });
@@ -1039,15 +1041,26 @@ const App: React.FC = () => {
 
         if (!clubMap.has(normKey)) {
           const isHomeClub = normKey === (activeUser.vereinsId || "").toLowerCase().replace(/\s/g, "");
+          const isNeuhausen = normKey.includes("neuhausen");
           const resolvedRole = overrideRole || 
             (typeof rawItem === "object" ? rawItem?.role : undefined) || 
             (isHomeClub ? activeUser.role : Role.MITGLIED) || 
             Role.MITGLIED;
 
+          const resolvedHeaderFont: "sans" | "serif" | "sporty" =
+            matched?.headerFontFamily ||
+            rawItem?.headerFontFamily ||
+            (isNeuhausen ? "sans" : "serif");
+
+          const resolvedPrimaryColor =
+            matched?.primaryColor || rawItem?.primaryColor || (isNeuhausen ? "#1b4332" : undefined);
+
           clubMap.set(normKey, {
             id: vId,
             vereinsId: vId,
             clubName: resolveCleanName(vId, matched, rawItem),
+            headerFontFamily: resolvedHeaderFont,
+            primaryColor: resolvedPrimaryColor,
             role: resolvedRole,
             is_tenant: !!matched,
             type: matched ? 'club' : 'unknown'
@@ -1170,11 +1183,14 @@ const App: React.FC = () => {
           const vId = c.vereinsId || c.id;
           const cName = c.clubName || c.vereinsName || c.name || vId;
           const logo = c.customHeaderLogoUrl || c.headerLogoUrl || c.customLogoUrl || c.logoUrl;
+          const isNeuhausen = String(vId).toLowerCase().includes("neuhausen");
           return {
             id: String(vId),
             vereinsId: String(vId),
             clubName: String(cName),
             logoUrl: logo,
+            headerFontFamily: c.headerFontFamily || (isNeuhausen ? "sans" : "serif"),
+            primaryColor: c.primaryColor,
             role: Role.SUPER_ADMIN,
             type: 'club',
             is_tenant: true,
@@ -2036,6 +2052,7 @@ const App: React.FC = () => {
     const targetLogo = targetClub?.customHeaderLogoUrl || targetClub?.headerLogoUrl || targetClub?.customLogoUrl || targetClub?.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "");
     const targetName = targetClub?.clubName || targetClub?.vereinsName || targetClub?.name || resolveClubName(normNewId, isNeuhausen ? "SV Neuhausen" : undefined, allClubs);
     const targetColor = targetClub?.primaryColor || "#1b4332";
+    const targetFont: "sans" | "serif" | "sporty" = targetClub?.headerFontFamily || (isNeuhausen ? "sans" : "serif");
 
     try {
       const targetMeta = {
@@ -2043,6 +2060,7 @@ const App: React.FC = () => {
         clubName: targetName,
         logoUrl: targetLogo,
         primaryColor: targetColor,
+        headerFontFamily: targetFont,
       };
       localStorage.setItem("v2_switching_target_club", JSON.stringify(targetMeta));
       localStorage.setItem(`v2_club_badge_${normNewId}`, JSON.stringify(targetMeta));
@@ -2058,6 +2076,7 @@ const App: React.FC = () => {
         logoUrl: targetLogo,
         headerLogoUrl: targetLogo,
         primaryColor: targetColor,
+        headerFontFamily: targetFont,
       };
       localStorage.setItem(`v2_cached_settings_${normNewId}`, JSON.stringify(newCached));
       localStorage.setItem("v2_cached_settings", JSON.stringify(newCached));
@@ -2072,6 +2091,7 @@ const App: React.FC = () => {
       logoUrl: targetLogo,
       headerLogoUrl: targetLogo,
       primaryColor: targetColor,
+      headerFontFamily: targetFont,
     }));
     setIsLoading(true);
 
@@ -2132,6 +2152,7 @@ const App: React.FC = () => {
     const targetLogo = targetClub?.customHeaderLogoUrl || targetClub?.headerLogoUrl || targetClub?.customLogoUrl || targetClub?.logoUrl || (isNeuhausen ? DEFAULT_SETTINGS.logoUrl : "");
     const targetName = targetClub?.clubName || targetClub?.vereinsName || targetClub?.name || resolveClubName(normId, isNeuhausen ? "SV Neuhausen" : undefined, allClubs);
     const targetColor = targetClub?.primaryColor || "#1b4332";
+    const targetFont: "sans" | "serif" | "sporty" = targetClub?.headerFontFamily || (isNeuhausen ? "sans" : "serif");
 
     try {
       const targetMeta = {
@@ -2139,10 +2160,21 @@ const App: React.FC = () => {
         clubName: targetName,
         logoUrl: targetLogo,
         primaryColor: targetColor,
+        headerFontFamily: targetFont,
       };
       localStorage.setItem("v2_switching_target_club", JSON.stringify(targetMeta));
       localStorage.setItem(`v2_club_badge_${normId}`, JSON.stringify(targetMeta));
     } catch {}
+
+    setSettings((prev) => ({
+      ...prev,
+      clubName: targetName,
+      vereinsId: normId,
+      logoUrl: targetLogo,
+      headerLogoUrl: targetLogo,
+      primaryColor: targetColor,
+      headerFontFamily: targetFont,
+    }));
 
     const params = new URLSearchParams(window.location.search);
     params.set("tenant", normId);

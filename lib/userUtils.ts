@@ -153,12 +153,20 @@ export function getUserClubs(user: Partial<User | Person> | null | undefined, sy
         (isPrimaryClub ? user.role : undefined) ||
         Role.MITGLIED;
 
+      const resolvedHeaderFont: "sans" | "serif" | "sporty" = 
+        sysMeta?.headerFontFamily || 
+        (typeof rawId === 'object' ? rawId.headerFontFamily : undefined) ||
+        (canonicalKey.includes('neuhausen') ? 'sans' : 'serif');
+
       clubMap.set(canonicalKey, {
+        id: canonicalKey,
         vereinsId: canonicalKey,
         clubName: cleanName || canonicalKey,
         role: resolvedRole,
         logoUrl: cleanLogo,
         facilityPhotoUrl: cleanFacilityPhoto,
+        headerFontFamily: resolvedHeaderFont,
+        primaryColor: sysMeta?.primaryColor || (typeof rawId === 'object' ? rawId.primaryColor : undefined),
         street: street || (typeof rawId === 'object' ? rawId.street : undefined) || sysMeta?.street || knownMeta?.street,
         zip: zip || (typeof rawId === 'object' ? rawId.zip : undefined) || sysMeta?.zip || knownMeta?.zip,
         city: city || (typeof rawId === 'object' ? rawId.city : undefined) || sysMeta?.city || knownMeta?.city,

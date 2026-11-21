@@ -266,12 +266,17 @@ const Layout: React.FC<LayoutProps> = ({
     return "Verein";
   };
 
-  // Find active club name
+  // Find active club name and font
   const activeClubObj = availableClubs.find((c: any) => {
     const cId = String(c.vereinsId || c.id || "").toLowerCase().replace(/\s/g, "");
     const curId = String(currentVereinsId || "").toLowerCase().replace(/\s/g, "");
     return cId === curId;
   });
+
+  const effectiveHeaderFontFamily: "sans" | "serif" | "sporty" =
+    headerFontFamily ||
+    activeClubObj?.headerFontFamily ||
+    (String(currentVereinsId || "").toLowerCase().includes("neuhausen") ? "sans" : "serif");
   const renderLanguagePill = () => {
     if (!onLanguageChange) return null;
     return (
@@ -432,15 +437,15 @@ const Layout: React.FC<LayoutProps> = ({
                   <div className="text-white drop-shadow-2xl truncate min-w-0 flex items-center gap-1.5 transition-all duration-300 ease-in-out">
                     <h2
                       className={`text-sm sm:text-base md:text-[14pt] leading-none truncate max-w-[200px] sm:max-w-[240px] md:max-w-[280px] transition-all duration-300 ease-in-out ${
-                        headerFontFamily === "sporty"
+                        effectiveHeaderFontFamily === "sporty"
                           ? "font-black tracking-wider uppercase"
-                          : headerFontFamily === "serif"
+                          : effectiveHeaderFontFamily === "serif"
                           ? "font-bold tracking-tight"
                           : "font-normal tracking-tight"
                       }`}
                       style={{
                         fontFamily:
-                          headerFontFamily === "serif"
+                          effectiveHeaderFontFamily === "serif"
                             ? "Georgia, Cambria, 'Times New Roman', Times, serif"
                             : "'Inter', sans-serif",
                       }}

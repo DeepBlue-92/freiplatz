@@ -12,14 +12,19 @@ export type Role = (typeof Role)[keyof typeof Role];
 export type Gender = "m" | "w"; // m = Herren, w = Damen
 
 export interface UserClub {
+  id?: string;
   vereinsId: string;
   clubName: string;
   role?: Role;
   logoUrl?: string;
+  headerFontFamily?: "sans" | "serif" | "sporty";
+  primaryColor?: string;
   street?: string;
   zip?: string;
   city?: string;
   facilityPhotoUrl?: string;
+  is_tenant?: boolean;
+  type?: string;
 }
 
 export interface DynamicLeague {
