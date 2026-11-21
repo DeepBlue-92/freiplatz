@@ -3839,6 +3839,7 @@ const App: React.FC = () => {
         onShowProfile={() => setShowProfile(true)}
         news={getTenantTranslation(settings.news, "news", settings, i18n.language)}
         clubName={settings.clubName}
+        headerFontFamily={settings.headerFontFamily}
         logoUrl={settings.headerLogoUrl || settings.logoUrl}
         bannerUrl={settings.bannerUrl}
         bannerPosition={settings.bannerPosition}

@@ -1314,6 +1314,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [bannerGradientEnd, setBannerGradientEnd] = useState<string>(
     settings.bannerGradientEnd || settings.accentColor || "#2d6a4f",
   );
+  const [headerFontFamily, setHeaderFontFamily] = useState<"sans" | "serif" | "sporty">(
+    settings.headerFontFamily || (isNeuhausenClub ? "sans" : "serif")
+  );
   const [showBannerPositionModal, setShowBannerPositionModal] = useState(false);
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
   const [accentColor, setAccentColor] = useState(
@@ -1800,6 +1803,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setBannerColor(settings.bannerColor || settings.primaryColor || "#1b4332");
     setBannerGradientStart(settings.bannerGradientStart || settings.primaryColor || "#1b4332");
     setBannerGradientEnd(settings.bannerGradientEnd || settings.accentColor || "#2d6a4f");
+    setHeaderFontFamily(settings.headerFontFamily || (isNeuhausenClub ? "sans" : "serif"));
     setPrimaryColor(settings.primaryColor);
     setAccentColor(settings.accentColor || "#c04d2b");
     setAccentColor2(settings.accentColor2 || "#0f172a");
@@ -2016,6 +2020,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             (bannerGradientStart || "") !== (settings.bannerGradientStart || settings.primaryColor || "#1b4332") ||
             (bannerGradientEnd || "") !== (settings.bannerGradientEnd || settings.accentColor || "#2d6a4f")
           )) ||
+          (headerFontFamily || (isNeuhausenClub ? "sans" : "serif")) !==
+            (settings.headerFontFamily || (isNeuhausenClub ? "sans" : "serif")) ||
           (primaryColor || "") !== (settings.primaryColor || "") ||
           (accentColor || "") !== (settings.accentColor || "#c04d2b") ||
           (accentColor2 || "") !== (settings.accentColor2 || "#0f172a") ||
@@ -2076,6 +2082,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       bannerColor,
       bannerGradientStart,
       bannerGradientEnd,
+      headerFontFamily,
       primaryColor,
       accentColor,
       accentColor2,
@@ -2240,6 +2247,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         bannerGradientEnd,
         logoUrl,
         headerLogoUrl,
+        headerFontFamily,
         faviconUrl,
         bannerPosition,
         primaryColor,
@@ -2366,6 +2374,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       setBannerColor(settings.bannerColor || settings.primaryColor || "#1b4332");
       setBannerGradientStart(settings.bannerGradientStart || settings.primaryColor || "#1b4332");
       setBannerGradientEnd(settings.bannerGradientEnd || settings.accentColor || "#2d6a4f");
+      setHeaderFontFamily(settings.headerFontFamily || (isNeuhausenClub ? "sans" : "serif"));
       setPrimaryColor(settings.primaryColor);
       setAccentColor(settings.accentColor || "#c04d2b");
       setAccentColor2(settings.accentColor2 || "#0f172a");
@@ -7097,6 +7106,101 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 </div>
                               )}
                             </div>
+                          </div>
+                        </div>
+
+                        {/* Schriftart des Vereinsnamens im Header */}
+                        <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3.5">
+                          <div>
+                            <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider block">
+                              Schriftart des Vereinsnamens im Header
+                            </label>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Wähle den Schriftstil für den Vereinsnamen oben links in der Kopfleiste.
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            {/* Option 1: Modern (Sans-Serif - Inter) */}
+                            <button
+                              type="button"
+                              onClick={() => setHeaderFontFamily("sans")}
+                              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                                headerFontFamily === "sans"
+                                  ? "border-[var(--color-primary)] bg-white shadow-sm ring-2 ring-[var(--color-primary)]/20"
+                                  : "border-slate-200 bg-white/60 hover:bg-white hover:border-slate-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-xs font-bold text-slate-800">Modern (Sans-Serif)</span>
+                                {headerFontFamily === "sans" && (
+                                  <i className="fa-solid fa-circle-check text-xs text-[var(--color-primary)]"></i>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mb-2">
+                                Clean, serifenlos (Inter) – wie auf der Vereinswebsite
+                              </p>
+                              <div
+                                className="text-sm font-bold text-slate-900 truncate"
+                                style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
+                              >
+                                {clubName || "Vereinsname"}
+                              </div>
+                            </button>
+
+                            {/* Option 2: Klassisch (Serif) */}
+                            <button
+                              type="button"
+                              onClick={() => setHeaderFontFamily("serif")}
+                              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                                headerFontFamily === "serif"
+                                  ? "border-[var(--color-primary)] bg-white shadow-sm ring-2 ring-[var(--color-primary)]/20"
+                                  : "border-slate-200 bg-white/60 hover:bg-white hover:border-slate-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-xs font-bold text-slate-800">Klassisch (Serif)</span>
+                                {headerFontFamily === "serif" && (
+                                  <i className="fa-solid fa-circle-check text-xs text-[var(--color-primary)]"></i>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mb-2">
+                                Traditionelle Club-Schrift (Georgia / Times)
+                              </p>
+                              <div
+                                className="text-sm font-bold text-slate-900 truncate"
+                                style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', serif" }}
+                              >
+                                {clubName || "Vereinsname"}
+                              </div>
+                            </button>
+
+                            {/* Option 3: Sportlich (Bold) */}
+                            <button
+                              type="button"
+                              onClick={() => setHeaderFontFamily("sporty")}
+                              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                                headerFontFamily === "sporty"
+                                  ? "border-[var(--color-primary)] bg-white shadow-sm ring-2 ring-[var(--color-primary)]/20"
+                                  : "border-slate-200 bg-white/60 hover:bg-white hover:border-slate-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-xs font-bold text-slate-800">Sportlich (Bold)</span>
+                                {headerFontFamily === "sporty" && (
+                                  <i className="fa-solid fa-circle-check text-xs text-[var(--color-primary)]"></i>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mb-2">
+                                Athletisch in Großbuchstaben
+                              </p>
+                              <div
+                                className="text-xs font-black tracking-wider uppercase text-slate-900 truncate"
+                                style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
+                              >
+                                {clubName || "Vereinsname"}
+                              </div>
+                            </button>
                           </div>
                         </div>
 

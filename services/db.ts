@@ -159,6 +159,7 @@ export interface ClubSettings {
   bannerGradientStart?: string;
   bannerGradientEnd?: string;
   primaryColor: string;
+  headerFontFamily?: 'sans' | 'serif' | 'sporty';
   accentColor?: string;
   accentColor2?: string;
   accentColor3?: string;
@@ -294,6 +295,7 @@ export const DEFAULT_SETTINGS: ClubSettings = {
   useDefaultLoginBanner: true,
   bannerPosition: "50% 50%",
   primaryColor: "#1b4332",
+  headerFontFamily: "sans",
   accentColor: "#c04d2b",
   accentColor2: "#0f172a",
   accentColor3: "#ccff00",
@@ -593,6 +595,7 @@ export function parseClubSettingsData(normalizedId: string, data?: any): ClubSet
       logoUrl: resolvedLogo,
       headerLogoUrl: resolvedHeaderLogo,
       clubName: resolvedClubName,
+      headerFontFamily: data.headerFontFamily || (isNeuhausen ? "sans" : "serif"),
       bannerType: defaultBannerType,
       bannerColor: defaultBannerColor,
       bannerGradientStart: defaultBannerGradStart,
@@ -656,6 +659,7 @@ export function parseClubSettingsData(normalizedId: string, data?: any): ClubSet
     vereinsId: normalizedId,
     logoUrl: defaultClubLoginLogo,
     headerLogoUrl: isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : defaultClubLoginLogo,
+    headerFontFamily: isNeuhausen ? "sans" : "serif",
     bannerType: defaultBannerType,
     bannerColor: defaultBannerColor,
     bannerGradientStart: defaultBannerColor,

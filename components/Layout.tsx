@@ -55,6 +55,7 @@ interface LayoutProps {
   websiteUrl?: string;
   hideWebsiteLink?: boolean;
   impressum?: string;
+  headerFontFamily?: "sans" | "serif" | "sporty";
   desktopNav?: React.ReactNode;
   isPublicWochenplanRoute?: boolean;
   onLogoClick?: () => void;
@@ -88,6 +89,7 @@ const Layout: React.FC<LayoutProps> = ({
   websiteUrl = "https://www.tennis-club.local",
   hideWebsiteLink = false,
   impressum,
+  headerFontFamily = "sans",
   desktopNav,
   isPublicWochenplanRoute,
   onLogoClick,
@@ -429,8 +431,17 @@ const Layout: React.FC<LayoutProps> = ({
                   ) : null}
                   <div className="text-white drop-shadow-2xl truncate min-w-0 flex items-center gap-1.5 transition-all duration-300 ease-in-out">
                     <h2
-                      className="text-sm sm:text-base md:text-[14pt] font-bold tracking-tight leading-none truncate max-w-[200px] sm:max-w-[240px] md:max-w-[280px] transition-all duration-300 ease-in-out"
-                      style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', Times, serif" }}
+                      className={`text-sm sm:text-base md:text-[14pt] leading-none truncate max-w-[200px] sm:max-w-[240px] md:max-w-[280px] transition-all duration-300 ease-in-out ${
+                        headerFontFamily === "sporty"
+                          ? "font-black tracking-wider uppercase"
+                          : "font-bold tracking-tight"
+                      }`}
+                      style={{
+                        fontFamily:
+                          headerFontFamily === "serif"
+                            ? "Georgia, Cambria, 'Times New Roman', Times, serif"
+                            : "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                      }}
                       title={clubName}
                     >
                       {clubName}
