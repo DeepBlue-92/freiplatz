@@ -43,6 +43,7 @@ import { useSystemConfig } from "./contexts/SystemConfigContext";
 import { UserAvatar } from "./components/UserAvatar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TokenPasswordSetupModal from "./components/TokenPasswordSetupModal";
+import { PwaInstallBanner } from "./components/PwaInstallBanner";
 import { LeagueDashboard } from "./components/LeagueDashboard";
 import { SpielpartnerView } from "./components/SpielpartnerView";
 import { ChampionshipHub } from "./features/championship/ChampionshipHub";
@@ -5525,6 +5526,20 @@ const App: React.FC = () => {
             setTokenAuthModal(null);
             window.location.hash = "";
           }}
+        />
+      )}
+
+      {!isEmbeddedMode && (
+        <PwaInstallBanner
+          clubName={settings.clubName || "SV Neuhausen Tennis"}
+          primaryColor={settings.primaryColor || "#16422E"}
+          logoUrl={
+            settings.customHeaderLogoUrl ||
+            settings.headerLogoUrl ||
+            settings.customLogoUrl ||
+            settings.logoUrl ||
+            "/icons/icon-192x192.png"
+          }
         />
       )}
     </>
