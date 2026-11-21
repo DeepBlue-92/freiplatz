@@ -279,6 +279,16 @@ const App: React.FC = () => {
     ) {
       return path.replace(/\s/g, "");
     }
+    const hostname = typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "";
+    if (hostname.includes("neuhausen")) {
+      return "sv-neuhausen";
+    }
+    if (hostname.includes("furth")) {
+      return "djk-furth";
+    }
+    if (hostname.includes("sportsgeist")) {
+      return "tc-sportsgeist";
+    }
     return "sv-neuhausen";
   }, [currentUser, superAdminContext, publicWochenplanToken, publicTokenVereinsId, selectedTenantId]);
 
