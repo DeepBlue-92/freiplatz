@@ -529,179 +529,174 @@ export async function getVereinsIdByPublicToken(token: string): Promise<string |
   }
 }
 
+export function parseClubSettingsData(normalizedId: string, data?: any): ClubSettings {
+  const isNeuhausen = normalizedId.includes("neuhausen");
+  const isFurth = normalizedId.includes("furth");
+  const isSportsgeist = normalizedId.includes("sportsgeist");
+
+  if (data) {
+    const defaultClubLoginLogo = isNeuhausen
+      ? "/images/wappen_svn_login.png"
+      : isFurth
+      ? "/images/wappen_djk_furth_login.png"
+      : isSportsgeist
+      ? "/images/wappen_tc_sportsgeist_login.png"
+      : DEFAULT_SETTINGS.logoUrl;
+
+    const resolvedLogo = data.customLogoUrl || data.logoUrl || defaultClubLoginLogo;
+    const resolvedHeaderLogo = data.customHeaderLogoUrl || data.headerLogoUrl || resolvedLogo || (isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : "");
+    const resolvedClubName = data.clubName || data.vereinsName || (isNeuhausen ? "SV Neuhausen" : isFurth ? "DJK Furth" : isSportsgeist ? "TC Sportsgeist" : DEFAULT_SETTINGS.clubName);
+
+    const defaultBannerImg = isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "";
+    const defaultLoginBannerImg = isNeuhausen ? (DEFAULT_SETTINGS.loginBannerUrl || DEFAULT_SETTINGS.bannerUrl) : "";
+
+    const useDefaultBanner = data.useDefaultBanner !== undefined
+      ? Boolean(data.useDefaultBanner)
+      : isNeuhausen
+      ? Boolean(!data.bannerUrl || data.bannerUrl === DEFAULT_SETTINGS.bannerUrl)
+      : Boolean(!data.customBannerUrl && !data.bannerUrl);
+
+    const useDefaultLoginBanner = data.useDefaultLoginBanner !== undefined
+      ? Boolean(data.useDefaultLoginBanner)
+      : isNeuhausen
+      ? Boolean(
+          !data.loginBannerUrl ||
+          data.loginBannerUrl === defaultLoginBannerImg ||
+          data.loginBannerUrl === DEFAULT_SETTINGS.bannerUrl
+        )
+      : Boolean(!data.customLoginBannerUrl && !data.loginBannerUrl);
+
+    const defaultBannerType = data.bannerType || (isNeuhausen ? "image" : "gradient");
+    const defaultBannerColor = data.bannerColor || data.primaryColor || (isFurth ? "#003366" : isSportsgeist ? "#1e3a8a" : "#1b4332");
+    const defaultBannerGradStart = data.bannerGradientStart || data.primaryColor || defaultBannerColor;
+    const defaultBannerGradEnd = data.bannerGradientEnd || data.accentColor || (isFurth ? "#1e40af" : isSportsgeist ? "#3b82f6" : "#2d6a4f");
+
+    const resolvedBanner = useDefaultBanner
+      ? defaultBannerImg
+      : (data.customBannerUrl || data.bannerUrl || defaultBannerImg);
+
+    const resolvedLoginBanner = useDefaultLoginBanner
+      ? defaultLoginBannerImg
+      : (data.customLoginBannerUrl || data.loginBannerUrl || defaultLoginBannerImg);
+
+    const resolvedLeague = data.modules?.league !== undefined
+      ? data.modules.league === true
+      : (data.enableLeague !== undefined
+      ? data.enableLeague === true
+      : (data.modules?.liga !== undefined
+      ? data.modules.liga === true
+      : DEFAULT_SETTINGS.modules.league === true));
+
+    return {
+      ...DEFAULT_SETTINGS,
+      ...data,
+      logoUrl: resolvedLogo,
+      headerLogoUrl: resolvedHeaderLogo,
+      clubName: resolvedClubName,
+      bannerType: defaultBannerType,
+      bannerColor: defaultBannerColor,
+      bannerGradientStart: defaultBannerGradStart,
+      bannerGradientEnd: defaultBannerGradEnd,
+      useDefaultBanner,
+      useDefaultLoginBanner,
+      bannerUrl: resolvedBanner,
+      loginBannerUrl: resolvedLoginBanner,
+      customBannerUrl: data.customBannerUrl || (data.bannerUrl && data.bannerUrl !== defaultBannerImg ? data.bannerUrl : "") || "",
+      customLoginBannerUrl: data.customLoginBannerUrl || (data.loginBannerUrl && data.loginBannerUrl !== defaultLoginBannerImg ? data.loginBannerUrl : "") || "",
+      enableLeague: resolvedLeague,
+      modules: {
+        ...DEFAULT_SETTINGS.modules,
+        ...(data.modules || {}),
+        league: resolvedLeague,
+      },
+      reservationRules: {
+        ...DEFAULT_SETTINGS.reservationRules,
+        ...(data.reservationRules || {})
+      },
+      club_onboarding_settings: {
+        ...DEFAULT_ONBOARDING_SETTINGS,
+        ...(data.club_onboarding_settings || {}),
+        field_birthdate: data.club_onboarding_settings?.field_birthdate || data.club_onboarding_settings?.field_demographics || DEFAULT_ONBOARDING_SETTINGS.field_birthdate,
+        field_gender: data.club_onboarding_settings?.field_gender || data.club_onboarding_settings?.field_demographics || DEFAULT_ONBOARDING_SETTINGS.field_gender
+      },
+      recurringLocks: data.recurringLocks || [],
+      rangeLocks: data.rangeLocks || [],
+      navigationOrder: (() => {
+        const raw = Array.isArray(data.navigationOrder) && data.navigationOrder.length > 0
+          ? data.navigationOrder
+          : (DEFAULT_SETTINGS.navigationOrder || []);
+        const res = [...raw];
+        for (const dId of (DEFAULT_SETTINGS.navigationOrder || [])) {
+          if (!res.includes(dId)) {
+            res.push(dId);
+          }
+        }
+        return res;
+      })(),
+    };
+  }
+
+  const resolvedClubName = normalizedId === 'djk-furth' ? 'DJK Furth' : (isNeuhausen ? 'SV Neuhausen' : isSportsgeist ? 'TC Sportsgeist' : 'Tennis Club');
+  const defaultClubLoginLogo = isNeuhausen
+    ? "/images/wappen_svn_login.png"
+    : isFurth
+    ? "/images/wappen_djk_furth_login.png"
+    : isSportsgeist
+    ? "/images/wappen_tc_sportsgeist_login.png"
+    : DEFAULT_SETTINGS.logoUrl;
+
+  const defaultBannerType = isNeuhausen ? "image" : "gradient";
+  const defaultBannerColor = isFurth ? "#003366" : isSportsgeist ? "#1e3a8a" : "#1b4332";
+  const defaultBannerGradEnd = isFurth ? "#1e40af" : isSportsgeist ? "#3b82f6" : "#2d6a4f";
+
+  return {
+    ...DEFAULT_SETTINGS,
+    clubName: resolvedClubName,
+    vereinsName: resolvedClubName,
+    vereinsId: normalizedId,
+    logoUrl: defaultClubLoginLogo,
+    headerLogoUrl: isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : defaultClubLoginLogo,
+    bannerType: defaultBannerType,
+    bannerColor: defaultBannerColor,
+    bannerGradientStart: defaultBannerColor,
+    bannerGradientEnd: defaultBannerGradEnd,
+    bannerUrl: isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "",
+    loginBannerUrl: isNeuhausen ? DEFAULT_SETTINGS.loginBannerUrl : "",
+    useDefaultBanner: isNeuhausen,
+    useDefaultLoginBanner: isNeuhausen,
+    courts: ["Platz 1", "Platz 2"],
+    aktiv: true,
+    websiteUrl: isNeuhausen ? "https://www.svneuhausen1947.de/tennis" : "",
+    hideWebsiteLink: !isNeuhausen,
+    welcomeMessage: `Herzlich willkommen im modernisierten Reservierungssystem des ${resolvedClubName}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`,
+    impressum: isNeuhausen ? DEFAULT_SETTINGS.impressum : `Angaben gemäß § 5 TMG\n${resolvedClubName}\n\nKontakt\nE-Mail: info@system.local`
+  } as any;
+}
+
+export async function fetchClubSettings(vereinsId: string): Promise<ClubSettings> {
+  const normalizedId = getNormalizedVereinsId(vereinsId);
+  try {
+    const docSnap = await getDoc(doc(db, 'vereine', normalizedId));
+    if (docSnap.exists()) {
+      return parseClubSettingsData(normalizedId, docSnap.data());
+    }
+  } catch (err) {
+    console.warn("fetchClubSettings warning:", err);
+  }
+  return parseClubSettingsData(normalizedId);
+}
+
 export function listenToSettings(vereinsId: string, callback: (s: ClubSettings) => void) {
   const normalizedId = getNormalizedVereinsId(vereinsId);
   const path = `vereine/${normalizedId}`;
   return onSnapshot(
     doc(db, 'vereine', normalizedId),
     (docSnap) => {
-      const isNeuhausen = normalizedId.includes("neuhausen");
-      const isFurth = normalizedId.includes("furth");
-      const isSportsgeist = normalizedId.includes("sportsgeist");
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const defaultClubLoginLogo = isNeuhausen
-          ? "/images/wappen_svn_login.png"
-          : isFurth
-          ? "/images/wappen_djk_furth_login.png"
-          : isSportsgeist
-          ? "/images/wappen_tc_sportsgeist_login.png"
-          : DEFAULT_SETTINGS.logoUrl;
-
-        const resolvedLogo = data.customLogoUrl || data.logoUrl || defaultClubLoginLogo;
-        const resolvedHeaderLogo = data.customHeaderLogoUrl || data.headerLogoUrl || resolvedLogo || (isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : "");
-        const resolvedClubName = data.clubName || data.vereinsName || (isNeuhausen ? "SV Neuhausen" : isFurth ? "DJK Furth" : isSportsgeist ? "TC Sportsgeist" : DEFAULT_SETTINGS.clubName);
-
-        const defaultBannerImg = isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "";
-        const defaultLoginBannerImg = isNeuhausen ? (DEFAULT_SETTINGS.loginBannerUrl || DEFAULT_SETTINGS.bannerUrl) : "";
-
-        const useDefaultBanner = data.useDefaultBanner !== undefined
-          ? Boolean(data.useDefaultBanner)
-          : isNeuhausen
-          ? Boolean(!data.bannerUrl || data.bannerUrl === DEFAULT_SETTINGS.bannerUrl)
-          : Boolean(!data.customBannerUrl && !data.bannerUrl);
-
-        const useDefaultLoginBanner = data.useDefaultLoginBanner !== undefined
-          ? Boolean(data.useDefaultLoginBanner)
-          : isNeuhausen
-          ? Boolean(
-              !data.loginBannerUrl ||
-              data.loginBannerUrl === defaultLoginBannerImg ||
-              data.loginBannerUrl === DEFAULT_SETTINGS.bannerUrl
-            )
-          : Boolean(!data.customLoginBannerUrl && !data.loginBannerUrl);
-
-        const defaultBannerType = data.bannerType || (isNeuhausen ? "image" : "gradient");
-        const defaultBannerColor = data.bannerColor || data.primaryColor || (isFurth ? "#003366" : isSportsgeist ? "#1e3a8a" : "#1b4332");
-        const defaultBannerGradStart = data.bannerGradientStart || data.primaryColor || defaultBannerColor;
-        const defaultBannerGradEnd = data.bannerGradientEnd || data.accentColor || (isFurth ? "#1e40af" : isSportsgeist ? "#3b82f6" : "#2d6a4f");
-
-        const resolvedBanner = useDefaultBanner
-          ? defaultBannerImg
-          : (data.customBannerUrl || data.bannerUrl || defaultBannerImg);
-
-        const resolvedLoginBanner = useDefaultLoginBanner
-          ? defaultLoginBannerImg
-          : (data.customLoginBannerUrl || data.loginBannerUrl || defaultLoginBannerImg);
-
-        const resolvedLeague = data.modules?.league !== undefined
-          ? data.modules.league === true
-          : (data.enableLeague !== undefined
-          ? data.enableLeague === true
-          : (data.modules?.liga !== undefined
-          ? data.modules.liga === true
-          : DEFAULT_SETTINGS.modules.league === true));
-
-        const merged: ClubSettings = {
-          ...DEFAULT_SETTINGS,
-          ...data,
-          logoUrl: resolvedLogo,
-          headerLogoUrl: resolvedHeaderLogo,
-          clubName: resolvedClubName,
-          bannerType: defaultBannerType,
-          bannerColor: defaultBannerColor,
-          bannerGradientStart: defaultBannerGradStart,
-          bannerGradientEnd: defaultBannerGradEnd,
-          useDefaultBanner,
-          useDefaultLoginBanner,
-          bannerUrl: resolvedBanner,
-          loginBannerUrl: resolvedLoginBanner,
-          customBannerUrl: data.customBannerUrl || (data.bannerUrl && data.bannerUrl !== defaultBannerImg ? data.bannerUrl : "") || "",
-          customLoginBannerUrl: data.customLoginBannerUrl || (data.loginBannerUrl && data.loginBannerUrl !== defaultLoginBannerImg ? data.loginBannerUrl : "") || "",
-          enableLeague: resolvedLeague,
-          modules: {
-            ...DEFAULT_SETTINGS.modules,
-            ...(data.modules || {}),
-            league: resolvedLeague,
-          },
-          reservationRules: {
-            ...DEFAULT_SETTINGS.reservationRules,
-            ...(data.reservationRules || {})
-          },
-          club_onboarding_settings: {
-            ...DEFAULT_ONBOARDING_SETTINGS,
-            ...(data.club_onboarding_settings || {}),
-            field_birthdate: data.club_onboarding_settings?.field_birthdate || data.club_onboarding_settings?.field_demographics || DEFAULT_ONBOARDING_SETTINGS.field_birthdate,
-            field_gender: data.club_onboarding_settings?.field_gender || data.club_onboarding_settings?.field_demographics || DEFAULT_ONBOARDING_SETTINGS.field_gender
-          },
-          recurringLocks: data.recurringLocks || [],
-          rangeLocks: data.rangeLocks || [],
-          navigationOrder: (() => {
-            const raw = Array.isArray(data.navigationOrder) && data.navigationOrder.length > 0
-              ? data.navigationOrder
-              : (DEFAULT_SETTINGS.navigationOrder || []);
-            const res = [...raw];
-            for (const dId of (DEFAULT_SETTINGS.navigationOrder || [])) {
-              if (!res.includes(dId)) {
-                res.push(dId);
-              }
-            }
-            return res;
-          })(),
-        };
-        callback(merged);
-      } else {
-        const resolvedClubName = normalizedId === 'djk-furth' ? 'DJK Furth' : (isNeuhausen ? 'SV Neuhausen' : isSportsgeist ? 'TC Sportsgeist' : 'Tennis Club');
-        const defaultClubLoginLogo = isNeuhausen
-          ? "/images/wappen_svn_login.png"
-          : isFurth
-          ? "/images/wappen_djk_furth_login.png"
-          : isSportsgeist
-          ? "/images/wappen_tc_sportsgeist_login.png"
-          : DEFAULT_SETTINGS.logoUrl;
-
-        const defaultBannerType = isNeuhausen ? "image" : "gradient";
-        const defaultBannerColor = isFurth ? "#003366" : isSportsgeist ? "#1e3a8a" : "#1b4332";
-        const defaultBannerGradEnd = isFurth ? "#1e40af" : isSportsgeist ? "#3b82f6" : "#2d6a4f";
-
-        callback({
-          ...DEFAULT_SETTINGS,
-          clubName: resolvedClubName,
-          vereinsName: resolvedClubName,
-          vereinsId: normalizedId,
-          logoUrl: defaultClubLoginLogo,
-          headerLogoUrl: isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : defaultClubLoginLogo,
-          bannerType: defaultBannerType,
-          bannerColor: defaultBannerColor,
-          bannerGradientStart: defaultBannerColor,
-          bannerGradientEnd: defaultBannerGradEnd,
-          bannerUrl: isNeuhausen ? DEFAULT_SETTINGS.bannerUrl : "",
-          loginBannerUrl: isNeuhausen ? DEFAULT_SETTINGS.loginBannerUrl : "",
-          useDefaultBanner: isNeuhausen,
-          useDefaultLoginBanner: isNeuhausen,
-          courts: ["Platz 1", "Platz 2"],
-          aktiv: true,
-          websiteUrl: isNeuhausen ? "https://www.svneuhausen1947.de/tennis" : "",
-          hideWebsiteLink: !isNeuhausen,
-          welcomeMessage: `Herzlich willkommen im modernisierten Reservierungssystem des ${resolvedClubName}! Organisiere deine Matches jetzt noch einfacher und behalte alle Events und Ranglisten stets im Blick.`,
-          impressum: isNeuhausen ? DEFAULT_SETTINGS.impressum : `Angaben gemäß § 5 TMG\n${resolvedClubName}\n\nKontakt\nE-Mail: info@system.local`
-        } as any);
-      }
+      callback(parseClubSettingsData(normalizedId, docSnap.exists() ? docSnap.data() : undefined));
     },
     (error) => {
       handleFirestoreError(error, OperationType.GET, path, false);
-      const isNeuhausen = normalizedId.includes("neuhausen");
-      const isFurth = normalizedId.includes("furth");
-      const isSportsgeist = normalizedId.includes("sportsgeist");
-      const resolvedClubName = isFurth ? 'DJK Furth' : (isNeuhausen ? 'SV Neuhausen' : isSportsgeist ? 'TC Sportsgeist' : 'Tennis Club');
-      const defaultClubLoginLogo = isNeuhausen
-        ? "/images/wappen_svn_login.png"
-        : isFurth
-        ? "/images/wappen_djk_furth_login.png"
-        : isSportsgeist
-        ? "/images/wappen_tc_sportsgeist_login.png"
-        : DEFAULT_SETTINGS.logoUrl;
-
-      callback({
-        ...DEFAULT_SETTINGS,
-        clubName: resolvedClubName,
-        vereinsName: resolvedClubName,
-        vereinsId: normalizedId,
-        logoUrl: defaultClubLoginLogo,
-        headerLogoUrl: isNeuhausen ? DEFAULT_SETTINGS.headerLogoUrl : defaultClubLoginLogo,
-        courts: ["Platz 1", "Platz 2"],
-        aktiv: true
-      } as any);
+      callback(parseClubSettingsData(normalizedId));
     }
   );
 }

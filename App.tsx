@@ -62,6 +62,7 @@ import {
   listenToPublicBookings,
   listenToTournaments,
   listenToSettings,
+  fetchClubSettings,
   listenToRankings,
   listenToUsers,
   listenToSystemUpdates,
@@ -1857,10 +1858,49 @@ const App: React.FC = () => {
       passParam,
       currentVereinsId,
     );
+
+    const isSuper = isSuperAdmin(u) || u.role === Role.SUPER_ADMIN || (u as any).role === "super-admin" || u.vereinsId === "super-admin";
+
+    // Synchronize tenant and pre-fetch club settings & active modules BEFORE revealing authenticated state
+    let targetTenant = "";
+    if (u.vereinsId && !isSuper) {
+      const params = new URLSearchParams(window.location.search);
+      const currentParam = params.get("tenant");
+      const userClubIds = (u.clubs || []).map((c: any) => (c.vereinsId || c.id || '').toLowerCase().replace(/\s/g, ""));
+      targetTenant = (currentParam && userClubIds.includes(currentParam.toLowerCase().replace(/\s/g, "")))
+        ? currentParam.toLowerCase().replace(/\s/g, "")
+        : u.vereinsId.toLowerCase().replace(/\s/g, "");
+      
+      if (params.get("tenant") !== targetTenant) {
+        params.set("tenant", targetTenant);
+        window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
+      }
+      setSelectedTenantId(targetTenant);
+
+      try {
+        const [freshSettings, freshLandingPage] = await Promise.all([
+          fetchClubSettings(targetTenant),
+          getLandingPageConfig(targetTenant).catch(() => null),
+        ]);
+        if (freshSettings) {
+          setSettings(freshSettings);
+          setIsSettingsLoaded(true);
+          try {
+            localStorage.setItem(`v2_cached_settings_${targetTenant}`, JSON.stringify(freshSettings));
+            localStorage.setItem("v2_cached_settings", JSON.stringify(freshSettings));
+          } catch {}
+        }
+        if (freshLandingPage) {
+          setLandingPageConfig(freshLandingPage);
+        }
+      } catch (e) {
+        console.warn("Pre-fetch club settings during login error:", e);
+      }
+    }
+
     setCurrentUser(u);
     setError("");
     setIsStartPageLoginModalOpen(false);
-    const isSuper = isSuperAdmin(u) || u.role === Role.SUPER_ADMIN || (u as any).role === "super-admin" || u.vereinsId === "super-admin";
     if (isSuper) {
       const params = new URLSearchParams(window.location.search);
       params.delete("tenant");
@@ -1878,20 +1918,6 @@ const App: React.FC = () => {
         setShowOnboardingModal(true);
       } else {
         setShowOnboardingModal(false);
-      }
-      if (u.vereinsId && u.role !== Role.SUPER_ADMIN) {
-        // Synchronize tenant URL param with logged in user's club
-        const params = new URLSearchParams(window.location.search);
-        const currentParam = params.get("tenant");
-        const userClubIds = (u.clubs || []).map((c: any) => (c.vereinsId || c.id || '').toLowerCase().replace(/\s/g, ""));
-        const targetTenant = (currentParam && userClubIds.includes(currentParam.toLowerCase().replace(/\s/g, "")))
-          ? currentParam.toLowerCase().replace(/\s/g, "")
-          : u.vereinsId.toLowerCase().replace(/\s/g, "");
-        
-        if (params.get("tenant") !== targetTenant) {
-          params.set("tenant", targetTenant);
-          window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
-        }
       }
     }
 
@@ -3513,9 +3539,11 @@ const App: React.FC = () => {
 
   const desktopNav = (
     <motion.nav 
-      layout 
-      transition={{ layout: { duration: 0.3, ease: "easeInOut" } }} 
-      className="hidden lg:flex bg-white/10 p-0.5 rounded-full shadow-sm gap-0.5 backdrop-blur-sm border border-white/10 relative items-center h-8 transition-all duration-300 ease-in-out"
+      key={`desktopNav_${currentVereinsId}_${currentUser ? "auth" : "guest"}`}
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+      className="hidden lg:flex bg-white/10 p-0.5 rounded-full shadow-sm gap-0.5 backdrop-blur-sm border border-white/10 relative items-center h-8"
     >
       {desktopNavItems
         .filter((item) => item.show)
