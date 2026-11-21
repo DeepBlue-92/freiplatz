@@ -4462,6 +4462,7 @@ const App: React.FC = () => {
                           ? currentUser.name || currentUser.id
                           : "unbekannt";
                       }
+                      setSettings(settingsToSave);
                       saveSettings(currentVereinsId, settingsToSave);
                       setAdminSettingsDirty(false);
                     }}

@@ -2020,6 +2020,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             (bannerGradientStart || "") !== (settings.bannerGradientStart || settings.primaryColor || "#1b4332") ||
             (bannerGradientEnd || "") !== (settings.bannerGradientEnd || settings.accentColor || "#2d6a4f")
           )) ||
+          (clubName || "") !== (settings.clubName || "") ||
           (headerFontFamily || (isNeuhausenClub ? "sans" : "serif")) !==
             (settings.headerFontFamily || (isNeuhausenClub ? "sans" : "serif")) ||
           (primaryColor || "") !== (settings.primaryColor || "") ||
@@ -2247,6 +2248,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         bannerGradientEnd,
         logoUrl,
         headerLogoUrl,
+        clubName: (clubName || "").trim(),
         headerFontFamily,
         faviconUrl,
         bannerPosition,
@@ -7106,6 +7108,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 </div>
                               )}
                             </div>
+                          </div>
+                        </div>
+
+                        {/* Vereinsname */}
+                        <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3.5">
+                          <div>
+                            <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider block">
+                              Vereinsname
+                            </label>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Name des Vereins, wie er oben links in der Kopfleiste (Header) und im Browsertitel angezeigt wird.
+                            </p>
+                          </div>
+                          <div>
+                            <input
+                              type="text"
+                              value={clubName || ""}
+                              onChange={(e) => setClubName(e.target.value)}
+                              placeholder="z. B. SV Neuhausen e.V."
+                              className="w-full h-10 px-3.5 border border-slate-200 rounded-xl bg-white focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/10 text-sm text-slate-800 outline-none transition-all font-normal placeholder:text-slate-400"
+                            />
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              Wird direkt in der Live-Vorschau darunter und nach dem Speichern im Header verwendet.
+                            </p>
                           </div>
                         </div>
 
