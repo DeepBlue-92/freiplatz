@@ -566,9 +566,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                        title={showPassword ? t("common.hidePassword", "Passwort verbergen") : t("common.showPassword", "Passwort anzeigen")}
                       >
-                        <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"} text-xs`}></i>
+                        <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"} text-xs leading-none`}></i>
                       </button>
                     </div>
                   </div>
