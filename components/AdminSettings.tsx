@@ -3770,7 +3770,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const getEmbedWidgetURL = () => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const clubId = currentClubId;
-    return `${origin}/?embed=courts&tenant=${encodeURIComponent(clubId)}`;
+    const ws = settings.widgetSettings || {
+      defaultView: "day",
+      allowViewSwitch: true,
+      showHeader: false,
+    };
+    const params = new URLSearchParams();
+    params.set("embed", "courts");
+    params.set("tenant", clubId);
+    if (ws.defaultView === "week") {
+      params.set("view", "week");
+    }
+    if (ws.allowViewSwitch === false) {
+      params.set("allowSwitch", "false");
+    }
+    if (ws.showHeader === true) {
+      params.set("header", "true");
+    }
+    return `${origin}/?${params.toString()}`;
   };
 
   const getEmbedIframeCode = () => {
@@ -11000,6 +11017,122 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                       <span className="text-[11px] text-slate-500 font-normal">
                         Strikter Datenschutz: Nur freie/belegte Slots – keine Namen, E-Mails oder IDs
                       </span>
+                    </div>
+
+                    {/* WIDGET DESIGN & ANSICHT KONFIGURATION */}
+                    <div className="bg-slate-50/80 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3.5 text-left">
+                      <div className="flex items-center justify-between border-b border-slate-200/70 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <i className="fa-solid fa-sliders text-[var(--color-primary)] text-xs"></i>
+                          <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                            Widget-Einstellungen
+                          </h4>
+                        </div>
+                        <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
+                          Passt Link und iFrame-Code automatisch in Echtzeit an
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                        {/* Option 1: Standardansicht */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Standardansicht
+                          </label>
+                          <div className="flex gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || { allowViewSwitch: true, showHeader: false }),
+                                    defaultView: "day",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                (settings.widgetSettings?.defaultView || "day") === "day"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Tagesansicht
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || { allowViewSwitch: true, showHeader: false }),
+                                    defaultView: "week",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.defaultView === "week"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Wochenansicht
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Option 2: Umschalter erlauben */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Ansichtswechsel für Besucher
+                          </label>
+                          <label className="flex items-center gap-2.5 p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs h-10">
+                            <input
+                              type="checkbox"
+                              checked={settings.widgetSettings?.allowViewSwitch ?? true}
+                              onChange={(e) => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || { defaultView: "day", showHeader: false }),
+                                    allowViewSwitch: e.target.checked,
+                                  },
+                                });
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
+                            />
+                            <span className="text-xs font-semibold text-slate-800">
+                              Tag / Woche umschaltbar
+                            </span>
+                          </label>
+                        </div>
+
+                        {/* Option 3: Kopfzeile ausblenden */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Kopfzeile (Vereinsname &amp; Icon)
+                          </label>
+                          <label className="flex items-center gap-2.5 p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs h-10">
+                            <input
+                              type="checkbox"
+                              checked={!(settings.widgetSettings?.showHeader ?? false)}
+                              onChange={(e) => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || { defaultView: "day", allowViewSwitch: true }),
+                                    showHeader: !e.target.checked,
+                                  },
+                                });
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
+                            />
+                            <span className="text-xs font-semibold text-slate-800">
+                              Kopfzeile ausblenden
+                            </span>
+                          </label>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-left">

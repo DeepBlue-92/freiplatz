@@ -184,6 +184,11 @@ export interface ClubSettings {
   navigationOrder?: string[];
   unauthenticatedViewMode?: 'login' | 'anonymous_reservation';
   rankingViewMode?: "pyramid" | "list";
+  widgetSettings?: {
+    defaultView?: "day" | "week";
+    allowViewSwitch?: boolean;
+    showHeader?: boolean;
+  };
   leagueSettings?: {
     enabled: boolean;
     minMatchDurationMinutes: number;
@@ -354,6 +359,11 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
   ],
   unauthenticatedViewMode: 'login',
   rankingViewMode: "pyramid",
+  widgetSettings: {
+    defaultView: "day",
+    allowViewSwitch: true,
+    showHeader: false,
+  },
   leagueSettings: {
     enabled: false,
     minMatchDurationMinutes: 120,

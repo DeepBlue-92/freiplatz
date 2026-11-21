@@ -3821,6 +3821,9 @@ const App: React.FC = () => {
           courts={settings.courts || ["Platz 1", "Platz 2", "Platz 3"]}
           bookings={anonymizedBookings}
           currentUser={proxyUser || currentUser}
+          defaultView={settings.widgetSettings?.defaultView || "day"}
+          allowViewSwitch={settings.widgetSettings?.allowViewSwitch ?? true}
+          showHeader={settings.widgetSettings?.showHeader ?? false}
           onLogin={async (u, p) => {
             await performLogin(u, p);
           }}
