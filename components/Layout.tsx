@@ -434,13 +434,15 @@ const Layout: React.FC<LayoutProps> = ({
                       className={`text-sm sm:text-base md:text-[14pt] leading-none truncate max-w-[200px] sm:max-w-[240px] md:max-w-[280px] transition-all duration-300 ease-in-out ${
                         headerFontFamily === "sporty"
                           ? "font-black tracking-wider uppercase"
-                          : "font-bold tracking-tight"
+                          : headerFontFamily === "serif"
+                          ? "font-bold tracking-tight"
+                          : "font-normal tracking-tight"
                       }`}
                       style={{
                         fontFamily:
                           headerFontFamily === "serif"
                             ? "Georgia, Cambria, 'Times New Roman', Times, serif"
-                            : "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                            : "'Inter', sans-serif",
                       }}
                       title={clubName}
                     >

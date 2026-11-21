@@ -7138,11 +7138,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 )}
                               </div>
                               <p className="text-[10px] text-slate-500 mb-2">
-                                Clean, serifenlos (Inter) – wie auf der Vereinswebsite
+                                Inter Regular (400), tracking-tight – wie auf der Vereinswebsite
                               </p>
                               <div
-                                className="text-sm font-bold text-slate-900 truncate"
-                                style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
+                                className="text-sm font-normal tracking-tight text-slate-900 truncate"
+                                style={{ fontFamily: "'Inter', sans-serif" }}
                               >
                                 {clubName || "Vereinsname"}
                               </div>
@@ -7165,10 +7165,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 )}
                               </div>
                               <p className="text-[10px] text-slate-500 mb-2">
-                                Traditionelle Club-Schrift (Georgia / Times)
+                                Bisherige traditionelle Club-Schrift (Georgia / Times)
                               </p>
                               <div
-                                className="text-sm font-bold text-slate-900 truncate"
+                                className="text-sm font-bold tracking-tight text-slate-900 truncate"
                                 style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', serif" }}
                               >
                                 {clubName || "Vereinsname"}
@@ -7196,7 +7196,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               </p>
                               <div
                                 className="text-xs font-black tracking-wider uppercase text-slate-900 truncate"
-                                style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
+                                style={{ fontFamily: "'Inter', sans-serif" }}
                               >
                                 {clubName || "Vereinsname"}
                               </div>
