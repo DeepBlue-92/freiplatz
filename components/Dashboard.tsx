@@ -27,6 +27,7 @@ import { getTenantTranslation } from "../services/tenantTranslations";
 import { EquipmentSelector } from "./booking/EquipmentSelector";
 import { GuestCountStepper } from "./booking/GuestCountStepper";
 import { EquipmentResource } from "../types";
+import { Lock } from "lucide-react";
 
 const FIRST_NAMES_DB = [
   "marcandreterstegen",
@@ -3151,18 +3152,22 @@ const Dashboard: React.FC<DashboardProps> = ({
                    }
                 }}
               >
-                <div className="w-full h-full flex items-center justify-center transition-opacity opacity-0 group-hover/cell:opacity-100">
+                <div className="w-full h-full p-[2px] transition-opacity duration-150 opacity-0 group-hover/cell:opacity-100">
                    {!isGenuinelyClosed && (!isPassed || isAdmin) && (
                       !currentUser ? (
-                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-emerald-800 bg-emerald-100/90 shadow-2xs border border-emerald-300/80 pointer-events-none select-none">
-                            <i className="fa-solid fa-lock text-[8px]"></i>
-                            <span>Klick für Anmeldung</span>
-                         </span>
+                         <div className="w-full h-full rounded-md bg-emerald-50/95 border border-emerald-300 border-l-4 border-l-emerald-600 flex items-center justify-center gap-1.5 px-2 text-emerald-950 shadow-xs pointer-events-none select-none">
+                            <Lock className="w-3.5 h-3.5 text-emerald-700 shrink-0 stroke-[2.2]" />
+                            <span className="text-[11px] sm:text-xs font-bold tracking-tight leading-none text-emerald-950 truncate">
+                               Klick für Anmeldung
+                            </span>
+                         </div>
                       ) : (
-                         <i 
-                            className="fa-solid fa-plus text-xs" 
-                            style={{ color: settings?.primaryColor || "var(--color-primary)" }}
-                         ></i>
+                         <div className="w-full h-full flex items-center justify-center">
+                            <i 
+                               className="fa-solid fa-plus text-xs" 
+                               style={{ color: settings?.primaryColor || "var(--color-primary)" }}
+                            ></i>
+                         </div>
                       )
                    )}
                 </div>
