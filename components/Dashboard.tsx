@@ -2486,18 +2486,37 @@ const Dashboard: React.FC<DashboardProps> = ({
     setIsFullDay(detectedFullDay);
   };
 
-  // Auto-open booking modal when navigated from landing page with a prefilled slot
+  // Auto-open booking modal when navigated from landing page or deep link with a prefilled slot
   useEffect(() => {
     if (initialBookingSlot) {
       const { date, time, court } = initialBookingSlot;
       setSelectedDate(date);
-      const existing = bookings.find(
-        (b) => b.court === court && b.date === date && b.time === time
-      );
-      handleSlotClick(date, time, court, existing);
-      onClearInitialBookingSlot?.();
+      const timer = setTimeout(() => {
+        const existing = bookings.find(
+          (b) => b.court === court && b.date === date && b.time === time
+        );
+        handleSlotClick(date, time, court, existing);
+        onClearInitialBookingSlot?.();
+      }, 60);
+      return () => clearTimeout(timer);
     }
   }, [initialBookingSlot]);
+
+  // When a user logs in (e.g. via inline modal or header bar) while a pending slot exists,
+  // automatically open the booking modal/slider for that slot
+  useEffect(() => {
+    if (currentUser && pendingBookingSlot) {
+      const pending = pendingBookingSlot;
+      setPendingBookingSlot(null);
+      const timer = setTimeout(() => {
+        const existing = bookings.find(
+          (b) => b.court === pending.court && b.date === pending.date && b.time === pending.time
+        );
+        handleSlotClick(pending.date, pending.time, pending.court, existing);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [currentUser]);
 
   const confirmAction = async () => {
     if (!selectedSlot) return;

@@ -338,13 +338,16 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
   const handleSlotClick = (court: string, time: string, dateStr: string = activeDateStr) => {
     if (isSlotPassed(dateStr, time)) return;
 
-    if (currentUser) {
-      if (onSelectSlot) {
-        onSelectSlot(court, time, dateStr);
-      } else if (onNavigateToFullApp) {
-        onNavigateToFullApp(court, time, dateStr);
-      }
-    } else {
+    if (onSelectSlot) {
+      onSelectSlot(court, time, dateStr);
+      return;
+    }
+    if (onNavigateToFullApp) {
+      onNavigateToFullApp(court, time, dateStr);
+      return;
+    }
+
+    if (!currentUser) {
       // Store pending slot and open login modal
       setPendingSlot({ court, time, date: dateStr });
       setLoginError(null);

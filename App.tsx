@@ -544,6 +544,14 @@ const App: React.FC = () => {
       return resolvedFromSlug as any;
     }
 
+    // Direct slot deep link from widget/external link: Always go straight to reservation view!
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("court") || (params.get("time") && params.get("date"))) {
+        return "reservation";
+      }
+    } catch {}
+
     // Zero-Flicker: If user is already logged in and no specific view was requested,
     // directly display the reservation view (day view on mobile, week view on desktop)
     try {
@@ -909,7 +917,35 @@ const App: React.FC = () => {
     }
   }, [currentUser?.id, currentUser?.name, currentUser?.onboarding_pending, (currentUser as any)?.onboardingPending, proxyUser]);
 
-  const [initialBookingSlot, setInitialBookingSlot] = useState<{ date: string; time: string; court: string } | null>(null);
+  const [initialBookingSlot, setInitialBookingSlot] = useState<{ date: string; time: string; court: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const court = params.get("court");
+      const time = params.get("time");
+      const date = params.get("date");
+      if (court && time && date) {
+        return { court, time, date };
+      }
+    } catch {}
+    return null;
+  });
+
+  // Clean slot deep link parameters from URL after capturing them
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("court") || params.has("time") || params.has("date")) {
+          params.delete("court");
+          params.delete("time");
+          params.delete("date");
+          const newSearch = params.toString() ? `?${params.toString()}` : "";
+          window.history.replaceState({}, "", `${window.location.pathname}${newSearch}${window.location.hash}`);
+        }
+      } catch {}
+    }
+  }, []);
 
   const [allClubs, setAllClubs] = useState<any[]>([]);
   const [userClubs, setUserClubs] = useState<UserClub[]>([]);
@@ -4291,12 +4327,9 @@ const App: React.FC = () => {
                       handleSetView("reservation");
                     }}
                     onSelectSlot={(court, time, date) => {
-                      if (!currentUser && !proxyUser) {
-                        setIsStartPageLoginModalOpen(true);
-                        return;
-                      }
                       setInitialBookingSlot({ court, time, date });
                       setMobileSelectedDate(date);
+                      handleSetView("reservation");
                     }}
                     onNavigateToEvents={() => handleSetView("tournaments")}
                     onNavigateToChampionship={() => handleSetView("championship")}
