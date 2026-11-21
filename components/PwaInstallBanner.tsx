@@ -80,10 +80,13 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
   const handleInstallClick = async () => {
     if (deferredPrompt) {
       try {
-        deferredPrompt.prompt();
+        await deferredPrompt.prompt();
         const choiceResult = await deferredPrompt.userChoice;
-        if (choiceResult.outcome === "accepted") {
+        if (choiceResult?.outcome === "accepted") {
           setIsVisible(false);
+        } else {
+          // Falls vom Browser (z.B. Brave) ignoriert oder unterdrückt
+          setShowAndroidModal(true);
         }
         setDeferredPrompt(null);
       } catch (err) {
@@ -108,7 +111,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
         <aside
           role="region"
           aria-label="App Installation"
-          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-4 text-slate-800 dark:text-slate-100 transition-all duration-300 animate-in fade-in slide-in-from-bottom-5"
+          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-[100] bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-4 text-slate-800 dark:text-slate-100 transition-all duration-300 animate-in fade-in slide-in-from-bottom-5"
         >
           <button
             onClick={handleDismiss}
@@ -163,7 +166,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+          className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
           onClick={() => setShowAndroidModal(false)}
         >
           <div
@@ -246,7 +249,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+          className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
           onClick={() => setShowIosModal(false)}
         >
           <div
