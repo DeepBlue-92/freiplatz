@@ -323,7 +323,7 @@ const Layout: React.FC<LayoutProps> = ({
           className="w-full h-14 relative shadow-md shrink-0 z-[60] text-white flex items-center"
           style={{ backgroundColor: primaryColor }}
         >
-          <div className="max-w-[1600px] w-full mx-auto px-3 sm:px-4 flex items-center justify-between gap-3">
+          <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {logoUrl && (
                 <img
@@ -406,7 +406,7 @@ const Layout: React.FC<LayoutProps> = ({
         </div>
 
         <div className="absolute inset-0 flex items-center z-20 pointer-events-none">
-          <div className="max-w-[1600px] w-full mx-auto px-3 sm:px-4 flex items-center justify-between gap-4 transition-all duration-300 ease-in-out pointer-events-auto">
+          <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-4 flex items-center justify-between gap-4 transition-all duration-300 ease-in-out pointer-events-auto">
             <div className="flex items-center gap-4 min-w-0 shrink transition-all duration-300 ease-in-out">
               <motion.div
                 ref={topLeftDropdownRef}
