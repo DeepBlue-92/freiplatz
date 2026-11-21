@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { User, Booking } from "../types";
+import { User, Booking, RangeLock, RegularLock } from "../types";
 import {
   Calendar,
   Lock,
@@ -18,8 +18,10 @@ interface EmbeddedCourtWidgetProps {
   primaryColor?: string;
   courts?: string[];
   bookings?: Booking[];
+  rangeLocks?: RangeLock[];
+  recurringLocks?: RegularLock[];
   currentUser?: User | null;
-  defaultView?: "day" | "week";
+  defaultView?: "day" | "three_days" | "week";
   allowViewSwitch?: boolean;
   showHeader?: boolean;
   courtDisplay?: "all" | "single";
@@ -38,6 +40,8 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
   primaryColor = "#047857",
   courts = ["Platz 1", "Platz 2", "Platz 3"],
   bookings = [],
+  rangeLocks = [],
+  recurringLocks = [],
   currentUser = null,
   defaultView = "day",
   allowViewSwitch = true,
@@ -69,7 +73,15 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
     const sp = new URLSearchParams(window.location.search);
     return {
       theme: sp.get("theme") || "auto",
-      view: (sp.get("view") === "week" ? "week" : sp.get("view") === "day" ? "day" : null) as "day" | "week" | null,
+      view: (
+        sp.get("view") === "3days" || sp.get("view") === "three_days"
+          ? "three_days"
+          : sp.get("view") === "week"
+          ? "week"
+          : sp.get("view") === "day"
+          ? "day"
+          : null
+      ) as "day" | "three_days" | "week" | null,
       allowSwitch: sp.get("allowSwitch") !== null ? sp.get("allowSwitch") === "true" : null,
       header: sp.get("header") !== null ? sp.get("header") === "true" : null,
       courts: (sp.get("courts") === "single" ? "single" : sp.get("courts") === "all" ? "all" : null) as "all" | "single" | null,
@@ -82,7 +94,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
   const effectiveShowHeader = urlParams.header !== null ? urlParams.header : showHeader;
   const effectiveAllowSwitch = urlParams.allowSwitch !== null ? urlParams.allowSwitch : allowViewSwitch;
-  const initialView = urlParams.view || defaultView || "day";
+  const initialView: "day" | "three_days" | "week" = urlParams.view || defaultView || "day";
   const effectiveCourtDisplay = urlParams.courts || courtDisplay || "all";
   const effectiveWidth = urlParams.width || widgetWidth || "wide";
   const effectiveHeight = urlParams.height || widgetHeight || "medium";
@@ -141,14 +153,17 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
       ? "max-w-5xl mx-auto"
       : "w-full max-w-full";
 
-  // Current active view mode: day or week
-  const [viewMode, setViewMode] = useState<"day" | "week">(initialView);
+  // Current active view mode: day, three_days, or week
+  const [viewMode, setViewMode] = useState<"day" | "three_days" | "week">(initialView);
 
   // Day selection (0 = Heute, 1 = Morgen, etc.)
   const [dayOffset, setDayOffset] = useState<number>(() => {
     const now = new Date();
     return now.getHours() >= 22 ? 1 : 0;
   });
+
+  // 3-Day selection offset (0 = Heute..Übermorgen, 1 = Morgen..+3, etc.)
+  const [threeDayOffset, setThreeDayOffset] = useState<number>(0);
 
   // Week selection (0 = Diese Woche, 1 = Nächste Woche, etc.)
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -253,6 +268,61 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
     };
   }, [weekOffset]);
 
+  // 3-Day view date computations (Heute, Morgen, Übermorgen + Navigation)
+  const { threeDays, threeDayRangeLabel, isCurrentThreeDays } = useMemo(() => {
+    const now = new Date();
+    const base = new Date(now);
+    base.setDate(now.getDate() + threeDayOffset);
+    base.setHours(0, 0, 0, 0);
+
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    const days = [];
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+      let relativeLabel = "";
+      if (dateStr === todayStr) {
+        relativeLabel = "Heute";
+      } else {
+        const tomorrow = new Date(now);
+        tomorrow.setDate(now.getDate() + 1);
+        const tomStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`;
+        if (dateStr === tomStr) {
+          relativeLabel = "Morgen";
+        } else {
+          const overmorrow = new Date(now);
+          overmorrow.setDate(now.getDate() + 2);
+          const overStr = `${overmorrow.getFullYear()}-${pad(overmorrow.getMonth() + 1)}-${pad(overmorrow.getDate())}`;
+          if (dateStr === overStr) {
+            relativeLabel = "Übermorgen";
+          }
+        }
+      }
+
+      days.push({
+        dateStr,
+        dayName: d.toLocaleDateString("de-DE", { weekday: "short" }),
+        dateBadge: d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }),
+        relativeLabel,
+        isToday: dateStr === todayStr,
+      });
+    }
+
+    const last = new Date(base);
+    last.setDate(base.getDate() + 2);
+    const range = `${base.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })} – ${last.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`;
+
+    return {
+      threeDays: days,
+      threeDayRangeLabel: range,
+      isCurrentThreeDays: threeDayOffset === 0,
+    };
+  }, [threeDayOffset]);
+
   // 14 hourly slots (08:00 - 22:00)
   const hourlySlots = useMemo(() => {
     const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
@@ -288,18 +358,60 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
   };
 
   const getSlotStatus = (court: string, slotHour: number, dateStr: string) => {
+    const slotTime = `${String(slotHour).padStart(2, "0")}:00`;
+
+    // 1. Check Range Locks in settings (e.g. Winterpause, Platzsanierung)
+    if (rangeLocks && rangeLocks.length > 0) {
+      for (const l of rangeLocks) {
+        if (!l.courts || !l.courts.includes(court)) continue;
+        if (dateStr < l.startDate || dateStr > l.endDate) continue;
+
+        const sTime = l.startTime || "00:00";
+        const eTime = l.endTime || "24:00";
+
+        if (dateStr === l.startDate && slotTime < sTime) continue;
+        if (dateStr === l.endDate && slotTime >= eTime) continue;
+
+        return {
+          type: "locked" as const,
+          label: l.title || (l.isEvent ? "Serientermin" : "Winterpause"),
+        };
+      }
+    }
+
+    // 2. Check Recurring Locks in settings (e.g. Freitagsdoppel, Training)
+    if (recurringLocks && recurringLocks.length > 0) {
+      const d = new Date(dateStr);
+      const day = d.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      for (const l of recurringLocks) {
+        if (day !== l.dayOfWeek) continue;
+        if (!l.courts || !l.courts.includes(court)) continue;
+        if (slotTime < l.startTime || slotTime >= l.endTime) continue;
+        if (!l.isOngoing) {
+          if (l.startDate && dateStr < l.startDate) continue;
+          if (l.endDate && dateStr > l.endDate) continue;
+        }
+
+        return {
+          type: "locked" as const,
+          label: l.title || (l.isEvent ? "Vereinstraining" : "Gesperrt"),
+        };
+      }
+    }
+
+    // 3. Check regular bookings & manual locks from Firestore
     const match = bookings.find((b) => {
       if (b.court !== court || b.date !== dateStr) return false;
       const bHour = parseInt(b.time.split(":")[0], 10);
-      const duration = (b as any).durationHours || 1;
+      const duration = (b as any).durationHours || (b as any).hours || 1;
       return slotHour >= bHour && slotHour < bHour + duration;
     });
 
     if (match) {
-      if (match.is_locked || match.locked || match.blockReason) {
+      if (match.isLocked || (match as any).is_locked || (match as any).locked || match.isEvent) {
         return {
           type: "locked" as const,
-          label: match.blockReason || "Gesperrt",
+          label: match.reason || (match as any).blockReason || "Gesperrt",
         };
       }
       return {
@@ -505,6 +617,43 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
                 {formattedDateBadge}
               </span>
             </div>
+          ) : viewMode === "three_days" ? (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setThreeDayOffset((prev) => Math.max(0, prev - 1))}
+                disabled={threeDayOffset <= 0}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                title="Vorherige 3 Tage"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setThreeDayOffset(0)}
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                  isCurrentThreeDays
+                    ? "bg-[var(--color-primary)] text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                Heute
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setThreeDayOffset((prev) => prev + 1)}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                title="Nächste 3 Tage"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              <span className="text-xs font-extrabold text-slate-700 pl-2 pr-1.5 border-l border-slate-200 whitespace-nowrap">
+                {threeDayRangeLabel}
+              </span>
+            </div>
           ) : (
             <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
               <button
@@ -563,7 +712,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             </div>
           </div>
 
-          {/* Optional View Switcher (Day vs. Week) */}
+          {/* Optional View Switcher (Day vs. 3-Day vs. Week) */}
           {effectiveAllowSwitch && (
             <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs ml-auto">
               <button
@@ -576,6 +725,17 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
                 }`}
               >
                 Tag
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("three_days")}
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                  viewMode === "three_days"
+                    ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                3 Tage
               </button>
               <button
                 type="button"
@@ -677,6 +837,22 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
                     {displayedCourts.map((court) => {
                       const status = getSlotStatus(court, slot.hour, activeDateStr);
 
+                      if (status.type === "locked") {
+                        return (
+                          <td
+                            key={court}
+                            className={`border-l border-b border-slate-200 p-0 text-center align-middle relative select-none ${
+                              isPassed ? "bg-rose-50/50 opacity-80" : "bg-rose-50/80"
+                            }`}
+                          >
+                            <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1 p-1 text-[11px] font-bold text-rose-700 border-l-4 border-l-rose-500 truncate`}>
+                              <Lock className="w-3 h-3 text-rose-500 shrink-0" />
+                              <span className="truncate">{status.label || "Gesperrt"}</span>
+                            </div>
+                          </td>
+                        );
+                      }
+
                       if (isPassed) {
                         return (
                           <td
@@ -685,20 +861,6 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
                           >
                             <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1 text-[10px] font-bold text-slate-400 cursor-default select-none`}>
                               <span>{status.type === "free" ? "Vorbei" : "Belegt"}</span>
-                            </div>
-                          </td>
-                        );
-                      }
-
-                      if (status.type === "locked") {
-                        return (
-                          <td
-                            key={court}
-                            className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-rose-50/80"
-                          >
-                            <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1 p-1 text-[11px] font-bold text-rose-700 border-l-4 border-l-rose-500 truncate`}>
-                              <Lock className="w-3 h-3 text-rose-500 shrink-0" />
-                              <span className="truncate">{status.label || "Gesperrt"}</span>
                             </div>
                           </td>
                         );
@@ -743,120 +905,134 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             </tbody>
           </table>
         ) : (
-          /* --- WEEK VIEW (All courts stacked OR single court with tabs) --- */
-          <div className="divide-y-4 divide-slate-200">
-            {(effectiveCourtDisplay === "all" ? courts : [selectedWeekCourt]).map((courtItem) => (
-              <div key={courtItem} className="w-full">
-                {effectiveCourtDisplay === "all" && courts.length > 1 && (
-                  <div className="sticky left-0 z-20 px-3.5 py-2 bg-slate-100/95 backdrop-blur-xs font-black text-xs uppercase tracking-wider text-slate-800 flex items-center gap-2 border-b border-slate-200">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: effectiveColor }} />
-                    <span>{courtItem}</span>
-                  </div>
-                )}
-                <table className="w-full border-collapse table-fixed text-left min-w-full">
-                  <thead>
-                    <tr className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 shadow-2xs">
-                      <th className="sticky left-0 top-0 z-35 bg-slate-100/95 backdrop-blur-xs p-1.5 sm:p-2 text-center text-xs font-black uppercase text-slate-500 tracking-wider w-20 sm:w-24 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                        Von - Bis
-                      </th>
-                      {weekDays.map((d) => (
-                        <th
-                          key={d.dateStr}
-                          className={`p-1.5 sm:p-2 text-center text-xs font-black uppercase tracking-wider border-l border-b border-slate-200 truncate ${
-                            d.isToday ? "bg-emerald-50/80 text-[var(--color-primary)]" : "text-slate-800"
-                          }`}
-                        >
-                          <div className="text-xs font-black">{d.dayName}</div>
-                          <div className="text-[10px] font-semibold text-slate-500">{d.dateBadge}</div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {hourlySlots.map((slot) => {
-                      return (
-                        <tr key={slot.start} className="border-b border-slate-200 last:border-b-0">
-                          {/* Time Column (clean table cell, no boxes) */}
-                          <td className="sticky left-0 z-10 p-1 text-center align-middle font-bold text-xs text-slate-700 bg-slate-50/80 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                            <div className="flex items-center justify-center">
-                              <span className="whitespace-nowrap">
-                                {parseInt(slot.start.split(":")[0], 10)} - {parseInt(slot.end.split(":")[0], 10)}
-                              </span>
-                            </div>
-                          </td>
-
-                          {weekDays.map((d) => {
-                            const isPassed = isSlotPassed(d.dateStr, slot.start);
-                            const status = getSlotStatus(courtItem, slot.hour, d.dateStr);
-
-                            if (isPassed) {
-                              return (
-                                <td
-                                  key={d.dateStr}
-                                  className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-50/70"
-                                >
-                                  <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1 text-[10px] font-bold text-slate-400 cursor-default select-none`}>
-                                    <span>{status.type === "free" ? "Vorbei" : "Belegt"}</span>
-                                  </div>
-                                </td>
-                              );
-                            }
-
-                            if (status.type === "locked") {
-                              return (
-                                <td
-                                  key={d.dateStr}
-                                  className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-rose-50/80"
-                                >
-                                  <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1 p-1 text-[11px] font-bold text-rose-700 border-l-4 border-l-rose-500 truncate`}>
-                                    <Lock className="w-3 h-3 text-rose-500 shrink-0" />
-                                    <span className="truncate">{status.label || "Gesperrt"}</span>
-                                  </div>
-                                </td>
-                              );
-                            }
-
-                            if (status.type === "booked") {
-                              return (
-                                <td
-                                  key={d.dateStr}
-                                  className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-100/90"
-                                >
-                                  <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1.5 p-1 text-[11px] font-bold text-slate-600 border-l-4 border-l-slate-400`}>
-                                    <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                                    <span className="font-bold">Gebucht</span>
-                                  </div>
-                                </td>
-                              );
-                            }
-
-                            return (
-                              <td
-                                key={d.dateStr}
-                                onClick={() => handleSlotClick(courtItem, slot.start, d.dateStr)}
-                                className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-white hover:bg-emerald-50/70 hover:border-l-4 hover:border-l-[var(--color-primary)] transition-all cursor-pointer group"
-                                title={`Frei • Klicken um ${courtItem} am ${d.dayName}, ${d.dateBadge} um ${slot.start} Uhr zu buchen`}
-                              >
-                                <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1`}>
-                                  <div
-                                    className="hidden group-hover:flex items-center gap-1 text-[11px] font-black uppercase tracking-wider animate-in fade-in zoom-in-95 duration-100"
-                                    style={{ color: effectiveColor }}
-                                  >
-                                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                                    <span>Buchen</span>
-                                  </div>
+          /* --- MULTI-DAY VIEW: 3-DAY OR WEEK VIEW (All courts stacked OR single court with tabs) --- */
+          (() => {
+            const daysToRender = viewMode === "three_days" ? threeDays : weekDays;
+            return (
+              <div className="divide-y-4 divide-slate-200">
+                {(effectiveCourtDisplay === "all" ? courts : [selectedWeekCourt]).map((courtItem) => (
+                  <div key={courtItem} className="w-full">
+                    {effectiveCourtDisplay === "all" && courts.length > 1 && (
+                      <div className="sticky left-0 z-20 px-3.5 py-2 bg-slate-100/95 backdrop-blur-xs font-black text-xs uppercase tracking-wider text-slate-800 flex items-center gap-2 border-b border-slate-200">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: effectiveColor }} />
+                        <span>{courtItem}</span>
+                      </div>
+                    )}
+                    <table className="w-full border-collapse table-fixed text-left min-w-full">
+                      <thead>
+                        <tr className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 shadow-2xs">
+                          <th className="sticky left-0 top-0 z-35 bg-slate-100/95 backdrop-blur-xs p-1.5 sm:p-2 text-center text-xs font-black uppercase text-slate-500 tracking-wider w-20 sm:w-24 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                            Von - Bis
+                          </th>
+                          {daysToRender.map((d) => (
+                            <th
+                              key={d.dateStr}
+                              className={`p-1.5 sm:p-2 text-center text-xs font-black uppercase tracking-wider border-l border-b border-slate-200 truncate ${
+                                d.isToday ? "bg-emerald-50/80 text-[var(--color-primary)]" : "text-slate-800"
+                              }`}
+                            >
+                              <div className="text-xs font-black">{d.dayName}</div>
+                              <div className="text-[10px] font-semibold text-slate-500 flex items-center justify-center gap-1">
+                                {(d as any).relativeLabel ? (
+                                  <span className="text-[9px] font-black uppercase px-1 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                                    {(d as any).relativeLabel}
+                                  </span>
+                                ) : null}
+                                <span>{d.dateBadge}</span>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hourlySlots.map((slot) => {
+                          return (
+                            <tr key={slot.start} className="border-b border-slate-200 last:border-b-0">
+                              {/* Time Column (clean table cell, no boxes) */}
+                              <td className="sticky left-0 z-10 p-1 text-center align-middle font-bold text-xs text-slate-700 bg-slate-50/80 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                                <div className="flex items-center justify-center">
+                                  <span className="whitespace-nowrap">
+                                    {parseInt(slot.start.split(":")[0], 10)} - {parseInt(slot.end.split(":")[0], 10)}
+                                  </span>
                                 </div>
                               </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+
+                              {daysToRender.map((d) => {
+                                const isPassed = isSlotPassed(d.dateStr, slot.start);
+                                const status = getSlotStatus(courtItem, slot.hour, d.dateStr);
+
+                                if (status.type === "locked") {
+                                  return (
+                                    <td
+                                      key={d.dateStr}
+                                      className={`border-l border-b border-slate-200 p-0 text-center align-middle relative select-none ${
+                                        isPassed ? "bg-rose-50/50 opacity-80" : "bg-rose-50/80"
+                                      }`}
+                                    >
+                                      <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1 p-1 text-[11px] font-bold text-rose-700 border-l-4 border-l-rose-500 truncate`}>
+                                        <Lock className="w-3 h-3 text-rose-500 shrink-0" />
+                                        <span className="truncate">{status.label || "Gesperrt"}</span>
+                                      </div>
+                                    </td>
+                                  );
+                                }
+
+                                if (isPassed) {
+                                  return (
+                                    <td
+                                      key={d.dateStr}
+                                      className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-50/70"
+                                    >
+                                      <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1 text-[10px] font-bold text-slate-400 cursor-default select-none`}>
+                                        <span>{status.type === "free" ? "Vorbei" : "Belegt"}</span>
+                                      </div>
+                                    </td>
+                                  );
+                                }
+
+                                if (status.type === "booked") {
+                                  return (
+                                    <td
+                                      key={d.dateStr}
+                                      className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-100/90"
+                                    >
+                                      <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1.5 p-1 text-[11px] font-bold text-slate-600 border-l-4 border-l-slate-400`}>
+                                        <UserCheck className="w-3.5 h-3.5 text-slate-400" />
+                                        <span className="font-bold">Gebucht</span>
+                                      </div>
+                                    </td>
+                                  );
+                                }
+
+                                return (
+                                  <td
+                                    key={d.dateStr}
+                                    onClick={() => handleSlotClick(courtItem, slot.start, d.dateStr)}
+                                    className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-white hover:bg-emerald-50/70 hover:border-l-4 hover:border-l-[var(--color-primary)] transition-all cursor-pointer group"
+                                    title={`Frei • Klicken um ${courtItem} am ${d.dayName}, ${d.dateBadge} um ${slot.start} Uhr zu buchen`}
+                                  >
+                                    <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1`}>
+                                      <div
+                                        className="hidden group-hover:flex items-center gap-1 text-[11px] font-black uppercase tracking-wider animate-in fade-in zoom-in-95 duration-100"
+                                        style={{ color: effectiveColor }}
+                                      >
+                                        <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                                        <span>Buchen</span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            );
+          })()
         )}
       </div>
 

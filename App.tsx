@@ -1421,11 +1421,11 @@ const App: React.FC = () => {
     if (!currentUser) {
       return bookings.map((b) => ({
         ...b,
-        title: "Belegt",
+        title: b.isLocked ? (b.reason || "Gesperrt") : "Belegt",
         players: Array.isArray(b.players) ? b.players.map(() => "Belegt") : ["Belegt"],
         comment: "",
-        reason: "Belegt",
-        type: "booking",
+        reason: b.isLocked ? (b.reason || "Gesperrt") : "Belegt",
+        type: b.isLocked ? "locked" : "booking",
       }));
     }
 
@@ -1434,11 +1434,11 @@ const App: React.FC = () => {
     
     return bookings.map(b => ({
       ...b,
-      title: "Belegt",
+      title: b.isLocked ? (b.reason || "Gesperrt") : "Belegt",
       players: Array.isArray(b.players) ? b.players.map(() => "Belegt") : ["Belegt"],
       comment: "",
-      reason: "Belegt",
-      type: "booking"
+      reason: b.isLocked ? (b.reason || "Gesperrt") : "Belegt",
+      type: b.isLocked ? "locked" : "booking"
     }));
   }, [bookings, isPublicWochenplanRoute, settings?.publicCalendar?.showNames, currentUser]);
 
@@ -1720,7 +1720,7 @@ const App: React.FC = () => {
         unsubs.push(listenToTournaments(currentVereinsId, setTournaments));
         unsubs.push(listenToRankings(currentVereinsId, (r) => setRankings(r)));
         unsubs.push(listenToUsers(currentVereinsId, setUsers));
-      } else if (!currentUser && settings?.unauthenticatedViewMode === "anonymous_reservation") {
+      } else if (isEmbeddedMode || (!currentUser && settings?.unauthenticatedViewMode === "anonymous_reservation")) {
         unsubs.push(listenToBookings(currentVereinsId, setBookings));
       }
 
@@ -1781,7 +1781,7 @@ const App: React.FC = () => {
       clearTimeout(safetyTimeout);
       unsubs.forEach((u) => u());
     };
-  }, [currentUser, currentVereinsId, isPublicWochenplanRoute, isAuthReady, isSettingsLoaded, settings?.publicCalendar?.showNames, settings?.unauthenticatedViewMode]);
+  }, [currentUser, currentVereinsId, isPublicWochenplanRoute, isEmbeddedMode, isAuthReady, isSettingsLoaded, settings?.publicCalendar?.showNames, settings?.unauthenticatedViewMode]);
 
   // Synchronize favicon and title when switching between SuperAdmin dashboard and proxy mode / normal view
   useEffect(() => {
@@ -3857,6 +3857,8 @@ const App: React.FC = () => {
           primaryColor={settings.primaryColor}
           courts={settings.courts || ["Platz 1", "Platz 2", "Platz 3"]}
           bookings={anonymizedBookings}
+          rangeLocks={settings.rangeLocks}
+          recurringLocks={settings.recurringLocks}
           currentUser={proxyUser || currentUser}
           defaultView={settings.widgetSettings?.defaultView || "day"}
           allowViewSwitch={settings.widgetSettings?.allowViewSwitch ?? true}

@@ -3785,6 +3785,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     params.set("tenant", clubId);
     if (ws.defaultView === "week") {
       params.set("view", "week");
+    } else if (ws.defaultView === "three_days") {
+      params.set("view", "3days");
     }
     if (ws.allowViewSwitch === false) {
       params.set("allowSwitch", "false");
@@ -11094,7 +11096,26 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   : "text-slate-600 hover:text-slate-900"
                               }`}
                             >
-                              Tagesansicht
+                              1 Tag
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    defaultView: "three_days",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.defaultView === "three_days"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              3 Tage
                             </button>
                             <button
                               type="button"
@@ -11113,7 +11134,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                   : "text-slate-600 hover:text-slate-900"
                               }`}
                             >
-                              Wochenansicht
+                              7 Tage
                             </button>
                           </div>
                         </div>

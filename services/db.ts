@@ -185,7 +185,7 @@ export interface ClubSettings {
   unauthenticatedViewMode?: 'login' | 'anonymous_reservation';
   rankingViewMode?: "pyramid" | "list";
   widgetSettings?: {
-    defaultView?: "day" | "week";
+    defaultView?: "day" | "three_days" | "week";
     allowViewSwitch?: boolean;
     showHeader?: boolean;
     courtDisplay?: "all" | "single";
