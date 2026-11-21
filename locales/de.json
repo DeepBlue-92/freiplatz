@@ -633,6 +633,15 @@
         "desc": "Ermöglicht Erfassung und Übersicht von geleisteten Arbeitsstunden."
       }
     },
+    "visibility": {
+      "title": "Sichtbarkeit",
+      "subtitle": "Erscheinungsbild für nicht angemeldete Besucher der Web-App.",
+      "prompt": "Bei nicht angemeldeten Besuchern...",
+      "showLogin": "Zeige Anmeldedialog",
+      "showLoginDesc": "Besucher sehen direkt den Begrüßungs- und Anmeldedialog.",
+      "showAnonymousReservation": "Zeige Platzbuchung (anonymisiert)",
+      "showAnonymousReservationDesc": "Besucher sehen direkt den Belegungsplan ohne Spielernamen. Beim Buchen eines Platzes oder Wechseln von Modulen wird zur Anmeldung aufgefordert."
+    },
     "generalSettings": {
       "title": "Allgemeine Einstellungen",
       "subtitle": "Grundlegende Stammdaten und Standortinformationen des Vereins.",

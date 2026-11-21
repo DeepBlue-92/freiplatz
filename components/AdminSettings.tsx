@@ -1208,6 +1208,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [street, setStreet] = useState(settings.street || "");
   const [zip, setZip] = useState(settings.zip || "");
   const [city, setCity] = useState(settings.city || "");
+  const [unauthenticatedViewMode, setUnauthenticatedViewMode] = useState<"login" | "anonymous_reservation">(
+    settings.unauthenticatedViewMode || "login"
+  );
   const [defaultLanguage, setDefaultLanguage] = useState<"de" | "en">(
     settings.i18n?.defaultLanguage || "de"
   );
@@ -1732,6 +1735,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setStreet(settings.street || "");
     setZip(settings.zip || "");
     setCity(settings.city || "");
+    setUnauthenticatedViewMode(settings.unauthenticatedViewMode || "login");
     const incomingDef = settings.i18n?.defaultLanguage || "de";
     const incomingSupported = settings.i18n?.supportedLanguages || [incomingDef];
     setDefaultLanguage(incomingDef);
@@ -1891,6 +1895,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
           (modules.championship === true) !== (settings.modules?.championship === true) ||
           (modules.arbeitseinsaetze === true) !== (settings.modules?.arbeitseinsaetze === true) ||
           (modules.league === true) !== (settings.modules?.league === true) ||
+          (unauthenticatedViewMode || "login") !== (settings.unauthenticatedViewMode || "login") ||
           navOrder.join(",") !== expectedNavOrder.join(",")
         );
       }
@@ -2041,6 +2046,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       street,
       zip,
       city,
+      unauthenticatedViewMode,
       customFacilityPhotoUrl,
       facilityPhotoUrl,
       customAiInstructions,
@@ -2125,6 +2131,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         },
         enableLeague: modules.league === true,
         navigationOrder: navOrder,
+        unauthenticatedViewMode: unauthenticatedViewMode || "login",
       });
       saveLandingPageConfig(currentClubId, {
         is_enabled: modules.landing_page !== false,
@@ -2286,6 +2293,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         championship: settings.modules?.championship === true,
       });
       setNavOrder(normalizeNavOrder(settings.navigationOrder));
+      setUnauthenticatedViewMode(settings.unauthenticatedViewMode || "login");
     } else if (tab === "arbeitseinsaetze") {
       setSollStunden(settings.arbeitseinsaetzeSettings?.sollStunden ?? 10);
       setAeCategories((settings.arbeitseinsaetzeSettings?.categories ?? ["Platzpflege", "Clubheimreinigung", "Bewirtung", "Sonstiges"]).slice().sort((a, b) => a.localeCompare(b, "de")));
@@ -4232,6 +4240,83 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             </div>
                           );
                         })}
+                      </div>
+                    </div>
+
+                    {/* Sichtbarkeit / Visibility Section */}
+                    <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 lg:p-7 shadow-xs space-y-4">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                          <i className="fa-solid fa-eye text-[var(--color-primary)]"></i> {t("admin.visibility.title", "Sichtbarkeit")}
+                        </h3>
+                        <p className="text-xs text-slate-500 font-normal mt-0.5">
+                          {t("admin.visibility.subtitle", "Erscheinungsbild für nicht angemeldete Besucher der Web-App.")}
+                        </p>
+                      </div>
+
+                      <div className="pt-2">
+                        <label className="block text-xs font-semibold text-slate-700 mb-2.5">
+                          {t("admin.visibility.prompt", "Bei nicht angemeldeten Besuchern...")}
+                        </label>
+
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {/* Option 1: Login */}
+                          <label
+                            onClick={() => setUnauthenticatedViewMode("login")}
+                            className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
+                              (unauthenticatedViewMode || "login") === "login"
+                                ? "border-[var(--color-primary)] bg-[var(--color-primary)]/[0.03] shadow-xs"
+                                : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="unauthenticatedViewMode"
+                              value="login"
+                              checked={(unauthenticatedViewMode || "login") === "login"}
+                              onChange={() => setUnauthenticatedViewMode("login")}
+                              className="mt-0.5 w-4 h-4 accent-[var(--color-primary)] cursor-pointer shrink-0"
+                            />
+                            <div className="text-xs">
+                              <span className="font-bold text-slate-800 flex items-center gap-2">
+                                {t("admin.visibility.showLogin", "Zeige Anmeldedialog")}
+                                <span className="text-[10px] font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                  Standard
+                                </span>
+                              </span>
+                              <p className="text-slate-500 font-normal mt-0.5 leading-relaxed">
+                                {t("admin.visibility.showLoginDesc", "Besucher sehen direkt den Begrüßungs- und Anmeldedialog.")}
+                              </p>
+                            </div>
+                          </label>
+
+                          {/* Option 2: Anonymous Reservation */}
+                          <label
+                            onClick={() => setUnauthenticatedViewMode("anonymous_reservation")}
+                            className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
+                              unauthenticatedViewMode === "anonymous_reservation"
+                                ? "border-[var(--color-primary)] bg-[var(--color-primary)]/[0.03] shadow-xs"
+                                : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="unauthenticatedViewMode"
+                              value="anonymous_reservation"
+                              checked={unauthenticatedViewMode === "anonymous_reservation"}
+                              onChange={() => setUnauthenticatedViewMode("anonymous_reservation")}
+                              className="mt-0.5 w-4 h-4 accent-[var(--color-primary)] cursor-pointer shrink-0"
+                            />
+                            <div className="text-xs">
+                              <span className="font-bold text-slate-800">
+                                {t("admin.visibility.showAnonymousReservation", "Zeige Platzbuchung (anonymisiert)")}
+                              </span>
+                              <p className="text-slate-500 font-normal mt-0.5 leading-relaxed">
+                                {t("admin.visibility.showAnonymousReservationDesc", "Besucher sehen direkt den Belegungsplan ohne Spielernamen. Beim Buchen oder Wechseln von Modulen wird zur Anmeldung aufgefordert.")}
+                              </p>
+                            </div>
+                          </label>
+                        </div>
                       </div>
                     </div>
 

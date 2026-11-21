@@ -545,6 +545,11 @@ const App: React.FC = () => {
       }
     } catch {}
 
+    // If club visibility is configured to show anonymous reservation for non-logged-in visitors
+    if (settings?.unauthenticatedViewMode === "anonymous_reservation") {
+      return "reservation";
+    }
+
     // If no explicit hash or not logged in, check landing page status
     try {
       const params = new URLSearchParams(window.location.search);
@@ -724,10 +729,19 @@ const App: React.FC = () => {
   const [isWelcomeExpanded, setIsWelcomeExpanded] = useState(false);
 
   const handleSetView = (newView: typeof view) => {
-    // For unauthenticated visitors on the start page, accessing restricted tabs prompts for login
-    if (!currentUser && newView !== "landing_page" && newView !== "reservation" && newView !== "impressum") {
-      setIsStartPageLoginModalOpen(true);
-      return;
+    // For unauthenticated visitors, accessing restricted tabs prompts for login
+    if (!currentUser) {
+      if (settings?.unauthenticatedViewMode === "anonymous_reservation") {
+        if (newView !== "reservation" && newView !== "impressum") {
+          setIsStartPageLoginModalOpen(true);
+          return;
+        }
+      } else {
+        if (newView !== "landing_page" && newView !== "reservation" && newView !== "impressum") {
+          setIsStartPageLoginModalOpen(true);
+          return;
+        }
+      }
     }
 
     if (
@@ -751,7 +765,11 @@ const App: React.FC = () => {
       const isExplicitStartHash = hash === "startseite" || hash === "landing" || hash === "home";
       const hasSavedUser = !!(currentUser || localStorage.getItem("v2_current_user"));
 
-      if (isStartActive && (isExplicitStartHash || (!hash && !hasSavedUser))) {
+      if (settings?.unauthenticatedViewMode === "anonymous_reservation" && !hasSavedUser && !isExplicitStartHash) {
+        if (view === "landing_page") {
+          setView("reservation");
+        }
+      } else if (isStartActive && (isExplicitStartHash || (!hash && !hasSavedUser))) {
         setView("landing_page");
       } else if (!isStartActive && view === "landing_page") {
         setView("reservation");
@@ -762,7 +780,7 @@ const App: React.FC = () => {
       isMounted = false;
       unsub();
     };
-  }, [currentVereinsId, settings.modules?.landing_page, currentUser]);
+  }, [currentVereinsId, settings.modules?.landing_page, settings?.unauthenticatedViewMode, currentUser]);
   const [isAdminDropdownOpen, setIsAdminDropdownOpen] = useState(false);
   const [isMehrDropdownOpen, setIsMehrDropdownOpen] = useState(false);
   const mehrDropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1639,6 +1657,8 @@ const App: React.FC = () => {
         unsubs.push(listenToTournaments(currentVereinsId, setTournaments));
         unsubs.push(listenToRankings(currentVereinsId, (r) => setRankings(r)));
         unsubs.push(listenToUsers(currentVereinsId, setUsers));
+      } else if (!currentUser && settings?.unauthenticatedViewMode === "anonymous_reservation") {
+        unsubs.push(listenToBookings(currentVereinsId, setBookings));
       }
 
       unsubs.push(
@@ -1655,6 +1675,14 @@ const App: React.FC = () => {
           }
           setIsSettingsLoaded(true);
           setIsLoading(false);
+
+          if (!currentUser && s?.unauthenticatedViewMode === "anonymous_reservation") {
+            const hash = window.location.hash.replace(/^#\/?/, "").toLowerCase();
+            const isExplicitStartHash = hash === "startseite" || hash === "landing" || hash === "home";
+            if (!hash || (!isExplicitStartHash && view === "landing_page")) {
+              setView("reservation");
+            }
+          }
 
           // Update favicon and title dynamically
           const isSuperAdminDashboardActive =
@@ -1690,7 +1718,7 @@ const App: React.FC = () => {
       clearTimeout(safetyTimeout);
       unsubs.forEach((u) => u());
     };
-  }, [currentUser, currentVereinsId, isPublicWochenplanRoute, isAuthReady, isSettingsLoaded, settings?.publicCalendar?.showNames]);
+  }, [currentUser, currentVereinsId, isPublicWochenplanRoute, isAuthReady, isSettingsLoaded, settings?.publicCalendar?.showNames, settings?.unauthenticatedViewMode]);
 
   // Synchronize favicon and title when switching between SuperAdmin dashboard and proxy mode / normal view
   useEffect(() => {
@@ -1918,13 +1946,18 @@ const App: React.FC = () => {
     setCurrentUser(null);
     setShowOnboardingModal(false);
 
-    const isStartActive = (settings.modules?.landing_page !== false) && (landingPageConfig?.is_enabled !== false);
-    if (isStartActive) {
-      setView("landing_page");
-      window.location.hash = "#startseite";
-    } else {
+    if (settings?.unauthenticatedViewMode === "anonymous_reservation") {
       setView("reservation");
       window.location.hash = "";
+    } else {
+      const isStartActive = (settings.modules?.landing_page !== false) && (landingPageConfig?.is_enabled !== false);
+      if (isStartActive) {
+        setView("landing_page");
+        window.location.hash = "#startseite";
+      } else {
+        setView("reservation");
+        window.location.hash = "";
+      }
     }
   };
 
@@ -3126,7 +3159,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (!effectiveCurrentUser && !isPublicWochenplanRoute) {
+  if (!effectiveCurrentUser && !isPublicWochenplanRoute && settings?.unauthenticatedViewMode !== "anonymous_reservation") {
     if (!landingPageConfig?.is_enabled) {
       return (
       <>
@@ -3779,7 +3812,15 @@ const App: React.FC = () => {
         hideWebsiteLink={settings.hideWebsiteLink}
         impressum={settings.impressum}
         desktopNav={desktopNav}
-        onLogoClick={() => handleSetView((settings.modules?.landing_page !== false && landingPageConfig?.is_enabled !== false) ? "landing_page" : "reservation")}
+        onLogoClick={() =>
+          handleSetView(
+            !currentUser && settings.unauthenticatedViewMode === "anonymous_reservation"
+              ? "reservation"
+              : settings.modules?.landing_page !== false && landingPageConfig?.is_enabled !== false
+                ? "landing_page"
+                : "reservation"
+          )
+        }
         userClubs={uniqueUserClubs}
         currentVereinsId={currentVereinsId}
         onSwitchClub={handleSwitchClub}

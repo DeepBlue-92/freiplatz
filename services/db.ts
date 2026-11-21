@@ -181,6 +181,7 @@ export interface ClubSettings {
     landing_page?: boolean;
   };
   navigationOrder?: string[];
+  unauthenticatedViewMode?: 'login' | 'anonymous_reservation';
   rankingViewMode?: "pyramid" | "list";
   leagueSettings?: {
     enabled: boolean;
@@ -349,6 +350,7 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
     "guests",
     "arbeitseinsaetze",
   ],
+  unauthenticatedViewMode: 'login',
   rankingViewMode: "pyramid",
   leagueSettings: {
     enabled: false,

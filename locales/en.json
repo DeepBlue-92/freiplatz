@@ -633,6 +633,15 @@
         "desc": "Log and manage member volunteer service hours."
       }
     },
+    "visibility": {
+      "title": "Visibility",
+      "subtitle": "Behavior for visitors who are not logged into the web app.",
+      "prompt": "For visitors who are not logged in...",
+      "showLogin": "Show login dialog",
+      "showLoginDesc": "Visitors directly see the welcome and login screen.",
+      "showAnonymousReservation": "Show court schedule (anonymized)",
+      "showAnonymousReservationDesc": "Visitors directly see the court schedule without player names. An invitation to log in is shown when booking a slot or switching modules."
+    },
     "generalSettings": {
       "title": "General Settings",
       "subtitle": "Basic club information and facility location.",
