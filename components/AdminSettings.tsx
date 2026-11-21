@@ -11021,7 +11021,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </div>
 
                         <div className="space-y-2 pt-2 border-t border-slate-200/80">
-                          <div className="p-3 bg-slate-900 rounded-xl font-mono text-[11px] text-emerald-400 overflow-x-auto select-all leading-relaxed">
+                          <div className="p-3 bg-white border border-slate-200/90 rounded-xl font-mono text-[11px] text-slate-700 overflow-x-auto select-all leading-relaxed shadow-2xs">
                             {getEmbedIframeCode()}
                           </div>
                           <button
@@ -11034,7 +11034,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             className={`w-full h-10 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-2xs ${
                               widgetIframeCopied
                                 ? "bg-emerald-600 text-white"
-                                : "bg-slate-900 hover:bg-slate-800 text-white"
+                                : "bg-[var(--color-primary)] hover:brightness-110 text-white"
                             }`}
                           >
                             <i className={`fa-solid ${widgetIframeCopied ? "fa-check" : "fa-copy"}`}></i>
@@ -11073,7 +11073,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               className={`flex-1 h-10 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-2xs ${
                                 widgetLinkCopied
                                   ? "bg-emerald-600 text-white"
-                                  : "bg-slate-900 hover:bg-slate-800 text-white"
+                                  : "bg-[var(--color-primary)] hover:brightness-110 text-white"
                               }`}
                             >
                               <i className={`fa-solid ${widgetLinkCopied ? "fa-check" : "fa-copy"}`}></i>
