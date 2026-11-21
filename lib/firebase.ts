@@ -132,9 +132,7 @@ export async function testConnection() {
   }
 }
 
-if (isBrowser) {
-  testConnection();
-}
+// testConnection is exported for explicit diagnostics if needed, but not run automatically to conserve reads
 
 const DOMAIN = '.system.local';
 
