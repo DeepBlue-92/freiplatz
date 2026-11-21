@@ -188,6 +188,11 @@ export interface ClubSettings {
     defaultView?: "day" | "week";
     allowViewSwitch?: boolean;
     showHeader?: boolean;
+    courtDisplay?: "all" | "single";
+    widgetWidth?: "narrow" | "medium" | "wide";
+    widgetHeight?: "low" | "medium" | "high";
+    iconShape?: "box" | "round" | "bubble";
+    customColor?: string;
   };
   leagueSettings?: {
     enabled: boolean;
@@ -363,6 +368,11 @@ Die gesamte Anwendung wurde für Smartphones optimiert. Du kannst deinen Platz a
     defaultView: "day",
     allowViewSwitch: true,
     showHeader: false,
+    courtDisplay: "all",
+    widgetWidth: "wide",
+    widgetHeight: "medium",
+    iconShape: "round",
+    customColor: "",
   },
   leagueSettings: {
     enabled: false,

@@ -22,6 +22,11 @@ interface EmbeddedCourtWidgetProps {
   defaultView?: "day" | "week";
   allowViewSwitch?: boolean;
   showHeader?: boolean;
+  courtDisplay?: "all" | "single";
+  widgetWidth?: "narrow" | "medium" | "wide";
+  widgetHeight?: "low" | "medium" | "high";
+  iconShape?: "box" | "round" | "bubble";
+  customColor?: string;
   onLogin?: (username: string, pass: string) => Promise<boolean | void>;
   onSelectSlot?: (court: string, time: string, date: string) => void;
   onNavigateToFullApp?: (court?: string, time?: string, date?: string) => void;
@@ -37,14 +42,29 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
   defaultView = "day",
   allowViewSwitch = true,
   showHeader = false,
+  courtDisplay = "all",
+  widgetWidth = "wide",
+  widgetHeight = "medium",
+  iconShape = "round",
+  customColor,
   onLogin,
   onSelectSlot,
   onNavigateToFullApp,
 }) => {
-  // Check URL parameters for custom theme, view, header and switch permissions
+  // Check URL parameters for custom theme, view, header, courtDisplay, width, height, shape, color
   const urlParams = useMemo(() => {
     if (typeof window === "undefined") {
-      return { theme: "auto", view: null, allowSwitch: null, header: null };
+      return {
+        theme: "auto",
+        view: null,
+        allowSwitch: null,
+        header: null,
+        courts: null,
+        width: null,
+        height: null,
+        shape: null,
+        color: null,
+      };
     }
     const sp = new URLSearchParams(window.location.search);
     return {
@@ -52,12 +72,74 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
       view: (sp.get("view") === "week" ? "week" : sp.get("view") === "day" ? "day" : null) as "day" | "week" | null,
       allowSwitch: sp.get("allowSwitch") !== null ? sp.get("allowSwitch") === "true" : null,
       header: sp.get("header") !== null ? sp.get("header") === "true" : null,
+      courts: (sp.get("courts") === "single" ? "single" : sp.get("courts") === "all" ? "all" : null) as "all" | "single" | null,
+      width: (sp.get("width") === "narrow" ? "narrow" : sp.get("width") === "medium" ? "medium" : sp.get("width") === "wide" ? "wide" : null) as "narrow" | "medium" | "wide" | null,
+      height: (sp.get("height") === "low" ? "low" : sp.get("height") === "medium" ? "medium" : sp.get("height") === "high" ? "high" : null) as "low" | "medium" | "high" | null,
+      shape: (sp.get("shape") === "box" ? "box" : sp.get("shape") === "bubble" ? "bubble" : sp.get("shape") === "round" ? "round" : null) as "box" | "round" | "bubble" | null,
+      color: sp.get("color") || null,
     };
   }, []);
 
   const effectiveShowHeader = urlParams.header !== null ? urlParams.header : showHeader;
   const effectiveAllowSwitch = urlParams.allowSwitch !== null ? urlParams.allowSwitch : allowViewSwitch;
   const initialView = urlParams.view || defaultView || "day";
+  const effectiveCourtDisplay = urlParams.courts || courtDisplay || "all";
+  const effectiveWidth = urlParams.width || widgetWidth || "wide";
+  const effectiveHeight = urlParams.height || widgetHeight || "medium";
+  const effectiveShape = urlParams.shape || iconShape || "round";
+  const effectiveColor = urlParams.color || customColor || primaryColor || "#047857";
+
+  // Shape helper classes: box = eckig, round = rund, bubble = blase
+  const shapeBadgeClass =
+    effectiveShape === "box"
+      ? "rounded-md"
+      : effectiveShape === "bubble"
+      ? "rounded-2xl"
+      : "rounded-full";
+
+  const shapeButtonClass =
+    effectiveShape === "box"
+      ? "rounded-md"
+      : effectiveShape === "bubble"
+      ? "rounded-2xl"
+      : "rounded-full";
+
+  const shapeIndicatorClass =
+    effectiveShape === "box"
+      ? "w-2.5 h-2.5 rounded-xs"
+      : effectiveShape === "bubble"
+      ? "w-2.5 h-2.5 rounded-md"
+      : "w-2.5 h-2.5 rounded-full";
+
+  // Height helper classes: low = kompakt, medium = standard, high = großzügig
+  const slotHeightClass =
+    effectiveHeight === "low"
+      ? "h-7 sm:h-8 text-[10px]"
+      : effectiveHeight === "high"
+      ? "h-12 sm:h-14 text-sm"
+      : "h-9 sm:h-10 text-xs";
+
+  const cellPaddingClass =
+    effectiveHeight === "low"
+      ? "p-1 sm:p-1.5"
+      : effectiveHeight === "high"
+      ? "p-2.5 sm:p-3"
+      : "p-1.5 sm:p-2";
+
+  const timeCellClass =
+    effectiveHeight === "low"
+      ? "p-1 sm:p-1.5"
+      : effectiveHeight === "high"
+      ? "p-2.5 sm:p-3"
+      : "p-2";
+
+  // Width container helper classes
+  const widthContainerClass =
+    effectiveWidth === "narrow"
+      ? "max-w-2xl mx-auto"
+      : effectiveWidth === "medium"
+      ? "max-w-5xl mx-auto"
+      : "w-full max-w-full";
 
   // Current active view mode: day or week
   const [viewMode, setViewMode] = useState<"day" | "week">(initialView);
@@ -228,12 +310,30 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
     return { type: "free" as const, label: "Frei" };
   };
 
+  // Auto-Resize messaging for embedding parent website (eliminates scrollbars)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sendHeight = () => {
+      const height = document.documentElement.scrollHeight || document.body.scrollHeight;
+      window.parent.postMessage({ type: "freiplatz-widget-resize", height }, "*");
+    };
+    sendHeight();
+    const ro = new ResizeObserver(() => sendHeight());
+    ro.observe(document.body);
+    window.addEventListener("resize", sendHeight);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", sendHeight);
+    };
+  }, [viewMode, dayOffset, weekOffset, effectiveCourtDisplay, effectiveHeight]);
+
   const displayedCourts = useMemo(() => {
-    if (selectedCourtFilter && courts.includes(selectedCourtFilter)) {
-      return [selectedCourtFilter];
+    if (effectiveCourtDisplay === "single") {
+      const active = selectedCourtFilter || courts[0] || "Platz 1";
+      return [active];
     }
     return courts;
-  }, [courts, selectedCourtFilter]);
+  }, [courts, effectiveCourtDisplay, selectedCourtFilter]);
 
   const handleSlotClick = (court: string, time: string, dateStr: string = activeDateStr) => {
     if (isSlotPassed(dateStr, time)) return;
@@ -300,12 +400,12 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
   return (
     <div
-      className={`w-full max-w-full flex flex-col rounded-2xl border shadow-2xs overflow-hidden select-none font-sans transition-colors ${
+      className={`w-full ${widthContainerClass} flex flex-col rounded-2xl border shadow-2xs overflow-hidden select-none font-sans transition-colors ${
         isDarkTheme
           ? "bg-slate-900 border-slate-800 text-white"
           : "bg-white border-slate-200/90 text-slate-900"
       }`}
-      style={{ "--color-primary": primaryColor } as React.CSSProperties}
+      style={{ "--color-primary": effectiveColor } as React.CSSProperties}
     >
       {/* OPTIONAL BRANDING HEADER BAR (Only rendered if showHeader is explicitly enabled) */}
       {effectiveShowHeader && (
@@ -317,7 +417,10 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
           }`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[var(--color-primary)] text-white flex items-center justify-center shadow-xs shrink-0">
+            <div
+              className={`w-9 h-9 sm:w-10 sm:h-10 text-white flex items-center justify-center shadow-xs shrink-0 ${shapeButtonClass}`}
+              style={{ backgroundColor: effectiveColor }}
+            >
               <Calendar className="w-5 h-5" />
             </div>
             <div>
@@ -338,9 +441,9 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
         </div>
       )}
 
-      {/* TOP CONTROL BAR: DATE CONTROLS & OPTIONAL VIEW SWITCHER */}
+      {/* TOP CONTROL BAR: DATE CONTROLS, AMPEL-LEGENDE & OPTIONAL VIEW SWITCHER */}
       <div
-        className={`p-2.5 sm:p-3 border-b flex flex-wrap items-center justify-between gap-2.5 shrink-0 transition-colors ${
+        className={`p-2 sm:p-2.5 border-b flex flex-wrap items-center justify-between gap-2 shrink-0 transition-colors ${
           isDarkTheme
             ? "bg-slate-950/90 border-slate-800"
             : "bg-slate-50/90 border-slate-200/80 backdrop-blur-xs"
@@ -348,7 +451,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
       >
         {/* Navigation Controls */}
         {viewMode === "day" ? (
-          <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
             <button
               type="button"
               onClick={() => setDayOffset((prev) => Math.max(0, prev - 1))}
@@ -363,7 +466,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
               <button
                 type="button"
                 onClick={() => setDayOffset(0)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
                   isToday
                     ? "bg-[var(--color-primary)] text-white shadow-xs"
                     : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
@@ -374,7 +477,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
               <button
                 type="button"
                 onClick={() => setDayOffset(1)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
                   isTomorrow
                     ? "bg-[var(--color-primary)] text-white shadow-xs"
                     : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
@@ -398,7 +501,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             </span>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
             <button
               type="button"
               onClick={() => setWeekOffset((prev) => Math.max(0, prev - 1))}
@@ -412,7 +515,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             <button
               type="button"
               onClick={() => setWeekOffset(0)}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
                 isCurrentWeek
                   ? "bg-[var(--color-primary)] text-white shadow-xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
@@ -436,13 +539,32 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
           </div>
         )}
 
+        {/* Dezente Ampel-Legende OBEN (wie im normalen Buchungsplan) */}
+        <div className="flex items-center gap-3 text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-wider select-none bg-white p-1.5 px-3 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`${shapeIndicatorClass} shadow-2xs shrink-0`}
+              style={{ backgroundColor: effectiveColor }}
+            />
+            <span className="font-extrabold text-slate-800">Frei</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className={`${shapeIndicatorClass} bg-slate-400 shadow-2xs shrink-0`} />
+            <span>Gebucht</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className={`${shapeIndicatorClass} bg-rose-500 shadow-2xs shrink-0`} />
+            <span>Gesperrt</span>
+          </div>
+        </div>
+
         {/* Optional View Switcher (Day vs. Week) */}
         {effectiveAllowSwitch && (
           <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs ml-auto">
             <button
               type="button"
               onClick={() => setViewMode("day")}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
                 viewMode === "day"
                   ? "bg-[var(--color-primary)] text-white shadow-2xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
@@ -453,7 +575,7 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             <button
               type="button"
               onClick={() => setViewMode("week")}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
                 viewMode === "week"
                   ? "bg-[var(--color-primary)] text-white shadow-2xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
@@ -465,61 +587,36 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
         )}
       </div>
 
-      {/* COURT TABS: In Day view when > 2 courts, or in Week view when > 1 court */}
-      {viewMode === "day" && courts.length > 2 && (
-        <div className="px-3.5 py-1.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center gap-1.5 overflow-x-auto select-none custom-scrollbar">
-          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-1 shrink-0">
-            <Layers className="w-3 h-3" />
-            <span>Plätze:</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setSelectedCourtFilter(null)}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
-              selectedCourtFilter === null
-                ? "bg-[var(--color-primary)] text-white shadow-2xs"
-                : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-            }`}
-          >
-            Alle Plätze ({courts.length})
-          </button>
-          {courts.map((court) => (
-            <button
-              key={court}
-              type="button"
-              onClick={() => setSelectedCourtFilter(court)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
-                selectedCourtFilter === court
-                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
-                  : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-              }`}
-            >
-              {court}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {viewMode === "week" && courts.length > 1 && (
+      {/* COURT TABS: When 'single' court mode is selected and club has multiple courts */}
+      {effectiveCourtDisplay === "single" && courts.length > 1 && (
         <div className="px-3.5 py-1.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center gap-1.5 overflow-x-auto select-none custom-scrollbar">
           <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-1 shrink-0">
             <Layers className="w-3 h-3" />
             <span>Platz:</span>
           </span>
-          {courts.map((court) => (
-            <button
-              key={court}
-              type="button"
-              onClick={() => setSelectedWeekCourt(court)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
-                selectedWeekCourt === court
-                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
-                  : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-              }`}
-            >
-              {court}
-            </button>
-          ))}
+          {courts.map((court) => {
+            const isSelected =
+              viewMode === "day"
+                ? (selectedCourtFilter || courts[0]) === court
+                : selectedWeekCourt === court;
+            return (
+              <button
+                key={court}
+                type="button"
+                onClick={() => {
+                  if (viewMode === "day") setSelectedCourtFilter(court);
+                  else setSelectedWeekCourt(court);
+                }}
+                className={`px-3 py-1 text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${shapeButtonClass} ${
+                  isSelected
+                    ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                    : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
+                }`}
+              >
+                {court}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -528,260 +625,286 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
         ref={scrollContainerRef}
         className="overflow-auto relative divide-y divide-slate-100 custom-scrollbar"
       >
-        <table className="w-full border-collapse text-left min-w-full">
-          {viewMode === "day" ? (
-            /* --- DAY VIEW --- */
-            <>
-              <thead>
-                <tr className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-2xs">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-200/95 backdrop-blur-xs p-2.5 sm:p-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-600 w-24 sm:w-28 border-r border-b border-slate-300 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                    Uhrzeit
+        {viewMode === "day" ? (
+          /* --- DAY VIEW --- */
+          <table className="w-full border-collapse text-left min-w-full">
+            <thead>
+              <tr className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-2xs">
+                <th className="sticky left-0 top-0 z-30 bg-slate-200/95 backdrop-blur-xs p-2 sm:p-2.5 text-center text-[10px] font-black uppercase tracking-wider text-slate-600 w-20 sm:w-24 border-r border-b border-slate-300 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                  Uhrzeit
+                </th>
+                {displayedCourts.map((c) => (
+                  <th
+                    key={c}
+                    className="p-2 sm:p-2.5 text-center text-xs font-black text-slate-800 uppercase tracking-wider min-w-[120px] sm:min-w-[150px] border-b border-slate-200"
+                  >
+                    {c}
                   </th>
-                  {displayedCourts.map((c) => (
-                    <th
-                      key={c}
-                      className="p-2.5 sm:p-3 text-center text-xs font-black text-slate-800 uppercase tracking-wider min-w-[130px] sm:min-w-[160px] border-b border-slate-200"
-                    >
-                      {c}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {hourlySlots.map((slot) => {
-                  const isPassed = isSlotPassed(activeDateStr, slot.start);
-                  const isCurrentHourSlot = isToday && currentHourNow === slot.hour;
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {hourlySlots.map((slot) => {
+                const isPassed = isSlotPassed(activeDateStr, slot.start);
+                const isCurrentHourSlot = isToday && currentHourNow === slot.hour;
 
-                  return (
-                    <tr
-                      key={slot.start}
-                      ref={isCurrentHourSlot ? currentSlotRef : null}
-                      className={`transition-colors ${
+                return (
+                  <tr
+                    key={slot.start}
+                    ref={isCurrentHourSlot ? currentSlotRef : null}
+                    className={`transition-colors ${
+                      isCurrentHourSlot
+                        ? "bg-emerald-50/40"
+                        : isPassed
+                        ? "bg-slate-50/50 opacity-75"
+                        : "hover:bg-slate-50/70"
+                    }`}
+                  >
+                    {/* Sticky Time Column */}
+                    <td
+                      className={`sticky left-0 z-10 ${timeCellClass} text-center border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)] ${
                         isCurrentHourSlot
-                          ? "bg-emerald-50/40"
+                          ? "bg-emerald-50/95 text-emerald-950"
                           : isPassed
-                          ? "bg-slate-50/50 opacity-75"
-                          : "hover:bg-slate-50/70"
+                          ? "bg-slate-50 text-slate-400"
+                          : "bg-white text-slate-700"
                       }`}
                     >
-                      {/* Sticky Time Column */}
-                      <td
-                        className={`sticky left-0 z-10 p-2 text-center border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)] ${
-                          isCurrentHourSlot
-                            ? "bg-emerald-50/95 text-emerald-950"
-                            : isPassed
-                            ? "bg-slate-50 text-slate-400"
-                            : "bg-white text-slate-700"
-                        }`}
-                      >
-                        <div className="flex flex-col items-center justify-center">
-                          <div className="flex items-center gap-1">
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900">
-                              {slot.start}
-                            </span>
-                            {isCurrentHourSlot && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-slate-500 font-semibold">
-                            bis {slot.end}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Court Columns */}
-                      {displayedCourts.map((court) => {
-                        const status = getSlotStatus(court, slot.hour, activeDateStr);
-
-                        if (isPassed) {
-                          return (
-                            <td key={court} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                              <div className="w-full h-9 rounded-xl bg-slate-100/90 text-slate-400 text-[10px] font-bold flex items-center justify-center">
-                                {status.type === "free" ? "Vorbei" : "Belegt"}
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (status.type === "locked") {
-                          return (
-                            <td key={court} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                              <div className="w-full h-9 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1 px-2 truncate shadow-2xs">
-                                <Lock className="w-3 h-3 shrink-0" />
-                                <span className="truncate">{status.label}</span>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (status.type === "booked") {
-                          return (
-                            <td key={court} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                              <div className="w-full h-9 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-2xs">
-                                <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                                <span>Gebucht</span>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        return (
-                          <td key={court} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                            <button
-                              type="button"
-                              onClick={() => handleSlotClick(court, slot.start, activeDateStr)}
-                              className="w-full h-9 rounded-xl bg-emerald-50 hover:bg-[var(--color-primary)] text-emerald-800 hover:text-white border border-emerald-200/90 hover:border-transparent transition-all duration-150 flex items-center justify-center gap-1.5 text-xs font-black uppercase tracking-wider cursor-pointer group shadow-2xs hover:shadow-xs active:scale-95 relative overflow-hidden"
-                              title={`Jetzt ${court} um ${slot.start} Uhr buchen`}
-                            >
-                              <span className="group-hover:hidden flex items-center gap-1.5 text-[11px]">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                                <span>Frei</span>
-                              </span>
-                              <span className="hidden group-hover:flex items-center gap-1 text-[11px] animate-in fade-in zoom-in-95 duration-100">
-                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                                <span>Buchen</span>
-                              </span>
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </>
-          ) : (
-            /* --- WEEK VIEW (7 DAYS FOR SELECTED COURT) --- */
-            <>
-              <thead>
-                <tr className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-2xs">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-200/95 backdrop-blur-xs p-2.5 sm:p-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-600 w-24 sm:w-28 border-r border-b border-slate-300 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                    Uhrzeit
-                  </th>
-                  {weekDays.map((d) => (
-                    <th
-                      key={d.dateStr}
-                      className={`p-2 sm:p-2.5 text-center text-xs font-black uppercase tracking-wider min-w-[95px] sm:min-w-[120px] border-b border-slate-200 ${
-                        d.isToday ? "bg-emerald-50/80 text-[var(--color-primary)]" : "text-slate-800"
-                      }`}
-                    >
-                      <div className="text-xs sm:text-sm font-black">{d.dayName}</div>
-                      <div className="text-[10px] font-semibold text-slate-500 mt-0.5">{d.dateBadge}</div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {hourlySlots.map((slot) => {
-                  return (
-                    <tr key={slot.start} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="sticky left-0 z-10 p-2 text-center border-r border-slate-200 bg-white text-slate-700 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                        <div className="flex flex-col items-center justify-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <div className="flex items-center gap-1">
                           <span className="font-extrabold text-xs sm:text-sm text-slate-900">
                             {slot.start}
                           </span>
-                          <span className="text-[10px] text-slate-500 font-semibold">
-                            bis {slot.end}
-                          </span>
+                          {isCurrentHourSlot && (
+                            <span
+                              className="w-1.5 h-1.5 rounded-full animate-ping"
+                              style={{ backgroundColor: effectiveColor }}
+                            ></span>
+                          )}
                         </div>
-                      </td>
+                        <span className="text-[10px] text-slate-500 font-semibold">
+                          bis {slot.end}
+                        </span>
+                      </div>
+                    </td>
 
-                      {weekDays.map((d) => {
-                        const isPassed = isSlotPassed(d.dateStr, slot.start);
-                        const status = getSlotStatus(selectedWeekCourt, slot.hour, d.dateStr);
+                    {/* Court Columns */}
+                    {displayedCourts.map((court) => {
+                      const status = getSlotStatus(court, slot.hour, activeDateStr);
 
-                        if (isPassed) {
-                          return (
-                            <td key={d.dateStr} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                              <div className="w-full h-9 rounded-xl bg-slate-100/90 text-slate-400 text-[10px] font-bold flex items-center justify-center">
-                                {status.type === "free" ? "Vorbei" : "Belegt"}
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (status.type === "locked") {
-                          return (
-                            <td key={d.dateStr} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                              <div className="w-full h-9 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1 px-1.5 truncate shadow-2xs">
-                                <Lock className="w-3 h-3 shrink-0" />
-                                <span className="truncate">{status.label}</span>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (status.type === "booked") {
-                          return (
-                            <td key={d.dateStr} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                              <div className="w-full h-9 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-2xs">
-                                <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                                <span className="hidden sm:inline">Gebucht</span>
-                              </div>
-                            </td>
-                          );
-                        }
-
+                      if (isPassed) {
                         return (
-                          <td key={d.dateStr} className="p-1.5 sm:p-2 text-center border-r border-slate-100 last:border-r-0">
-                            <button
-                              type="button"
-                              onClick={() => handleSlotClick(selectedWeekCourt, slot.start, d.dateStr)}
-                              className="w-full h-9 rounded-xl bg-emerald-50 hover:bg-[var(--color-primary)] text-emerald-800 hover:text-white border border-emerald-200/90 hover:border-transparent transition-all duration-150 flex items-center justify-center gap-1 text-xs font-black uppercase tracking-wider cursor-pointer group shadow-2xs hover:shadow-xs active:scale-95 relative overflow-hidden"
-                              title={`Jetzt ${selectedWeekCourt} am ${d.dayName}, ${d.dateBadge} um ${slot.start} Uhr buchen`}
-                            >
-                              <span className="group-hover:hidden flex items-center gap-1 text-[11px]">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                                <span>Frei</span>
-                              </span>
-                              <span className="hidden group-hover:flex items-center gap-1 text-[11px] animate-in fade-in zoom-in-95 duration-100">
-                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                                <span>Buchen</span>
-                              </span>
-                            </button>
+                          <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                            <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100/90 text-slate-400 font-bold flex items-center justify-center`}>
+                              {status.type === "free" ? "Vorbei" : "Belegt"}
+                            </div>
                           </td>
                         );
-                      })}
+                      }
+
+                      if (status.type === "locked") {
+                        return (
+                          <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                            <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center justify-center gap-1 px-2 truncate shadow-2xs`}>
+                              <Lock className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{status.label}</span>
+                            </div>
+                          </td>
+                        );
+                      }
+
+                      if (status.type === "booked") {
+                        return (
+                          <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                            <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100 border border-slate-200 text-slate-600 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-2xs`}>
+                              <UserCheck className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Gebucht</span>
+                            </div>
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                          <button
+                            type="button"
+                            onClick={() => handleSlotClick(court, slot.start, activeDateStr)}
+                            className={`w-full ${slotHeightClass} ${shapeButtonClass} transition-all duration-150 flex items-center justify-center gap-1.5 font-black uppercase tracking-wider cursor-pointer group shadow-2xs hover:shadow-xs active:scale-95 relative overflow-hidden`}
+                            style={{
+                              backgroundColor: `${effectiveColor}15`,
+                              borderColor: `${effectiveColor}40`,
+                              color: effectiveColor,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = effectiveColor;
+                              e.currentTarget.style.color = "#ffffff";
+                              e.currentTarget.style.borderColor = "transparent";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = `${effectiveColor}15`;
+                              e.currentTarget.style.color = effectiveColor;
+                              e.currentTarget.style.borderColor = `${effectiveColor}40`;
+                            }}
+                            title={`Jetzt ${court} um ${slot.start} Uhr buchen`}
+                          >
+                            <span className="group-hover:hidden flex items-center gap-1.5 text-[11px]">
+                              <span className={`${shapeIndicatorClass} shrink-0`} style={{ backgroundColor: effectiveColor }}></span>
+                              <span>Frei</span>
+                            </span>
+                            <span className="hidden group-hover:flex items-center gap-1 text-[11px] animate-in fade-in zoom-in-95 duration-100 text-white">
+                              <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                              <span>Buchen</span>
+                            </span>
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          /* --- WEEK VIEW (All courts stacked OR single court with tabs) --- */
+          <div className="divide-y-4 divide-slate-200">
+            {(effectiveCourtDisplay === "all" ? courts : [selectedWeekCourt]).map((courtItem, cIdx) => (
+              <div key={courtItem} className="w-full">
+                {effectiveCourtDisplay === "all" && courts.length > 1 && (
+                  <div className="sticky left-0 z-20 px-3.5 py-2 bg-slate-100/95 backdrop-blur-xs font-black text-xs uppercase tracking-wider text-slate-800 flex items-center gap-2 border-b border-slate-200">
+                    <span className={`${shapeIndicatorClass} shrink-0`} style={{ backgroundColor: effectiveColor }} />
+                    <span>{courtItem}</span>
+                  </div>
+                )}
+                <table className="w-full border-collapse text-left min-w-full">
+                  <thead>
+                    <tr className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-2xs">
+                      <th className="sticky left-0 top-0 z-30 bg-slate-200/95 backdrop-blur-xs p-2 sm:p-2.5 text-center text-[10px] font-black uppercase tracking-wider text-slate-600 w-20 sm:w-24 border-r border-b border-slate-300 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                        Uhrzeit
+                      </th>
+                      {weekDays.map((d) => (
+                        <th
+                          key={d.dateStr}
+                          className={`p-2 sm:p-2.5 text-center text-xs font-black uppercase tracking-wider min-w-[95px] sm:min-w-[120px] border-b border-slate-200 ${
+                            d.isToday ? "bg-emerald-50/80 text-[var(--color-primary)]" : "text-slate-800"
+                          }`}
+                        >
+                          <div className="text-xs sm:text-sm font-black">{d.dayName}</div>
+                          <div className="text-[10px] font-semibold text-slate-500 mt-0.5">{d.dateBadge}</div>
+                        </th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </>
-          )}
-        </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {hourlySlots.map((slot) => {
+                      return (
+                        <tr key={slot.start} className="hover:bg-slate-50/70 transition-colors">
+                          <td className={`sticky left-0 z-10 ${timeCellClass} text-center border-r border-slate-200 bg-white text-slate-700 shadow-[2px_0_4px_rgba(0,0,0,0.03)]`}>
+                            <div className="flex flex-col items-center justify-center">
+                              <span className="font-extrabold text-xs sm:text-sm text-slate-900">
+                                {slot.start}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-semibold">
+                                bis {slot.end}
+                              </span>
+                            </div>
+                          </td>
+
+                          {weekDays.map((d) => {
+                            const isPassed = isSlotPassed(d.dateStr, slot.start);
+                            const status = getSlotStatus(courtItem, slot.hour, d.dateStr);
+
+                            if (isPassed) {
+                              return (
+                                <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                                  <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100/90 text-slate-400 font-bold flex items-center justify-center`}>
+                                    {status.type === "free" ? "Vorbei" : "Belegt"}
+                                  </div>
+                                </td>
+                              );
+                            }
+
+                            if (status.type === "locked") {
+                              return (
+                                <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                                  <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center justify-center gap-1 px-1.5 truncate shadow-2xs`}>
+                                    <Lock className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">{status.label}</span>
+                                  </div>
+                                </td>
+                              );
+                            }
+
+                            if (status.type === "booked") {
+                              return (
+                                <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                                  <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100 border border-slate-200 text-slate-600 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-2xs`}>
+                                    <UserCheck className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="hidden sm:inline">Gebucht</span>
+                                  </div>
+                                </td>
+                              );
+                            }
+
+                            return (
+                              <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSlotClick(courtItem, slot.start, d.dateStr)}
+                                  className={`w-full ${slotHeightClass} ${shapeButtonClass} transition-all duration-150 flex items-center justify-center gap-1 font-black uppercase tracking-wider cursor-pointer group shadow-2xs hover:shadow-xs active:scale-95 relative overflow-hidden`}
+                                  style={{
+                                    backgroundColor: `${effectiveColor}15`,
+                                    borderColor: `${effectiveColor}40`,
+                                    color: effectiveColor,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = effectiveColor;
+                                    e.currentTarget.style.color = "#ffffff";
+                                    e.currentTarget.style.borderColor = "transparent";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = `${effectiveColor}15`;
+                                    e.currentTarget.style.color = effectiveColor;
+                                    e.currentTarget.style.borderColor = `${effectiveColor}40`;
+                                  }}
+                                  title={`Jetzt ${courtItem} am ${d.dayName}, ${d.dateBadge} um ${slot.start} Uhr buchen`}
+                                >
+                                  <span className="group-hover:hidden flex items-center gap-1 text-[11px]">
+                                    <span className={`${shapeIndicatorClass} shrink-0`} style={{ backgroundColor: effectiveColor }}></span>
+                                    <span>Frei</span>
+                                  </span>
+                                  <span className="hidden group-hover:flex items-center gap-1 text-[11px] animate-in fade-in zoom-in-95 duration-100 text-white">
+                                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                                    <span>Buchen</span>
+                                  </span>
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 4. RESPONSIVE FOOTER & LEGEND */}
-      <div className="bg-slate-50 border-t border-slate-200 p-2.5 sm:p-3.5 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs shrink-0">
-        {/* Legend */}
-        <div className="flex items-center gap-3.5 font-bold text-slate-600 flex-wrap justify-center sm:justify-start">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <span>Frei</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
-            <span>Gebucht</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
-            <span>Gesperrt</span>
-          </div>
-        </div>
-
-        {/* Action Link to Full App */}
-        {onNavigateToFullApp && (
+      {/* MINIMAL FOOTER: DIRECT APP LINK (Legend moved to top bar) */}
+      {onNavigateToFullApp && (
+        <div className="bg-slate-50 border-t border-slate-200 p-2 sm:p-2.5 flex items-center justify-end text-xs shrink-0">
           <button
             type="button"
             onClick={() => onNavigateToFullApp()}
-            className="text-slate-700 hover:text-[var(--color-primary)] font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+            className="text-slate-600 hover:text-[var(--color-primary)] font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 text-xs"
           >
             <span className="hidden sm:inline">Vollständige Buchungs-App öffnen</span>
             <span className="sm:hidden">App öffnen</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 5. DIRECT LOGIN MODAL (Embedded Mode) */}
       {isLoginModalOpen && (

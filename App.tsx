@@ -3800,12 +3800,13 @@ const App: React.FC = () => {
 
   if (isEmbeddedMode) {
     return (
-      <div className="w-full min-h-0 h-auto p-2 sm:p-4 bg-transparent flex flex-col justify-start font-sans">
+      <div className="w-full min-h-0 h-auto p-0 sm:p-1 bg-transparent flex flex-col justify-start font-sans">
         <style>{`
           html, body {
             background-color: transparent !important;
             margin: 0;
             padding: 0;
+            overflow-x: auto;
           }
           :root {
             --color-primary: ${settings.primaryColor || "#1b4332"};
@@ -3824,6 +3825,11 @@ const App: React.FC = () => {
           defaultView={settings.widgetSettings?.defaultView || "day"}
           allowViewSwitch={settings.widgetSettings?.allowViewSwitch ?? true}
           showHeader={settings.widgetSettings?.showHeader ?? false}
+          courtDisplay={settings.widgetSettings?.courtDisplay || "all"}
+          widgetWidth={settings.widgetSettings?.widgetWidth || "wide"}
+          widgetHeight={settings.widgetSettings?.widgetHeight || "medium"}
+          iconShape={settings.widgetSettings?.iconShape || "round"}
+          customColor={settings.widgetSettings?.customColor}
           onLogin={async (u, p) => {
             await performLogin(u, p);
           }}

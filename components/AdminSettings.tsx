@@ -3774,6 +3774,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       defaultView: "day",
       allowViewSwitch: true,
       showHeader: false,
+      courtDisplay: "all",
+      widgetWidth: "wide",
+      widgetHeight: "medium",
+      iconShape: "round",
+      customColor: "",
     };
     const params = new URLSearchParams();
     params.set("embed", "courts");
@@ -3787,12 +3792,43 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     if (ws.showHeader === true) {
       params.set("header", "true");
     }
+    if (ws.courtDisplay === "single") {
+      params.set("courts", "single");
+    }
+    if (ws.widgetWidth && ws.widgetWidth !== "wide") {
+      params.set("width", ws.widgetWidth);
+    }
+    if (ws.widgetHeight && ws.widgetHeight !== "medium") {
+      params.set("height", ws.widgetHeight);
+    }
+    if (ws.iconShape && ws.iconShape !== "round") {
+      params.set("shape", ws.iconShape);
+    }
+    if (ws.customColor && ws.customColor.trim()) {
+      params.set("color", ws.customColor.trim());
+    }
     return `${origin}/?${params.toString()}`;
   };
 
   const getEmbedIframeCode = () => {
     const url = getEmbedWidgetURL();
-    return `<iframe src="${url}" width="100%" height="720" style="border:none;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.06);width:100%;min-height:680px;" loading="lazy" title="Tennis Platzbelegung"></iframe>`;
+    const ws = settings.widgetSettings || {};
+
+    let maxWidthStyle = "100%";
+    if (ws.widgetWidth === "narrow") {
+      maxWidthStyle = "680px";
+    } else if (ws.widgetWidth === "medium") {
+      maxWidthStyle = "960px";
+    }
+
+    let heightPx = "820";
+    if (ws.widgetHeight === "low") {
+      heightPx = "620";
+    } else if (ws.widgetHeight === "high") {
+      heightPx = "1050";
+    }
+
+    return `<iframe src="${url}" width="100%" height="${heightPx}" style="border:none;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.06);width:100%;max-width:${maxWidthStyle};height:${heightPx}px;" loading="lazy" title="Tennis Platzbelegung"></iframe>`;
   };
 
   const handleManualSyncPublicWeeks = async () => {
@@ -11020,7 +11056,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     </div>
 
                     {/* WIDGET DESIGN & ANSICHT KONFIGURATION */}
-                    <div className="bg-slate-50/80 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3.5 text-left">
+                    <div className="bg-slate-50/80 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-4 text-left">
                       <div className="flex items-center justify-between border-b border-slate-200/70 pb-2.5">
                         <div className="flex items-center gap-2">
                           <i className="fa-solid fa-sliders text-[var(--color-primary)] text-xs"></i>
@@ -11033,8 +11069,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                        {/* Option 1: Standardansicht */}
+                      {/* SECTION 1: ANSICHT & PLÄTZE */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                        {/* Standardansicht */}
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-bold text-slate-700 block">
                             Standardansicht
@@ -11046,12 +11083,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onUpdateSettings({
                                   ...settings,
                                   widgetSettings: {
-                                    ...(settings.widgetSettings || { allowViewSwitch: true, showHeader: false }),
+                                    ...(settings.widgetSettings || {}),
                                     defaultView: "day",
                                   },
                                 });
                               }}
-                              className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                 (settings.widgetSettings?.defaultView || "day") === "day"
                                   ? "bg-[var(--color-primary)] text-white shadow-2xs"
                                   : "text-slate-600 hover:text-slate-900"
@@ -11065,12 +11102,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onUpdateSettings({
                                   ...settings,
                                   widgetSettings: {
-                                    ...(settings.widgetSettings || { allowViewSwitch: true, showHeader: false }),
+                                    ...(settings.widgetSettings || {}),
                                     defaultView: "week",
                                   },
                                 });
                               }}
-                              className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                 settings.widgetSettings?.defaultView === "week"
                                   ? "bg-[var(--color-primary)] text-white shadow-2xs"
                                   : "text-slate-600 hover:text-slate-900"
@@ -11081,12 +11118,59 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </div>
                         </div>
 
-                        {/* Option 2: Umschalter erlauben */}
+                        {/* Plätze Darstellung */}
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-bold text-slate-700 block">
-                            Ansichtswechsel für Besucher
+                            Plätze im Plan
                           </label>
-                          <label className="flex items-center gap-2.5 p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs h-10">
+                          <div className="flex gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    courtDisplay: "all",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                (settings.widgetSettings?.courtDisplay || "all") === "all"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Alle Plätze
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    courtDisplay: "single",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.courtDisplay === "single"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Mit Wechsler
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Umschalter erlauben */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Besucher-Optionen
+                          </label>
+                          <label className="flex items-center gap-2.5 p-2 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs h-10">
                             <input
                               type="checkbox"
                               checked={settings.widgetSettings?.allowViewSwitch ?? true}
@@ -11094,7 +11178,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onUpdateSettings({
                                   ...settings,
                                   widgetSettings: {
-                                    ...(settings.widgetSettings || { defaultView: "day", showHeader: false }),
+                                    ...(settings.widgetSettings || {}),
                                     allowViewSwitch: e.target.checked,
                                   },
                                 });
@@ -11107,12 +11191,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           </label>
                         </div>
 
-                        {/* Option 3: Kopfzeile ausblenden */}
+                        {/* Kopfzeile ausblenden */}
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-bold text-slate-700 block">
-                            Kopfzeile (Vereinsname &amp; Icon)
+                            Kopfzeile
                           </label>
-                          <label className="flex items-center gap-2.5 p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs h-10">
+                          <label className="flex items-center gap-2.5 p-2 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs h-10">
                             <input
                               type="checkbox"
                               checked={!(settings.widgetSettings?.showHeader ?? false)}
@@ -11120,7 +11204,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 onUpdateSettings({
                                   ...settings,
                                   widgetSettings: {
-                                    ...(settings.widgetSettings || { defaultView: "day", allowViewSwitch: true }),
+                                    ...(settings.widgetSettings || {}),
                                     showHeader: !e.target.checked,
                                   },
                                 });
@@ -11131,6 +11215,274 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               Kopfzeile ausblenden
                             </span>
                           </label>
+                        </div>
+                      </div>
+
+                      {/* SECTION 2: PROPORTIONEN (BREITE & HÖHE) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 border-t border-slate-200/70">
+                        {/* Breite */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Breite des Widgets
+                          </label>
+                          <div className="flex gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    widgetWidth: "narrow",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.widgetWidth === "narrow"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Schmal (680px)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    widgetWidth: "medium",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.widgetWidth === "medium"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Mittel (960px)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    widgetWidth: "wide",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                (settings.widgetSettings?.widgetWidth || "wide") === "wide"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Breit (100%)
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Höhe / Zeilendichte */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Höhe &amp; Zeilendichte
+                          </label>
+                          <div className="flex gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    widgetHeight: "low",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.widgetHeight === "low"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                              title="Kompakte Zeilen (ca. 620px Gesamthöhe - passt ohne Scrollen auf den Bildschirm)"
+                            >
+                              Niedrig (Kompakt)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    widgetHeight: "medium",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                (settings.widgetSettings?.widgetHeight || "medium") === "medium"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Mittel (Standard)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    widgetHeight: "high",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                settings.widgetSettings?.widgetHeight === "high"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              Hoch (Großzügig)
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SECTION 3: ICONS & DESIGN (FORM & FARBE) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 border-t border-slate-200/70">
+                        {/* Form der Icons */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Form der Icons &amp; Buttons
+                          </label>
+                          <div className="flex gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    iconShape: "box",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                settings.widgetSettings?.iconShape === "box"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-xs border border-current"></span>
+                              <span>Eckig (Box)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    iconShape: "round",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                (settings.widgetSettings?.iconShape || "round") === "round"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full border border-current"></span>
+                              <span>Rund (Round)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  ...settings,
+                                  widgetSettings: {
+                                    ...(settings.widgetSettings || {}),
+                                    iconShape: "bubble",
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                settings.widgetSettings?.iconShape === "bubble"
+                                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-md border border-current"></span>
+                              <span>Blase (Bubble)</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Farbe der Icons (Hex-Code & Picker) */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            Farbe der Icons &amp; Buchungsbuttons
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs flex-1">
+                              <input
+                                type="color"
+                                value={settings.widgetSettings?.customColor || settings.primaryColor || "#006747"}
+                                onChange={(e) => {
+                                  onUpdateSettings({
+                                    ...settings,
+                                    widgetSettings: {
+                                      ...(settings.widgetSettings || {}),
+                                      customColor: e.target.value,
+                                    },
+                                  });
+                                }}
+                                className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent shrink-0"
+                                title="Farbe wählen"
+                              />
+                              <input
+                                type="text"
+                                value={settings.widgetSettings?.customColor || ""}
+                                placeholder={settings.primaryColor || "#006747"}
+                                onChange={(e) => {
+                                  onUpdateSettings({
+                                    ...settings,
+                                    widgetSettings: {
+                                      ...(settings.widgetSettings || {}),
+                                      customColor: e.target.value,
+                                    },
+                                  });
+                                }}
+                                className="w-full text-xs font-mono font-bold text-slate-800 outline-none uppercase"
+                                maxLength={7}
+                              />
+                            </div>
+                            {settings.widgetSettings?.customColor && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onUpdateSettings({
+                                    ...settings,
+                                    widgetSettings: {
+                                      ...(settings.widgetSettings || {}),
+                                      customColor: "",
+                                    },
+                                  });
+                                }}
+                                className="px-2.5 py-2 text-[11px] font-bold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-xl cursor-pointer shrink-0"
+                                title="Auf Vereinsfarbe zurücksetzen"
+                              >
+                                Zurücksetzen
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
