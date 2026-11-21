@@ -693,22 +693,23 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
             </div>
           )}
 
-          {/* Dezente Ampel-Legende OBEN (Exakt wie in Dashboard.tsx line 3875) */}
-          <div className="flex items-center gap-3.5 sm:gap-4 text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider select-none">
+          {/* Legende OBEN (Exakt wie in der Buchungs-App / Dashboard.tsx line 5016) */}
+          <div className="flex items-center gap-3 sm:gap-4 text-[10px] sm:text-xs font-semibold text-slate-600 uppercase tracking-wider select-none">
+            <div className="w-[1px] h-3.5 bg-slate-300 mx-0.5 sm:mx-1 shrink-0" />
             <div className="flex items-center gap-1.5">
-              <span
-                className="w-2.5 h-2.5 rounded-full shadow-xs shrink-0"
-                style={{ backgroundColor: effectiveColor }}
+              <div className="w-3.5 h-3.5 bg-white border border-slate-300 rounded-xs shadow-2xs shrink-0" />
+              <span>FREI</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-3.5 h-3.5 bg-emerald-50 border border-emerald-200 border-l-[3px] rounded-xs shadow-2xs shrink-0"
+                style={{ borderLeftColor: effectiveColor || "#059669" }}
               />
-              <span>Frei</span>
+              <span>BELEGT</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shadow-xs shrink-0" />
-              <span>Gebucht</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shadow-xs shrink-0" />
-              <span>Gesperrt</span>
+              <div className="w-3.5 h-3.5 bg-slate-100 border border-slate-300 rounded-xs shadow-2xs shrink-0" />
+              <span>GESPERRT</span>
             </div>
           </div>
 
