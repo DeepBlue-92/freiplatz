@@ -407,243 +407,246 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
       }`}
       style={{ "--color-primary": effectiveColor } as React.CSSProperties}
     >
-      {/* OPTIONAL BRANDING HEADER BAR (Only rendered if showHeader is explicitly enabled) */}
-      {effectiveShowHeader && (
-        <div
-          className={`p-3.5 sm:p-4 border-b flex items-center justify-between gap-3 shrink-0 transition-colors ${
-            isDarkTheme
-              ? "bg-slate-950/80 border-slate-800"
-              : "bg-slate-50/90 border-slate-200/80 backdrop-blur-xs"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-9 h-9 sm:w-10 sm:h-10 text-white flex items-center justify-center shadow-xs shrink-0 ${shapeButtonClass}`}
-              style={{ backgroundColor: effectiveColor }}
-            >
-              <Calendar className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-black tracking-tight uppercase truncate max-w-[200px] sm:max-w-[320px]">
-                  {clubName}
-                </h2>
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-full border border-emerald-300/60 shadow-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                  Live
-                </span>
+      {/* 1. STICKY TOP CONTAINER: BRANDING, CONTROLS, LEGENDE & PLATZ-WECHSLER (PINNED AUF DEM BILDSCHIRM) */}
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-xs shadow-2xs border-b border-slate-200">
+        {/* OPTIONAL BRANDING HEADER BAR (Only rendered if showHeader is explicitly enabled) */}
+        {effectiveShowHeader && (
+          <div
+            className={`p-3.5 sm:p-4 border-b flex items-center justify-between gap-3 shrink-0 transition-colors ${
+              isDarkTheme
+                ? "bg-slate-950/80 border-slate-800"
+                : "bg-slate-50/90 border-slate-200/80 backdrop-blur-xs"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-9 h-9 sm:w-10 sm:h-10 text-white flex items-center justify-center shadow-xs shrink-0 ${shapeButtonClass}`}
+                style={{ backgroundColor: effectiveColor }}
+              >
+                <Calendar className="w-5 h-5" />
               </div>
-              <p className="text-[11px] font-medium text-slate-500">
-                Platzbelegung &amp; Direktanmeldung
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm sm:text-base font-black tracking-tight uppercase truncate max-w-[200px] sm:max-w-[320px]">
+                    {clubName}
+                  </h2>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-full border border-emerald-300/60 shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                    Live
+                  </span>
+                </div>
+                <p className="text-[11px] font-medium text-slate-500">
+                  Platzbelegung &amp; Direktanmeldung
+                </p>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* TOP CONTROL BAR: DATE CONTROLS, AMPEL-LEGENDE & OPTIONAL VIEW SWITCHER */}
-      <div
-        className={`p-2 sm:p-2.5 border-b flex flex-wrap items-center justify-between gap-2 shrink-0 transition-colors ${
-          isDarkTheme
-            ? "bg-slate-950/90 border-slate-800"
-            : "bg-slate-50/90 border-slate-200/80 backdrop-blur-xs"
-        }`}
-      >
-        {/* Navigation Controls */}
-        {viewMode === "day" ? (
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setDayOffset((prev) => Math.max(0, prev - 1))}
-              disabled={dayOffset <= 0}
-              className="w-7 h-7 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
-              title="Vorheriger Tag"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setDayOffset(0)}
-                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
-                  isToday
-                    ? "bg-[var(--color-primary)] text-white shadow-xs"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                }`}
-              >
-                Heute
-              </button>
-              <button
-                type="button"
-                onClick={() => setDayOffset(1)}
-                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
-                  isTomorrow
-                    ? "bg-[var(--color-primary)] text-white shadow-xs"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                }`}
-              >
-                Morgen
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setDayOffset((prev) => prev + 1)}
-              className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
-              title="Nächster Tag"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <span className="text-xs font-extrabold text-slate-700 pl-2 pr-1.5 border-l border-slate-200 whitespace-nowrap">
-              {formattedDateBadge}
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setWeekOffset((prev) => Math.max(0, prev - 1))}
-              disabled={weekOffset <= 0}
-              className="w-7 h-7 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
-              title="Vorherige Woche"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setWeekOffset(0)}
-              className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
-                isCurrentWeek
-                  ? "bg-[var(--color-primary)] text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              }`}
-            >
-              Diese Woche
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setWeekOffset((prev) => prev + 1)}
-              className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
-              title="Nächste Woche"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <span className="text-xs font-extrabold text-slate-700 pl-2 pr-1.5 border-l border-slate-200 whitespace-nowrap">
-              {weekRangeLabel}
-            </span>
           </div>
         )}
 
-        {/* Dezente Ampel-Legende OBEN (wie im normalen Buchungsplan) */}
-        <div className="flex items-center gap-3 text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-wider select-none bg-white p-1.5 px-3 rounded-xl border border-slate-200/90 shadow-2xs">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`${shapeIndicatorClass} shadow-2xs shrink-0`}
-              style={{ backgroundColor: effectiveColor }}
-            />
-            <span className="font-extrabold text-slate-800">Frei</span>
+        {/* TOP CONTROL BAR: DATE CONTROLS, DEZENTE AMPEL-LEGENDE & TAG/WOCHE SWITCHER */}
+        <div
+          className={`p-2 sm:p-2.5 flex flex-wrap items-center justify-between gap-2.5 shrink-0 transition-colors ${
+            isDarkTheme
+              ? "bg-slate-950/90 border-slate-800"
+              : "bg-slate-50/90 border-slate-200/80 backdrop-blur-xs"
+          }`}
+        >
+          {/* Navigation Controls */}
+          {viewMode === "day" ? (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setDayOffset((prev) => Math.max(0, prev - 1))}
+                disabled={dayOffset <= 0}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                title="Vorheriger Tag"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setDayOffset(0)}
+                  className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                    isToday
+                      ? "bg-[var(--color-primary)] text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  }`}
+                >
+                  Heute
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDayOffset(1)}
+                  className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                    isTomorrow
+                      ? "bg-[var(--color-primary)] text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  }`}
+                >
+                  Morgen
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDayOffset((prev) => prev + 1)}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                title="Nächster Tag"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              <span className="text-xs font-extrabold text-slate-700 pl-2 pr-1.5 border-l border-slate-200 whitespace-nowrap">
+                {formattedDateBadge}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setWeekOffset((prev) => Math.max(0, prev - 1))}
+                disabled={weekOffset <= 0}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                title="Vorherige Woche"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWeekOffset(0)}
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                  isCurrentWeek
+                    ? "bg-[var(--color-primary)] text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                Diese Woche
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWeekOffset((prev) => prev + 1)}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                title="Nächste Woche"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              <span className="text-xs font-extrabold text-slate-700 pl-2 pr-1.5 border-l border-slate-200 whitespace-nowrap">
+                {weekRangeLabel}
+              </span>
+            </div>
+          )}
+
+          {/* Dezente Ampel-Legende OBEN (Exakt wie in Dashboard.tsx line 3875) */}
+          <div className="flex items-center gap-3.5 sm:gap-4 text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider select-none">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-xs shrink-0"
+                style={{ backgroundColor: effectiveColor }}
+              />
+              <span>Frei</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shadow-xs shrink-0" />
+              <span>Gebucht</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shadow-xs shrink-0" />
+              <span>Gesperrt</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`${shapeIndicatorClass} bg-slate-400 shadow-2xs shrink-0`} />
-            <span>Gebucht</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`${shapeIndicatorClass} bg-rose-500 shadow-2xs shrink-0`} />
-            <span>Gesperrt</span>
-          </div>
+
+          {/* Optional View Switcher (Day vs. Week) */}
+          {effectiveAllowSwitch && (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs ml-auto">
+              <button
+                type="button"
+                onClick={() => setViewMode("day")}
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                  viewMode === "day"
+                    ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                Tag
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("week")}
+                className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+                  viewMode === "week"
+                    ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                Woche
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Optional View Switcher (Day vs. Week) */}
-        {effectiveAllowSwitch && (
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs ml-auto">
-            <button
-              type="button"
-              onClick={() => setViewMode("day")}
-              className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
+        {/* Platz-Wechsler (falls einzelner Platzmodus aktiv ist und Verein mehrere Plätze hat) */}
+        {effectiveCourtDisplay === "single" && courts.length > 1 && (
+          <div className="px-3.5 py-1.5 bg-slate-100/90 border-t border-slate-200/70 flex items-center gap-1.5 overflow-x-auto select-none custom-scrollbar">
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-1 shrink-0">
+              <Layers className="w-3 h-3" />
+              <span>Platz:</span>
+            </span>
+            {courts.map((court) => {
+              const isSelected =
                 viewMode === "day"
-                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              }`}
-            >
-              Tag
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("week")}
-              className={`px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${shapeButtonClass} ${
-                viewMode === "week"
-                  ? "bg-[var(--color-primary)] text-white shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              }`}
-            >
-              Woche
-            </button>
+                  ? (selectedCourtFilter || courts[0]) === court
+                  : selectedWeekCourt === court;
+              return (
+                <button
+                  key={court}
+                  type="button"
+                  onClick={() => {
+                    if (viewMode === "day") setSelectedCourtFilter(court);
+                    else setSelectedWeekCourt(court);
+                  }}
+                  className={`px-3 py-1 text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${shapeButtonClass} ${
+                    isSelected
+                      ? "bg-[var(--color-primary)] text-white shadow-2xs"
+                      : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
+                  }`}
+                >
+                  {court}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* COURT TABS: When 'single' court mode is selected and club has multiple courts */}
-      {effectiveCourtDisplay === "single" && courts.length > 1 && (
-        <div className="px-3.5 py-1.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center gap-1.5 overflow-x-auto select-none custom-scrollbar">
-          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-1 shrink-0">
-            <Layers className="w-3 h-3" />
-            <span>Platz:</span>
-          </span>
-          {courts.map((court) => {
-            const isSelected =
-              viewMode === "day"
-                ? (selectedCourtFilter || courts[0]) === court
-                : selectedWeekCourt === court;
-            return (
-              <button
-                key={court}
-                type="button"
-                onClick={() => {
-                  if (viewMode === "day") setSelectedCourtFilter(court);
-                  else setSelectedWeekCourt(court);
-                }}
-                className={`px-3 py-1 text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${shapeButtonClass} ${
-                  isSelected
-                    ? "bg-[var(--color-primary)] text-white shadow-2xs"
-                    : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80"
-                }`}
-              >
-                {court}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* GRID CONTAINER WITH STICKY TIME COLUMN & HEADER */}
+      {/* 2. GRID CONTAINER WITH INTEGRATED DESIGN MATCHING DASHBOARD.TSX */}
       <div
         ref={scrollContainerRef}
         className="overflow-auto relative divide-y divide-slate-100 custom-scrollbar"
       >
         {viewMode === "day" ? (
           /* --- DAY VIEW --- */
-          <table className="w-full border-collapse text-left min-w-full">
+          <table className="w-full border-collapse table-fixed text-left min-w-full">
             <thead>
-              <tr className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-2xs">
-                <th className="sticky left-0 top-0 z-30 bg-slate-200/95 backdrop-blur-xs p-2 sm:p-2.5 text-center text-[10px] font-black uppercase tracking-wider text-slate-600 w-20 sm:w-24 border-r border-b border-slate-300 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                  Uhrzeit
+              <tr className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 shadow-2xs">
+                <th className="sticky left-0 top-0 z-35 bg-slate-100/95 backdrop-blur-xs p-1.5 sm:p-2 text-center text-xs font-black uppercase text-slate-500 tracking-wider w-20 sm:w-24 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                  Von - Bis
                 </th>
                 {displayedCourts.map((c) => (
                   <th
                     key={c}
-                    className="p-2 sm:p-2.5 text-center text-xs font-black text-slate-800 uppercase tracking-wider min-w-[120px] sm:min-w-[150px] border-b border-slate-200"
+                    className="p-1.5 sm:p-2 text-center text-xs font-black uppercase text-[var(--color-primary)] tracking-wider border-l border-b border-slate-200 truncate"
                   >
                     {c}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {hourlySlots.map((slot) => {
                 const isPassed = isSlotPassed(activeDateStr, slot.start);
                 const isCurrentHourSlot = isToday && currentHourNow === slot.hour;
@@ -652,51 +655,33 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
                   <tr
                     key={slot.start}
                     ref={isCurrentHourSlot ? currentSlotRef : null}
-                    className={`transition-colors ${
-                      isCurrentHourSlot
-                        ? "bg-emerald-50/40"
-                        : isPassed
-                        ? "bg-slate-50/50 opacity-75"
-                        : "hover:bg-slate-50/70"
-                    }`}
+                    className="border-b border-slate-200 last:border-b-0"
                   >
-                    {/* Sticky Time Column */}
+                    {/* Time Column (clean table cell, no boxes) */}
                     <td
-                      className={`sticky left-0 z-10 ${timeCellClass} text-center border-r border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)] ${
-                        isCurrentHourSlot
-                          ? "bg-emerald-50/95 text-emerald-950"
-                          : isPassed
-                          ? "bg-slate-50 text-slate-400"
-                          : "bg-white text-slate-700"
+                      className={`sticky left-0 z-10 p-1 text-center align-middle font-bold text-xs text-slate-700 bg-slate-50/80 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)] ${
+                        isCurrentHourSlot ? "bg-emerald-50/90 text-emerald-950 font-black" : ""
                       }`}
                     >
-                      <div className="flex flex-col items-center justify-center">
-                        <div className="flex items-center gap-1">
-                          <span className="font-extrabold text-xs sm:text-sm text-slate-900">
-                            {slot.start}
-                          </span>
-                          {isCurrentHourSlot && (
-                            <span
-                              className="w-1.5 h-1.5 rounded-full animate-ping"
-                              style={{ backgroundColor: effectiveColor }}
-                            ></span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-slate-500 font-semibold">
-                          bis {slot.end}
+                      <div className="flex items-center justify-center">
+                        <span className="whitespace-nowrap">
+                          {parseInt(slot.start.split(":")[0], 10)} - {parseInt(slot.end.split(":")[0], 10)}
                         </span>
                       </div>
                     </td>
 
-                    {/* Court Columns */}
+                    {/* Court Columns (clean cells matching Dashboard.tsx) */}
                     {displayedCourts.map((court) => {
                       const status = getSlotStatus(court, slot.hour, activeDateStr);
 
                       if (isPassed) {
                         return (
-                          <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                            <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100/90 text-slate-400 font-bold flex items-center justify-center`}>
-                              {status.type === "free" ? "Vorbei" : "Belegt"}
+                          <td
+                            key={court}
+                            className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-50/70"
+                          >
+                            <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1 text-[10px] font-bold text-slate-400 cursor-default select-none`}>
+                              <span>{status.type === "free" ? "Vorbei" : "Belegt"}</span>
                             </div>
                           </td>
                         );
@@ -704,10 +689,13 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
                       if (status.type === "locked") {
                         return (
-                          <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                            <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center justify-center gap-1 px-2 truncate shadow-2xs`}>
-                              <Lock className="w-3 h-3 shrink-0" />
-                              <span className="truncate">{status.label}</span>
+                          <td
+                            key={court}
+                            className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-rose-50/80"
+                          >
+                            <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1 p-1 text-[11px] font-bold text-rose-700 border-l-4 border-l-rose-500 truncate`}>
+                              <Lock className="w-3 h-3 text-rose-500 shrink-0" />
+                              <span className="truncate">{status.label || "Gesperrt"}</span>
                             </div>
                           </td>
                         );
@@ -715,47 +703,34 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
                       if (status.type === "booked") {
                         return (
-                          <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                            <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100 border border-slate-200 text-slate-600 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-2xs`}>
+                          <td
+                            key={court}
+                            className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-100/90"
+                          >
+                            <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1.5 p-1 text-[11px] font-bold text-slate-600 border-l-4 border-l-slate-400`}>
                               <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Gebucht</span>
+                              <span className="font-bold">Gebucht</span>
                             </div>
                           </td>
                         );
                       }
 
                       return (
-                        <td key={court} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                          <button
-                            type="button"
-                            onClick={() => handleSlotClick(court, slot.start, activeDateStr)}
-                            className={`w-full ${slotHeightClass} ${shapeButtonClass} transition-all duration-150 flex items-center justify-center gap-1.5 font-black uppercase tracking-wider cursor-pointer group shadow-2xs hover:shadow-xs active:scale-95 relative overflow-hidden`}
-                            style={{
-                              backgroundColor: `${effectiveColor}15`,
-                              borderColor: `${effectiveColor}40`,
-                              color: effectiveColor,
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = effectiveColor;
-                              e.currentTarget.style.color = "#ffffff";
-                              e.currentTarget.style.borderColor = "transparent";
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = `${effectiveColor}15`;
-                              e.currentTarget.style.color = effectiveColor;
-                              e.currentTarget.style.borderColor = `${effectiveColor}40`;
-                            }}
-                            title={`Jetzt ${court} um ${slot.start} Uhr buchen`}
-                          >
-                            <span className="group-hover:hidden flex items-center gap-1.5 text-[11px]">
-                              <span className={`${shapeIndicatorClass} shrink-0`} style={{ backgroundColor: effectiveColor }}></span>
-                              <span>Frei</span>
-                            </span>
-                            <span className="hidden group-hover:flex items-center gap-1 text-[11px] animate-in fade-in zoom-in-95 duration-100 text-white">
+                        <td
+                          key={court}
+                          onClick={() => handleSlotClick(court, slot.start, activeDateStr)}
+                          className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-white hover:bg-emerald-50/70 hover:border-l-4 hover:border-l-[var(--color-primary)] transition-all cursor-pointer group"
+                          title={`Frei • Klicken um ${court} um ${slot.start} Uhr zu buchen`}
+                        >
+                          <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1`}>
+                            <div
+                              className="hidden group-hover:flex items-center gap-1 text-[11px] font-black uppercase tracking-wider animate-in fade-in zoom-in-95 duration-100"
+                              style={{ color: effectiveColor }}
+                            >
                               <Plus className="w-3.5 h-3.5 stroke-[3]" />
                               <span>Buchen</span>
-                            </span>
-                          </button>
+                            </div>
+                          </div>
                         </td>
                       );
                     })}
@@ -767,44 +742,42 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
         ) : (
           /* --- WEEK VIEW (All courts stacked OR single court with tabs) --- */
           <div className="divide-y-4 divide-slate-200">
-            {(effectiveCourtDisplay === "all" ? courts : [selectedWeekCourt]).map((courtItem, cIdx) => (
+            {(effectiveCourtDisplay === "all" ? courts : [selectedWeekCourt]).map((courtItem) => (
               <div key={courtItem} className="w-full">
                 {effectiveCourtDisplay === "all" && courts.length > 1 && (
                   <div className="sticky left-0 z-20 px-3.5 py-2 bg-slate-100/95 backdrop-blur-xs font-black text-xs uppercase tracking-wider text-slate-800 flex items-center gap-2 border-b border-slate-200">
-                    <span className={`${shapeIndicatorClass} shrink-0`} style={{ backgroundColor: effectiveColor }} />
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: effectiveColor }} />
                     <span>{courtItem}</span>
                   </div>
                 )}
-                <table className="w-full border-collapse text-left min-w-full">
+                <table className="w-full border-collapse table-fixed text-left min-w-full">
                   <thead>
-                    <tr className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs shadow-2xs">
-                      <th className="sticky left-0 top-0 z-30 bg-slate-200/95 backdrop-blur-xs p-2 sm:p-2.5 text-center text-[10px] font-black uppercase tracking-wider text-slate-600 w-20 sm:w-24 border-r border-b border-slate-300 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                        Uhrzeit
+                    <tr className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 shadow-2xs">
+                      <th className="sticky left-0 top-0 z-35 bg-slate-100/95 backdrop-blur-xs p-1.5 sm:p-2 text-center text-xs font-black uppercase text-slate-500 tracking-wider w-20 sm:w-24 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                        Von - Bis
                       </th>
                       {weekDays.map((d) => (
                         <th
                           key={d.dateStr}
-                          className={`p-2 sm:p-2.5 text-center text-xs font-black uppercase tracking-wider min-w-[95px] sm:min-w-[120px] border-b border-slate-200 ${
+                          className={`p-1.5 sm:p-2 text-center text-xs font-black uppercase tracking-wider border-l border-b border-slate-200 truncate ${
                             d.isToday ? "bg-emerald-50/80 text-[var(--color-primary)]" : "text-slate-800"
                           }`}
                         >
-                          <div className="text-xs sm:text-sm font-black">{d.dayName}</div>
-                          <div className="text-[10px] font-semibold text-slate-500 mt-0.5">{d.dateBadge}</div>
+                          <div className="text-xs font-black">{d.dayName}</div>
+                          <div className="text-[10px] font-semibold text-slate-500">{d.dateBadge}</div>
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {hourlySlots.map((slot) => {
                       return (
-                        <tr key={slot.start} className="hover:bg-slate-50/70 transition-colors">
-                          <td className={`sticky left-0 z-10 ${timeCellClass} text-center border-r border-slate-200 bg-white text-slate-700 shadow-[2px_0_4px_rgba(0,0,0,0.03)]`}>
-                            <div className="flex flex-col items-center justify-center">
-                              <span className="font-extrabold text-xs sm:text-sm text-slate-900">
-                                {slot.start}
-                              </span>
-                              <span className="text-[10px] text-slate-500 font-semibold">
-                                bis {slot.end}
+                        <tr key={slot.start} className="border-b border-slate-200 last:border-b-0">
+                          {/* Time Column (clean table cell, no boxes) */}
+                          <td className="sticky left-0 z-10 p-1 text-center align-middle font-bold text-xs text-slate-700 bg-slate-50/80 border-r border-b border-slate-200 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
+                            <div className="flex items-center justify-center">
+                              <span className="whitespace-nowrap">
+                                {parseInt(slot.start.split(":")[0], 10)} - {parseInt(slot.end.split(":")[0], 10)}
                               </span>
                             </div>
                           </td>
@@ -815,9 +788,12 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
                             if (isPassed) {
                               return (
-                                <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                                  <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100/90 text-slate-400 font-bold flex items-center justify-center`}>
-                                    {status.type === "free" ? "Vorbei" : "Belegt"}
+                                <td
+                                  key={d.dateStr}
+                                  className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-50/70"
+                                >
+                                  <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1 text-[10px] font-bold text-slate-400 cursor-default select-none`}>
+                                    <span>{status.type === "free" ? "Vorbei" : "Belegt"}</span>
                                   </div>
                                 </td>
                               );
@@ -825,10 +801,13 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
                             if (status.type === "locked") {
                               return (
-                                <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                                  <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center justify-center gap-1 px-1.5 truncate shadow-2xs`}>
-                                    <Lock className="w-3 h-3 shrink-0" />
-                                    <span className="truncate">{status.label}</span>
+                                <td
+                                  key={d.dateStr}
+                                  className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-rose-50/80"
+                                >
+                                  <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1 p-1 text-[11px] font-bold text-rose-700 border-l-4 border-l-rose-500 truncate`}>
+                                    <Lock className="w-3 h-3 text-rose-500 shrink-0" />
+                                    <span className="truncate">{status.label || "Gesperrt"}</span>
                                   </div>
                                 </td>
                               );
@@ -836,47 +815,34 @@ export const EmbeddedCourtWidget: React.FC<EmbeddedCourtWidgetProps> = ({
 
                             if (status.type === "booked") {
                               return (
-                                <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                                  <div className={`w-full ${slotHeightClass} ${shapeBadgeClass} bg-slate-100 border border-slate-200 text-slate-600 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-2xs`}>
+                                <td
+                                  key={d.dateStr}
+                                  className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-slate-100/90"
+                                >
+                                  <div className={`w-full ${slotHeightClass} flex items-center justify-center gap-1.5 p-1 text-[11px] font-bold text-slate-600 border-l-4 border-l-slate-400`}>
                                     <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                                    <span className="hidden sm:inline">Gebucht</span>
+                                    <span className="font-bold">Gebucht</span>
                                   </div>
                                 </td>
                               );
                             }
 
                             return (
-                              <td key={d.dateStr} className={`${cellPaddingClass} text-center border-r border-slate-100 last:border-r-0`}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSlotClick(courtItem, slot.start, d.dateStr)}
-                                  className={`w-full ${slotHeightClass} ${shapeButtonClass} transition-all duration-150 flex items-center justify-center gap-1 font-black uppercase tracking-wider cursor-pointer group shadow-2xs hover:shadow-xs active:scale-95 relative overflow-hidden`}
-                                  style={{
-                                    backgroundColor: `${effectiveColor}15`,
-                                    borderColor: `${effectiveColor}40`,
-                                    color: effectiveColor,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = effectiveColor;
-                                    e.currentTarget.style.color = "#ffffff";
-                                    e.currentTarget.style.borderColor = "transparent";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = `${effectiveColor}15`;
-                                    e.currentTarget.style.color = effectiveColor;
-                                    e.currentTarget.style.borderColor = `${effectiveColor}40`;
-                                  }}
-                                  title={`Jetzt ${courtItem} am ${d.dayName}, ${d.dateBadge} um ${slot.start} Uhr buchen`}
-                                >
-                                  <span className="group-hover:hidden flex items-center gap-1 text-[11px]">
-                                    <span className={`${shapeIndicatorClass} shrink-0`} style={{ backgroundColor: effectiveColor }}></span>
-                                    <span>Frei</span>
-                                  </span>
-                                  <span className="hidden group-hover:flex items-center gap-1 text-[11px] animate-in fade-in zoom-in-95 duration-100 text-white">
+                              <td
+                                key={d.dateStr}
+                                onClick={() => handleSlotClick(courtItem, slot.start, d.dateStr)}
+                                className="border-l border-b border-slate-200 p-0 text-center align-middle relative select-none bg-white hover:bg-emerald-50/70 hover:border-l-4 hover:border-l-[var(--color-primary)] transition-all cursor-pointer group"
+                                title={`Frei • Klicken um ${courtItem} am ${d.dayName}, ${d.dateBadge} um ${slot.start} Uhr zu buchen`}
+                              >
+                                <div className={`w-full ${slotHeightClass} flex items-center justify-center p-1`}>
+                                  <div
+                                    className="hidden group-hover:flex items-center gap-1 text-[11px] font-black uppercase tracking-wider animate-in fade-in zoom-in-95 duration-100"
+                                    style={{ color: effectiveColor }}
+                                  >
                                     <Plus className="w-3.5 h-3.5 stroke-[3]" />
                                     <span>Buchen</span>
-                                  </span>
-                                </button>
+                                  </div>
+                                </div>
                               </td>
                             );
                           })}

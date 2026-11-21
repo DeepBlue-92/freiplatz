@@ -11380,7 +11380,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }`}
                             >
                               <span className="w-2.5 h-2.5 rounded-xs border border-current"></span>
-                              <span>Eckig (Box)</span>
+                              <span>{i18n?.language === "en" ? "Square" : "Eckig"}</span>
                             </button>
                             <button
                               type="button"
@@ -11400,7 +11400,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }`}
                             >
                               <span className="w-2.5 h-2.5 rounded-full border border-current"></span>
-                              <span>Rund (Round)</span>
+                              <span>{i18n?.language === "en" ? "Round" : "Rund"}</span>
                             </button>
                             <button
                               type="button"
@@ -11420,7 +11420,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                               }`}
                             >
                               <span className="w-2.5 h-2.5 rounded-md border border-current"></span>
-                              <span>Blase (Bubble)</span>
+                              <span>{i18n?.language === "en" ? "Bubble" : "Blase"}</span>
                             </button>
                           </div>
                         </div>
