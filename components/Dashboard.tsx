@@ -3155,11 +3155,27 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="w-full h-full p-[2px] transition-opacity duration-150 opacity-0 group-hover/cell:opacity-100">
                    {!isGenuinelyClosed && (!isPassed || isAdmin) && (
                       !currentUser ? (
-                         <div className="w-full h-full rounded-md bg-emerald-50/95 border border-emerald-300 border-l-4 border-l-emerald-600 flex items-center justify-center gap-1.5 px-2 text-emerald-950 shadow-xs pointer-events-none select-none">
-                            <Lock className="w-3.5 h-3.5 text-emerald-700 shrink-0 stroke-[2.2]" />
-                            <span className="text-[11px] sm:text-xs font-bold tracking-tight leading-none text-emerald-950 truncate">
-                               Klick für Anmeldung
-                            </span>
+                         <div className={`w-full h-full rounded-md bg-emerald-50/95 border border-emerald-300 border-l-4 border-l-emerald-600 flex ${isDayView ? "flex-row gap-1.5 px-2" : "flex-col justify-center px-1"} items-center justify-center text-emerald-950 shadow-xs pointer-events-none select-none overflow-hidden`}>
+                            {isDayView ? (
+                               <>
+                                  <Lock className="w-3.5 h-3.5 text-emerald-700 shrink-0 stroke-[2.2]" />
+                                  <span className="text-[11px] sm:text-xs font-bold tracking-tight leading-none truncate">
+                                     Klick für Anmeldung
+                                  </span>
+                               </>
+                            ) : (
+                               <>
+                                  <div className="flex items-center justify-center gap-1 leading-none">
+                                     <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-700 shrink-0 stroke-[2.2]" />
+                                     <span className="text-[9.5px] sm:text-[10px] md:text-[10.5px] font-bold tracking-tight leading-none">
+                                        Klick für
+                                     </span>
+                                  </div>
+                                  <span className="text-[9.5px] sm:text-[10px] md:text-[10.5px] font-bold tracking-tight leading-none mt-0.5">
+                                     Anmeldung
+                                  </span>
+                               </>
+                            )}
                          </div>
                       ) : (
                          <div className="w-full h-full flex items-center justify-center">
