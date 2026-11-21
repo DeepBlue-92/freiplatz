@@ -8,6 +8,8 @@ import {
   ArrowLeftRight,
   Check,
   LogIn,
+  User,
+  Lock,
 } from "lucide-react";
 import { RichTextRenderer } from "./RichText";
 import { UserClub } from "../types";
@@ -636,13 +638,29 @@ const Layout: React.FC<LayoutProps> = ({
                 })()
               ) : (
                 <div className="flex items-center gap-2">
-                  {/* Desktop: Elegant Inline Login Form with Autofocus */}
+                  {/* Language Switcher for Guest / Unauthenticated */}
+                  {onLanguageChange && (
+                    <button
+                      type="button"
+                      onClick={() => onLanguageChange((currentLanguage || "de") === "de" ? "en" : "de")}
+                      className="bg-white/10 hover:bg-white/20 transition-all px-2.5 rounded-full text-white border border-white/15 active:scale-95 shadow-sm flex items-center justify-center gap-1.5 backdrop-blur-sm text-[10px] font-bold h-8 cursor-pointer shrink-0"
+                      title={(currentLanguage || "de") === "de" ? "Zu English wechseln" : "Zu Deutsch wechseln"}
+                    >
+                      <span className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 inline-block shadow-3xs">
+                        {(currentLanguage || "de") === "de" ? <GermanFlag /> : <UKFlag />}
+                      </span>
+                      <span>{(currentLanguage || "de").toUpperCase()}</span>
+                    </button>
+                  )}
+
+                  {/* Desktop: Clean Floating Inline Login Form */}
                   {onPerformLogin ? (
                     <form
                       onSubmit={handleInlineLogin}
-                      className="hidden lg:flex items-center gap-1.5 bg-white/10 p-0.5 pl-1.5 pr-0.5 rounded-full backdrop-blur-sm border border-white/15 shadow-sm transition-all"
+                      className="hidden lg:flex items-center gap-2 transition-all"
                     >
                       <div className="relative flex items-center">
+                        <User className="w-3.5 h-3.5 text-white/50 absolute left-2.5 pointer-events-none" />
                         <input
                           ref={usernameInputRef}
                           type="text"
@@ -654,13 +672,16 @@ const Layout: React.FC<LayoutProps> = ({
                           placeholder={t("auth.username", "Benutzername")}
                           autoFocus
                           disabled={isInlineLoggingIn}
-                          className={`w-28 xl:w-36 h-[26px] pl-2.5 pr-2 rounded-full text-xs text-white placeholder:text-white/60 bg-white/10 hover:bg-white/15 focus:bg-white/20 border transition-all outline-none font-medium ${
-                            inlineLoginError ? "border-rose-400 bg-rose-500/20" : "border-white/15 focus:border-white/50"
+                          className={`w-32 xl:w-40 h-8 pl-8 pr-3 rounded-full text-xs text-white placeholder:text-white/50 bg-white/15 hover:bg-white/20 focus:bg-white/25 border transition-all outline-none font-medium backdrop-blur-sm ${
+                            inlineLoginError
+                              ? "border-rose-400 bg-rose-500/20 text-rose-100"
+                              : "border-white/20 focus:border-white/60 focus:ring-2 focus:ring-white/20"
                           }`}
                         />
                       </div>
 
                       <div className="relative flex items-center">
+                        <Lock className="w-3.5 h-3.5 text-white/50 absolute left-2.5 pointer-events-none" />
                         <input
                           type="password"
                           value={inlinePassword}
@@ -670,8 +691,10 @@ const Layout: React.FC<LayoutProps> = ({
                           }}
                           placeholder={t("auth.password", "Passwort")}
                           disabled={isInlineLoggingIn}
-                          className={`w-24 xl:w-32 h-[26px] pl-2.5 pr-2 rounded-full text-xs text-white placeholder:text-white/60 bg-white/10 hover:bg-white/15 focus:bg-white/20 border transition-all outline-none font-medium ${
-                            inlineLoginError ? "border-rose-400 bg-rose-500/20" : "border-white/15 focus:border-white/50"
+                          className={`w-28 xl:w-36 h-8 pl-8 pr-3 rounded-full text-xs text-white placeholder:text-white/50 bg-white/15 hover:bg-white/20 focus:bg-white/25 border transition-all outline-none font-medium backdrop-blur-sm ${
+                            inlineLoginError
+                              ? "border-rose-400 bg-rose-500/20 text-rose-100"
+                              : "border-white/20 focus:border-white/60 focus:ring-2 focus:ring-white/20"
                           }`}
                         />
                       </div>
@@ -679,21 +702,21 @@ const Layout: React.FC<LayoutProps> = ({
                       <button
                         type="submit"
                         disabled={isInlineLoggingIn || !inlineUsername.trim() || !inlinePassword.trim()}
-                        className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] disabled:opacity-40 disabled:pointer-events-none text-white transition-all px-3 h-[26px] rounded-full border border-white/20 active:scale-95 shadow-xs flex items-center justify-center gap-1 text-[11px] font-bold shrink-0 cursor-pointer"
+                        className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] disabled:opacity-40 disabled:pointer-events-none text-white transition-all px-3.5 h-8 rounded-full border border-white/20 active:scale-95 shadow-sm flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
                         title={inlineLoginError || t("nav.login", "Anmelden")}
                       >
                         {isInlineLoggingIn ? (
                           <i className="fa-solid fa-spinner fa-spin text-xs"></i>
                         ) : (
                           <>
-                            <LogIn className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                            <LogIn className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
                             <span>{t("nav.login", "Anmelden")}</span>
                           </>
                         )}
                       </button>
 
                       {inlineLoginError && (
-                        <span className="text-[10px] font-bold text-rose-200 bg-rose-600/80 px-2 py-0.5 rounded-full whitespace-nowrap animate-in fade-in zoom-in-95 duration-200">
+                        <span className="text-[11px] font-semibold text-rose-200 bg-rose-600/90 px-2.5 py-1 rounded-full whitespace-nowrap shadow-sm border border-rose-400/40 animate-in fade-in zoom-in-95 duration-200">
                           {inlineLoginError}
                         </span>
                       )}
