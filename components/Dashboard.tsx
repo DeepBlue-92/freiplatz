@@ -2946,9 +2946,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                     title={
                       !currentUser
                         ? booking
-                          ? "Belegt • Bitte anmelden für Details"
+                          ? "Belegt • Klick für Anmeldung"
                           : !isClosedState && !slotStatus.disabled
-                            ? `Frei • Klicken um ${court} um ${time} Uhr zu buchen`
+                            ? "Klick für Anmeldung"
                             : undefined
                         : undefined
                     }
@@ -3031,7 +3031,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             <span 
                               className="text-xs font-black text-emerald-950 uppercase line-clamp-2 block leading-tight"
                               style={{ wordBreak: "break-word" }}
-                              title={!currentUser ? "Belegt • Bitte anmelden für Details" : booking.players.join(", ") + (booking.guestCount ? ` + ${booking.guestCount} Gast` : "")}
+                              title={!currentUser ? "Belegt • Klick für Anmeldung" : booking.players.join(", ") + (booking.guestCount ? ` + ${booking.guestCount} Gast` : "")}
                             >
                               {!currentUser ? (
                                 <span className="flex items-center gap-1.5 text-slate-700">
@@ -3141,7 +3141,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div 
                 key={time} 
                 style={{ height: slotHeight }}
-                title={!currentUser && !isGenuinelyClosed && !isPassed ? `Frei • Klicken um ${court} um ${time} Uhr zu buchen` : undefined}
+                title={!currentUser && !isGenuinelyClosed && !isPassed ? "Klick für Anmeldung" : undefined}
                 className={`border-b border-slate-300 last:border-b-0 w-full transition-colors group/cell ${bgClass}`}
                 onMouseEnter={() => setHoveredTime(time)}
                 onMouseLeave={() => setHoveredTime(null)}
@@ -3153,10 +3153,17 @@ const Dashboard: React.FC<DashboardProps> = ({
               >
                 <div className="w-full h-full flex items-center justify-center transition-opacity opacity-0 group-hover/cell:opacity-100">
                    {!isGenuinelyClosed && (!isPassed || isAdmin) && (
-                      <i 
-                         className="fa-solid fa-plus text-xs" 
-                         style={{ color: settings?.primaryColor || "var(--color-primary)" }}
-                      ></i>
+                      !currentUser ? (
+                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-emerald-800 bg-emerald-100/90 shadow-2xs border border-emerald-300/80 pointer-events-none select-none">
+                            <i className="fa-solid fa-lock text-[8px]"></i>
+                            <span>Klick für Anmeldung</span>
+                         </span>
+                      ) : (
+                         <i 
+                            className="fa-solid fa-plus text-xs" 
+                            style={{ color: settings?.primaryColor || "var(--color-primary)" }}
+                         ></i>
+                      )
                    )}
                 </div>
               </div>
@@ -3252,7 +3259,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 zIndex: zIndexStyle,
               }}
               className={`absolute p-[2px] ${pastVeilClass} ${pastOpacityClass} ${pastPointerClass}`}
-              title={!currentUser && !booking.isLocked ? "Belegt • Bitte anmelden für Details" : undefined}
+              title={!currentUser && !booking.isLocked ? "Belegt • Klick für Anmeldung" : undefined}
               onMouseEnter={() => setHoveredTime(times[startIdx])}
               onMouseLeave={() => setHoveredTime(null)}
               onClick={isEvent ? undefined : () => handleSlotClick(date, times[startIdx], court, booking)}

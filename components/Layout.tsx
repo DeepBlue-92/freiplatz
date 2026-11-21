@@ -62,6 +62,7 @@ interface LayoutProps {
   supportedLanguages?: ("de" | "en")[];
   currentLanguage?: "de" | "en";
   onLanguageChange?: (lang: "de" | "en") => void;
+  onPerformLogin?: (username: string, password: string) => Promise<any>;
 }
 
 const Layout: React.FC<LayoutProps> = ({
@@ -93,12 +94,48 @@ const Layout: React.FC<LayoutProps> = ({
   supportedLanguages,
   currentLanguage,
   onLanguageChange,
+  onPerformLogin,
 }) => {
   const { t } = useTranslation();
   const clubUrl = websiteUrl;
   const [isTopLeftDropdownOpen, setIsTopLeftDropdownOpen] = useState(false);
   const topLeftDropdownRef = useRef<HTMLDivElement>(null);
   const closeTimeoutRef = useRef<any>(null);
+
+  // Desktop Inline Login State
+  const [inlineUsername, setInlineUsername] = useState("");
+  const [inlinePassword, setInlinePassword] = useState("");
+  const [isInlineLoggingIn, setIsInlineLoggingIn] = useState(false);
+  const [inlineLoginError, setInlineLoginError] = useState<string | null>(null);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Autofocus username input on desktop when non-authenticated user visits
+    if (!user && usernameInputRef.current) {
+      usernameInputRef.current.focus();
+    }
+  }, [user]);
+
+  const handleInlineLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inlineUsername.trim() || !inlinePassword.trim()) return;
+    if (!onPerformLogin) {
+      if (onOpenLogin) onOpenLogin();
+      return;
+    }
+    setIsInlineLoggingIn(true);
+    setInlineLoginError(null);
+    try {
+      await onPerformLogin(inlineUsername.trim(), inlinePassword);
+    } catch (err: any) {
+      setInlineLoginError(err?.message || "Anmeldung fehlgeschlagen.");
+      setTimeout(() => {
+        setInlineLoginError(null);
+      }, 4000);
+    } finally {
+      setIsInlineLoggingIn(false);
+    }
+  };
 
   const handleDropdownMouseEnter = () => {
     if (closeTimeoutRef.current) {
@@ -599,13 +636,78 @@ const Layout: React.FC<LayoutProps> = ({
                 })()
               ) : (
                 <div className="flex items-center gap-2">
+                  {/* Desktop: Elegant Inline Login Form with Autofocus */}
+                  {onPerformLogin ? (
+                    <form
+                      onSubmit={handleInlineLogin}
+                      className="hidden lg:flex items-center gap-1.5 bg-white/10 p-0.5 pl-1.5 pr-0.5 rounded-full backdrop-blur-sm border border-white/15 shadow-sm transition-all"
+                    >
+                      <div className="relative flex items-center">
+                        <input
+                          ref={usernameInputRef}
+                          type="text"
+                          value={inlineUsername}
+                          onChange={(e) => {
+                            setInlineUsername(e.target.value);
+                            if (inlineLoginError) setInlineLoginError(null);
+                          }}
+                          placeholder={t("auth.username", "Benutzername")}
+                          autoFocus
+                          disabled={isInlineLoggingIn}
+                          className={`w-28 xl:w-36 h-[26px] pl-2.5 pr-2 rounded-full text-xs text-white placeholder:text-white/60 bg-white/10 hover:bg-white/15 focus:bg-white/20 border transition-all outline-none font-medium ${
+                            inlineLoginError ? "border-rose-400 bg-rose-500/20" : "border-white/15 focus:border-white/50"
+                          }`}
+                        />
+                      </div>
+
+                      <div className="relative flex items-center">
+                        <input
+                          type="password"
+                          value={inlinePassword}
+                          onChange={(e) => {
+                            setInlinePassword(e.target.value);
+                            if (inlineLoginError) setInlineLoginError(null);
+                          }}
+                          placeholder={t("auth.password", "Passwort")}
+                          disabled={isInlineLoggingIn}
+                          className={`w-24 xl:w-32 h-[26px] pl-2.5 pr-2 rounded-full text-xs text-white placeholder:text-white/60 bg-white/10 hover:bg-white/15 focus:bg-white/20 border transition-all outline-none font-medium ${
+                            inlineLoginError ? "border-rose-400 bg-rose-500/20" : "border-white/15 focus:border-white/50"
+                          }`}
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isInlineLoggingIn || !inlineUsername.trim() || !inlinePassword.trim()}
+                        className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] disabled:opacity-40 disabled:pointer-events-none text-white transition-all px-3 h-[26px] rounded-full border border-white/20 active:scale-95 shadow-xs flex items-center justify-center gap-1 text-[11px] font-bold shrink-0 cursor-pointer"
+                        title={inlineLoginError || t("nav.login", "Anmelden")}
+                      >
+                        {isInlineLoggingIn ? (
+                          <i className="fa-solid fa-spinner fa-spin text-xs"></i>
+                        ) : (
+                          <>
+                            <LogIn className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                            <span>{t("nav.login", "Anmelden")}</span>
+                          </>
+                        )}
+                      </button>
+
+                      {inlineLoginError && (
+                        <span className="text-[10px] font-bold text-rose-200 bg-rose-600/80 px-2 py-0.5 rounded-full whitespace-nowrap animate-in fade-in zoom-in-95 duration-200">
+                          {inlineLoginError}
+                        </span>
+                      )}
+                    </form>
+                  ) : null}
+
+                  {/* Mobile fallback button */}
                   <button
                     type="button"
                     onClick={onOpenLogin || onLogout}
-                    className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] text-white transition-all px-3.5 sm:px-4 h-7 lg:h-8 rounded-full border border-white/20 active:scale-95 shadow-md flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
+                    className={`${onPerformLogin ? "flex lg:hidden" : "flex"} bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] text-white transition-all px-3.5 sm:px-4 h-7 lg:h-8 rounded-full border border-white/20 active:scale-95 shadow-md items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer`}
                   >
                     <LogIn className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
-                    <span>{t("nav.login")}</span>
+                    <span>{t("nav.login", "Anmelden")}</span>
                   </button>
                 </div>
               )}

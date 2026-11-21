@@ -3796,6 +3796,7 @@ const App: React.FC = () => {
         isPublicWochenplanRoute={isPublicWochenplanRoute && !currentUser}
         onLogout={handleLogout}
         onOpenLogin={() => setIsStartPageLoginModalOpen(true)}
+        onPerformLogin={performLogin}
         onShowImpressum={() => handleSetView("impressum")}
         onShowProfile={() => setShowProfile(true)}
         news={getTenantTranslation(settings.news, "news", settings, i18n.language)}
