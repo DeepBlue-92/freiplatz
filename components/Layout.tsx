@@ -10,6 +10,7 @@ import {
   LogIn,
   User,
   Lock,
+  Loader2,
 } from "lucide-react";
 import { RichTextRenderer } from "./RichText";
 import { UserClub } from "../types";
@@ -702,17 +703,15 @@ const Layout: React.FC<LayoutProps> = ({
                       <button
                         type="submit"
                         disabled={isInlineLoggingIn || !inlineUsername.trim() || !inlinePassword.trim()}
-                        className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] disabled:opacity-40 disabled:pointer-events-none text-white transition-all px-3.5 h-8 rounded-full border border-white/20 active:scale-95 shadow-sm flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
+                        className="bg-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_85%,black)] disabled:opacity-40 disabled:pointer-events-none text-white transition-all px-3.5 h-8 rounded-full border border-white/20 active:scale-95 shadow-sm flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer min-w-[100px]"
                         title={inlineLoginError || t("nav.login", "Anmelden")}
                       >
                         {isInlineLoggingIn ? (
-                          <i className="fa-solid fa-spinner fa-spin text-xs"></i>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" strokeWidth={2.2} />
                         ) : (
-                          <>
-                            <LogIn className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
-                            <span>{t("nav.login", "Anmelden")}</span>
-                          </>
+                          <LogIn className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
                         )}
+                        <span>{t("nav.login", "Anmelden")}</span>
                       </button>
 
                       {inlineLoginError && (
