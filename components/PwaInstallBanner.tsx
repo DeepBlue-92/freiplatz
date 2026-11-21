@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Download, Share, PlusSquare, X, Smartphone, MoreVertical } from "lucide-react";
 
 interface PwaInstallBannerProps {
@@ -6,6 +6,21 @@ interface PwaInstallBannerProps {
   primaryColor?: string;
   logoUrl?: string;
 }
+
+export const triggerPwaInstall = () => {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("open-pwa-install"));
+  }
+};
+
+export const isStandaloneApp = (): boolean => {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as any).standalone === true ||
+    document.referrer.includes("android-app://")
+  );
+};
 
 export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
   clubName = "SV Neuhausen Tennis",
@@ -18,50 +33,42 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
   const [showIosModal, setShowIosModal] = useState(false);
   const [showAndroidModal, setShowAndroidModal] = useState(false);
 
+  // 1. Android / Chromium Event-Listener (immer aktiv, um deferredPrompt zu sichern)
   useEffect(() => {
-    // 1. Prüfen, ob die App bereits im Standalone-Modus läuft (schon installiert)
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true ||
-      document.referrer.includes("android-app://");
-
+    const isStandalone = isStandaloneApp();
     if (isStandalone) {
       return;
     }
 
-    // 2. Prüfen, ob der Nutzer den Banner innerhalb der letzten 30 Tage geschlossen hat
-    const dismissedUntil = localStorage.getItem("pwa_prompt_dismissed_until");
-    if (dismissedUntil && parseInt(dismissedUntil, 10) > Date.now()) {
-      return;
-    }
-
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isAndroid = /android/i.test(userAgent);
-    const isIos = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
-    const isSafari = /safari/.test(userAgent) && !/chrome|crios|fxios|edgios/.test(userAgent);
-
-    // 3. Android / Chromium Event-Listener (Chrome, Edge, Samsung Internet, Brave)
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
       setPlatform("native");
-      setIsVisible(true);
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
-    // 4. Fallback-Erkennung für Android (z. B. Brave mit Shields oder bevor Chrome das Event abfeuert)
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isAndroid = /android/i.test(userAgent);
+    const isIos = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
+
+    // Nur automatischen Bottom-Banner zeigen, falls nicht für 30 Tage dismissed
+    const dismissedUntil = localStorage.getItem("pwa_prompt_dismissed_until");
+    const isDismissed = dismissedUntil && parseInt(dismissedUntil, 10) > Date.now();
+
     let timer: NodeJS.Timeout;
-    if (isAndroid) {
-      timer = setTimeout(() => {
-        setPlatform((prev) => prev || "android");
-        setIsVisible(true);
-      }, 3000);
-    } else if (isIos) {
-      timer = setTimeout(() => {
-        setPlatform("ios");
-        setIsVisible(true);
-      }, 3500);
+    if (!isDismissed) {
+      if (isAndroid) {
+        timer = setTimeout(() => {
+          setPlatform((prev) => prev || "android");
+          setIsVisible(true);
+        }, 3000);
+      } else if (isIos) {
+        timer = setTimeout(() => {
+          setPlatform("ios");
+          setIsVisible(true);
+        }, 3500);
+      }
     }
 
     return () => {
@@ -72,12 +79,15 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
 
   const handleDismiss = () => {
     setIsVisible(false);
-    // 30 Tage nicht mehr anzeigen
+    // 30 Tage nicht mehr als automatischer Banner anzeigen
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
     localStorage.setItem("pwa_prompt_dismissed_until", (Date.now() + thirtyDaysMs).toString());
   };
 
-  const handleInstallClick = async () => {
+  const handleInstallClick = useCallback(async () => {
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
+
     if (deferredPrompt) {
       try {
         await deferredPrompt.prompt();
@@ -93,12 +103,23 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
         console.warn("Install prompt failed, fallback to modal:", err);
         setShowAndroidModal(true);
       }
-    } else if (platform === "android" || platform === "native") {
-      setShowAndroidModal(true);
-    } else if (platform === "ios") {
+    } else if (isIos || platform === "ios") {
       setShowIosModal(true);
+    } else {
+      setShowAndroidModal(true);
     }
-  };
+  }, [deferredPrompt, platform]);
+
+  // Auf manuellen Aufruf aus dem Menü reagieren
+  useEffect(() => {
+    const handleTrigger = () => {
+      handleInstallClick();
+    };
+    window.addEventListener("open-pwa-install", handleTrigger);
+    return () => {
+      window.removeEventListener("open-pwa-install", handleTrigger);
+    };
+  }, [handleInstallClick]);
 
   if (!isVisible && !showIosModal && !showAndroidModal) {
     return null;
@@ -233,7 +254,6 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
             <button
               onClick={() => {
                 setShowAndroidModal(false);
-                handleDismiss();
               }}
               style={{ backgroundColor: primaryColor }}
               className="w-full py-2.5 rounded-xl text-white font-medium text-xs hover:brightness-110 active:scale-95 transition-all shadow-sm cursor-pointer mt-2"
@@ -330,7 +350,6 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
             <button
               onClick={() => {
                 setShowIosModal(false);
-                handleDismiss();
               }}
               style={{ backgroundColor: primaryColor }}
               className="w-full py-2.5 rounded-xl text-white font-medium text-xs hover:brightness-110 active:scale-95 transition-all shadow-sm cursor-pointer mt-2"

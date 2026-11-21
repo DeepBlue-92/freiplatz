@@ -21,6 +21,7 @@ import {
   Home,
   LogIn,
   Users,
+  Download,
 } from "lucide-react";
 import Layout, { GermanFlag, UKFlag } from "./components/Layout";
 import Dashboard from "./components/Dashboard";
@@ -43,7 +44,7 @@ import { useSystemConfig } from "./contexts/SystemConfigContext";
 import { UserAvatar } from "./components/UserAvatar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TokenPasswordSetupModal from "./components/TokenPasswordSetupModal";
-import { PwaInstallBanner } from "./components/PwaInstallBanner";
+import { PwaInstallBanner, triggerPwaInstall, isStandaloneApp } from "./components/PwaInstallBanner";
 import { LeagueDashboard } from "./components/LeagueDashboard";
 import { SpielpartnerView } from "./components/SpielpartnerView";
 import { ChampionshipHub } from "./features/championship/ChampionshipHub";
@@ -4915,6 +4916,22 @@ const App: React.FC = () => {
                           Konto
                         </span>
                       </button>
+
+                      {!isStandaloneApp() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            triggerPwaInstall();
+                          }}
+                          className="flex flex-col items-center justify-center gap-1 p-1 rounded-xl border-2 border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 text-slate-700 font-bold text-center transition-all active:scale-[0.97] duration-150 h-16 w-full cursor-pointer"
+                        >
+                          <Download className="w-5 h-5 text-[var(--color-primary)] shrink-0" strokeWidth={1.8} />
+                          <span className="text-[10px] font-black uppercase tracking-wider truncate w-full px-1">
+                            App installieren
+                          </span>
+                        </button>
+                      )}
 
                       {isAdmin && (
                         <>
